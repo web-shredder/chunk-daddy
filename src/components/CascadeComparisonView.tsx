@@ -1,8 +1,14 @@
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Button } from '@/components/ui/button';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { ArrowRight, TrendingUp, GitCompare } from 'lucide-react';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
+import { TrendingUp, GitCompare, Download, FileJson, FileText } from 'lucide-react';
 import type { LayoutAwareChunk } from '@/lib/layout-chunker';
 import type { ChunkScore } from '@/hooks/useAnalysis';
 import { formatScore, getScoreColorClass, getImprovementColorClass } from '@/lib/similarity';
@@ -20,6 +26,151 @@ interface ChunkComparisonProps {
   scoreWithCascade?: ChunkScore;
   scoreWithoutCascade?: ChunkScore;
   keywords: string[];
+}
+
+function exportComparisonJSON(
+  chunks: LayoutAwareChunk[],
+  scoresWithCascade: ChunkScore[],
+  scoresWithoutCascade: ChunkScore[],
+  keywords: string[]
+) {
+  const data = {
+    exportedAt: new Date().toISOString(),
+    keywords,
+    summary: {
+      totalChunks: chunks.length,
+      improvements: keywords.map(keyword => {
+        let totalImprovement = 0;
+        let count = 0;
+        
+        for (let i = 0; i < chunks.length; i++) {
+          const withCascade = scoresWithCascade[i]?.keywordScores.find(ks => ks.keyword === keyword);
+          const withoutCascade = scoresWithoutCascade[i]?.keywordScores.find(ks => ks.keyword === keyword);
+          
+          if (withCascade && withoutCascade && withoutCascade.scores.cosine > 0) {
+            const improvement = ((withCascade.scores.cosine - withoutCascade.scores.cosine) / withoutCascade.scores.cosine) * 100;
+            totalImprovement += improvement;
+            count++;
+          }
+        }
+        
+        return {
+          keyword,
+          avgImprovementPercent: count > 0 ? totalImprovement / count : 0,
+        };
+      }),
+    },
+    chunks: chunks.map((chunk, idx) => {
+      const withCascade = scoresWithCascade[idx];
+      const withoutCascade = scoresWithoutCascade[idx];
+      
+      return {
+        id: chunk.id,
+        headingPath: chunk.headingPath,
+        textWithoutCascade: chunk.textWithoutCascade,
+        textWithCascade: chunk.text,
+        comparison: keywords.map(keyword => {
+          const cascadeScore = withCascade?.keywordScores.find(ks => ks.keyword === keyword);
+          const noCascadeScore = withoutCascade?.keywordScores.find(ks => ks.keyword === keyword);
+          const improvement = noCascadeScore && cascadeScore && noCascadeScore.scores.cosine > 0
+            ? ((cascadeScore.scores.cosine - noCascadeScore.scores.cosine) / noCascadeScore.scores.cosine) * 100
+            : 0;
+          
+          return {
+            keyword,
+            withoutCascade: noCascadeScore?.scores || null,
+            withCascade: cascadeScore?.scores || null,
+            improvementPercent: improvement,
+          };
+        }),
+      };
+    }),
+  };
+
+  const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = `cascade-comparison-${new Date().toISOString().slice(0, 10)}.json`;
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  URL.revokeObjectURL(url);
+}
+
+function exportComparisonMarkdown(
+  chunks: LayoutAwareChunk[],
+  scoresWithCascade: ChunkScore[],
+  scoresWithoutCascade: ChunkScore[],
+  keywords: string[]
+) {
+  const lines: string[] = [];
+  
+  lines.push('# Cascade Comparison Report\n');
+  lines.push(`Exported: ${new Date().toLocaleString()}\n`);
+  
+  // Summary
+  lines.push('## Summary\n');
+  lines.push(`- **Total Chunks:** ${chunks.length}`);
+  lines.push(`- **Keywords:** ${keywords.join(', ')}\n`);
+  
+  lines.push('### Average Improvement by Keyword\n');
+  lines.push('| Keyword | Avg Improvement |');
+  lines.push('|---------|-----------------|');
+  
+  for (const keyword of keywords) {
+    let totalImprovement = 0;
+    let count = 0;
+    
+    for (let i = 0; i < chunks.length; i++) {
+      const withCascade = scoresWithCascade[i]?.keywordScores.find(ks => ks.keyword === keyword);
+      const withoutCascade = scoresWithoutCascade[i]?.keywordScores.find(ks => ks.keyword === keyword);
+      
+      if (withCascade && withoutCascade && withoutCascade.scores.cosine > 0) {
+        const improvement = ((withCascade.scores.cosine - withoutCascade.scores.cosine) / withoutCascade.scores.cosine) * 100;
+        totalImprovement += improvement;
+        count++;
+      }
+    }
+    
+    const avg = count > 0 ? totalImprovement / count : 0;
+    lines.push(`| ${keyword} | ${avg >= 0 ? '+' : ''}${avg.toFixed(2)}% |`);
+  }
+  
+  lines.push('\n## Chunk-by-Chunk Comparison\n');
+  
+  for (let i = 0; i < chunks.length; i++) {
+    const chunk = chunks[i];
+    const withCascade = scoresWithCascade[i];
+    const withoutCascade = scoresWithoutCascade[i];
+    
+    lines.push(`### ${chunk.id}`);
+    lines.push(`\n**Heading Path:** ${chunk.headingPath.join(' > ') || '(root)'}\n`);
+    
+    lines.push('| Keyword | Without Cascade | With Cascade | Improvement |');
+    lines.push('|---------|-----------------|--------------|-------------|');
+    
+    for (const keyword of keywords) {
+      const cascadeScore = withCascade?.keywordScores.find(ks => ks.keyword === keyword);
+      const noCascadeScore = withoutCascade?.keywordScores.find(ks => ks.keyword === keyword);
+      const improvement = noCascadeScore && cascadeScore && noCascadeScore.scores.cosine > 0
+        ? ((cascadeScore.scores.cosine - noCascadeScore.scores.cosine) / noCascadeScore.scores.cosine) * 100
+        : 0;
+      
+      lines.push(`| ${keyword} | ${noCascadeScore?.scores.cosine.toFixed(4) || '-'} | ${cascadeScore?.scores.cosine.toFixed(4) || '-'} | ${improvement >= 0 ? '+' : ''}${improvement.toFixed(2)}% |`);
+    }
+    lines.push('');
+  }
+  
+  const blob = new Blob([lines.join('\n')], { type: 'text/markdown' });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = `cascade-comparison-${new Date().toISOString().slice(0, 10)}.md`;
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  URL.revokeObjectURL(url);
 }
 
 function ChunkComparison({
@@ -52,7 +203,7 @@ function ChunkComparison({
             <Badge variant="outline" className="text-xs">Without Cascade</Badge>
           </div>
           
-          <ScrollArea className="max-h-[120px]">
+          <ScrollArea className="h-[120px]">
             <p className="text-xs text-muted-foreground whitespace-pre-wrap">
               {chunk.textWithoutCascade.slice(0, 200)}
               {chunk.textWithoutCascade.length > 200 && '...'}
@@ -79,7 +230,7 @@ function ChunkComparison({
             </Badge>
           </div>
           
-          <ScrollArea className="max-h-[120px]">
+          <ScrollArea className="h-[120px]">
             <div className="space-y-1">
               {chunk.headingPath.length > 0 && chunk.metadata.hasCascade && (
                 <div className="text-xs font-mono text-primary/70 space-y-0.5">
@@ -231,10 +382,29 @@ export function CascadeComparisonView({
       
       <Card>
         <CardHeader className="pb-3">
-          <CardTitle className="text-sm font-medium flex items-center gap-2">
-            <GitCompare className="h-4 w-4 text-primary" />
-            Chunk-by-Chunk Comparison
-          </CardTitle>
+          <div className="flex items-center justify-between">
+            <CardTitle className="text-sm font-medium flex items-center gap-2">
+              <GitCompare className="h-4 w-4 text-primary" />
+              Chunk-by-Chunk Comparison
+            </CardTitle>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="ghost" size="sm" className="h-7 px-2">
+                  <Download className="h-3.5 w-3.5" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="bg-popover">
+                <DropdownMenuItem onClick={() => exportComparisonJSON(chunks, scoresWithCascade, scoresWithoutCascade, keywords)}>
+                  <FileJson className="h-4 w-4 mr-2" />
+                  Export as JSON
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => exportComparisonMarkdown(chunks, scoresWithCascade, scoresWithoutCascade, keywords)}>
+                  <FileText className="h-4 w-4 mr-2" />
+                  Export as Markdown
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </div>
         </CardHeader>
         <CardContent>
           <ScrollArea className="h-[500px]">
