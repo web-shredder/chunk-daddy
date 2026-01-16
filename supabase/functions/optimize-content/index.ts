@@ -15,6 +15,14 @@ interface OptimizationRequest {
   validatedChanges?: any;
 }
 
+// Dynamic token limits by operation type - prevents truncation while optimizing costs
+const maxTokensByType: Record<OptimizationRequest['type'], number> = {
+  'analyze': 8192,         // Structured analysis, moderate size
+  'optimize': 32768,       // Full rewritten content - largest output
+  'explain': 4096,         // Short explanations
+  'suggest_keywords': 2048 // Just a keyword list
+};
+
 serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response(null, { headers: corsHeaders });
@@ -322,7 +330,7 @@ Suggest keywords that:
         ],
         tools: responseTools,
         tool_choice: responseToolChoice,
-        max_output_tokens: 4096,
+        max_output_tokens: maxTokensByType[type] || 16384,
         reasoning: { effort: 'none' },
       }),
     });
