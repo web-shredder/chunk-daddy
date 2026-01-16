@@ -61,51 +61,64 @@ const Index = () => {
     }
   }, [result, isAnalyzing]);
 
+  // Track project ID to detect actual project changes vs. saves
+  const lastProjectIdRef = useRef<string | null>(null);
+  
   useEffect(() => {
     if (currentProject) {
-      setContent(currentProject.content || "");
-      setKeywords(currentProject.queries || []);
-      if (currentProject.settings) {
-        setChunkerOptions(currentProject.settings);
-      }
+      // Only reset state if we're loading a DIFFERENT project
+      // (not just saving the current one)
+      const isNewProject = lastProjectIdRef.current !== currentProject.id;
+      lastProjectIdRef.current = currentProject.id;
       
-      // Restore optimization state if it exists
-      if (currentProject.optimized_content) {
-        setOptimizedContent(currentProject.optimized_content);
-      } else {
-        setOptimizedContent("");
-      }
-      if (currentProject.optimization_result) {
-        // Restore timestamp as Date object
-        const optResult = {
-          ...currentProject.optimization_result,
-          timestamp: new Date(currentProject.optimization_result.timestamp)
-        };
-        setOptimizationResult(optResult);
-      } else {
-        setOptimizationResult(null);
-      }
-      
-      // Restore analysis results if they exist
-      if (currentProject.results) {
-        // Re-parse and re-chunk to get layout chunks
-        const settings = currentProject.settings || chunkerOptions;
-        const elements = parseMarkdown(currentProject.content || "");
-        const chunks = createLayoutAwareChunks(elements, settings);
-        setParsedElements(elements);
-        setLayoutChunks(chunks);
-        setContentHashAtAnalysis(currentProject.content || "");
+      if (isNewProject) {
+        // Loading a different project - restore all state
+        setContent(currentProject.content || "");
+        setKeywords(currentProject.queries || []);
+        if (currentProject.settings) {
+          setChunkerOptions(currentProject.settings);
+        }
         
-        // Restore the result
-        setResultFromProject(currentProject.results);
-      } else {
-        // Clear results if project doesn't have them
-        reset();
-        setParsedElements([]);
-        setLayoutChunks([]);
+        // Restore optimization state if it exists
+        if (currentProject.optimized_content) {
+          setOptimizedContent(currentProject.optimized_content);
+        } else {
+          setOptimizedContent("");
+        }
+        if (currentProject.optimization_result) {
+          // Restore timestamp as Date object
+          const optResult = {
+            ...currentProject.optimization_result,
+            timestamp: new Date(currentProject.optimization_result.timestamp)
+          };
+          setOptimizationResult(optResult);
+        } else {
+          setOptimizationResult(null);
+        }
+        
+        // Restore analysis results if they exist
+        if (currentProject.results) {
+          // Re-parse and re-chunk to get layout chunks
+          const settings = currentProject.settings || chunkerOptions;
+          const elements = parseMarkdown(currentProject.content || "");
+          const chunks = createLayoutAwareChunks(elements, settings);
+          setParsedElements(elements);
+          setLayoutChunks(chunks);
+          setContentHashAtAnalysis(currentProject.content || "");
+          
+          // Restore the result
+          setResultFromProject(currentProject.results);
+        } else {
+          // Clear results if project doesn't have them
+          reset();
+          setParsedElements([]);
+          setLayoutChunks([]);
+        }
       }
+      // When saving (same project ID), don't touch the local state
+      // The save already captures current state, no need to restore it
     }
-  }, [currentProject, setResultFromProject, reset]);
+  }, [currentProject, setResultFromProject, reset, chunkerOptions]);
 
   const handleContentChange = useCallback((newContent: string) => {
     setContent(newContent);
