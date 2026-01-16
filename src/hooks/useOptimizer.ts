@@ -69,11 +69,31 @@ export function useOptimizer() {
       const originalTexts = optimization.optimized_chunks.map(chunk => chunk.original_text);
 
       const allTexts = [...chunkTexts, ...originalTexts, ...queries];
-      const embeddings = await generateEmbeddings(allTexts);
 
-      const chunkEmbeddings = embeddings.slice(0, chunkTexts.length);
-      const originalEmbeddings = embeddings.slice(chunkTexts.length, chunkTexts.length + originalTexts.length);
-      const queryEmbeddings = embeddings.slice(chunkTexts.length + originalTexts.length);
+      // Filter out empty texts and track their original indices
+      const textsWithIndices = allTexts.map((text, idx) => ({ text, idx }))
+        .filter(item => item.text && item.text.trim().length > 0);
+      const validTexts = textsWithIndices.map(item => item.text);
+
+      // Generate embeddings only for valid texts
+      const validEmbeddings = await generateEmbeddings(validTexts);
+
+      // Create a map of original index -> embedding
+      const embeddingMap = new Map<number, number[]>();
+      textsWithIndices.forEach((item, i) => {
+        embeddingMap.set(item.idx, validEmbeddings[i]?.embedding || []);
+      });
+
+      // Reconstruct embeddings with proper indices
+      const chunkEmbeddings = chunkTexts.map((_, idx) => ({
+        embedding: embeddingMap.get(idx) || []
+      }));
+      const originalEmbeddings = originalTexts.map((_, idx) => ({
+        embedding: embeddingMap.get(chunkTexts.length + idx) || []
+      }));
+      const queryEmbeddings = queries.map((_, idx) => ({
+        embedding: embeddingMap.get(chunkTexts.length + originalTexts.length + idx) || []
+      }));
 
       setState(prev => ({ ...prev, progress: 70 }));
 
@@ -83,14 +103,20 @@ export function useOptimizer() {
         const originalScores: Record<string, number> = {};
 
         queries.forEach((query, queryIdx) => {
-          const optimizedMetrics = calculateAllMetrics(
-            chunkEmbeddings[chunkIdx].embedding,
-            queryEmbeddings[queryIdx].embedding
-          );
-          const originalMetrics = calculateAllMetrics(
-            originalEmbeddings[chunkIdx].embedding,
-            queryEmbeddings[queryIdx].embedding
-          );
+          const chunkEmb = chunkEmbeddings[chunkIdx]?.embedding;
+          const queryEmb = queryEmbeddings[queryIdx]?.embedding;
+          const origEmb = originalEmbeddings[chunkIdx]?.embedding;
+
+          // Skip if any embedding is missing or empty
+          if (!chunkEmb?.length || !queryEmb?.length || !origEmb?.length) {
+            console.warn(`Missing embedding for chunk ${chunkIdx} or query "${query}"`);
+            chunkScores[query] = 0;
+            originalScores[query] = 0;
+            return;
+          }
+
+          const optimizedMetrics = calculateAllMetrics(chunkEmb, queryEmb);
+          const originalMetrics = calculateAllMetrics(origEmb, queryEmb);
           chunkScores[query] = optimizedMetrics.cosine;
           originalScores[query] = originalMetrics.cosine;
         });
