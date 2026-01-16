@@ -1,7 +1,7 @@
-import { FileText, Microscope, BarChart3, Sparkles, Loader2, Check, Save } from 'lucide-react';
+import { FileText, Microscope, BarChart3, Sparkles, FileBarChart, Loader2, Check, Save } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
-export type TabId = 'content' | 'analyze' | 'results' | 'optimize';
+export type TabId = 'content' | 'analyze' | 'results' | 'optimize' | 'report';
 
 interface Tab {
   id: TabId;
@@ -14,6 +14,7 @@ const tabs: Tab[] = [
   { id: 'analyze', icon: Microscope, label: 'Analyze' },
   { id: 'results', icon: BarChart3, label: 'Results' },
   { id: 'optimize', icon: Sparkles, label: 'Optimize' },
+  { id: 'report', icon: FileBarChart, label: 'Report' },
 ];
 
 interface TabBarProps {
@@ -21,6 +22,7 @@ interface TabBarProps {
   onTabChange: (tab: TabId) => void;
   hasContent: boolean;
   hasAnalysis: boolean;
+  hasOptimizationResult: boolean;
   isAnalyzing: boolean;
   isSaving: boolean;
   hasUnsavedChanges: boolean;
@@ -44,6 +46,7 @@ export function TabBar({
   onTabChange,
   hasContent,
   hasAnalysis,
+  hasOptimizationResult,
   isAnalyzing,
   isSaving,
   hasUnsavedChanges,
@@ -55,6 +58,7 @@ export function TabBar({
     if (tabId === 'analyze') return !hasContent;
     if (tabId === 'results') return !hasAnalysis;
     if (tabId === 'optimize') return !hasAnalysis;
+    if (tabId === 'report') return !hasOptimizationResult;
     return false;
   };
 
