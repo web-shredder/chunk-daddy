@@ -1,17 +1,17 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { Loader2 } from "lucide-react";
 import { TopBar, TabBar, ContentTab, AnalyzeTab, ResultsTab, OptimizeTab, type TabId } from "@/components/moonbug";
 import { useApiKey } from "@/hooks/useApiKey";
-import { useAnalysis } from "@/hooks/useAnalysis";
+import { useAnalysis, type AnalysisResult } from "@/hooks/useAnalysis";
 import { useAuth } from "@/hooks/useAuth";
 import { useProjects } from "@/hooks/useProjects";
 import { parseMarkdown, createLayoutAwareChunks, type LayoutAwareChunk, type ChunkerOptions, type DocumentElement } from "@/lib/layout-chunker";
-
+import type { FullOptimizationResult } from "@/lib/optimizer-types";
 const Index = () => {
   const navigate = useNavigate();
   const { isValid } = useApiKey();
-  const { analyze, reset, isAnalyzing, result, progress } = useAnalysis();
+  const { analyze, reset, setResultFromProject, isAnalyzing, result, progress } = useAnalysis();
   const { user, loading: authLoading, signOut } = useAuth();
   
   const {
@@ -40,12 +40,25 @@ const Index = () => {
   const [parsedElements, setParsedElements] = useState<DocumentElement[]>([]);
   const [layoutChunks, setLayoutChunks] = useState<LayoutAwareChunk[]>([]);
   const [contentHashAtAnalysis, setContentHashAtAnalysis] = useState<string>("");
+  const [optimizedContent, setOptimizedContent] = useState<string>("");
+  const [optimizationResult, setOptimizationResult] = useState<FullOptimizationResult | null>(null);
+  
+  // Track if we should auto-navigate to results after analysis
+  const shouldNavigateToResults = useRef(false);
 
   useEffect(() => {
     if (!authLoading && !user) {
       navigate('/auth');
     }
   }, [user, authLoading, navigate]);
+
+  // Auto-navigate to results when analysis completes
+  useEffect(() => {
+    if (result && !isAnalyzing && shouldNavigateToResults.current) {
+      setActiveTab('results');
+      shouldNavigateToResults.current = false;
+    }
+  }, [result, isAnalyzing]);
 
   useEffect(() => {
     if (currentProject) {
@@ -54,8 +67,27 @@ const Index = () => {
       if (currentProject.settings) {
         setChunkerOptions(currentProject.settings);
       }
+      
+      // Restore analysis results if they exist
+      if (currentProject.results) {
+        // Re-parse and re-chunk to get layout chunks
+        const settings = currentProject.settings || chunkerOptions;
+        const elements = parseMarkdown(currentProject.content || "");
+        const chunks = createLayoutAwareChunks(elements, settings);
+        setParsedElements(elements);
+        setLayoutChunks(chunks);
+        setContentHashAtAnalysis(currentProject.content || "");
+        
+        // Restore the result
+        setResultFromProject(currentProject.results);
+      } else {
+        // Clear results if project doesn't have them
+        reset();
+        setParsedElements([]);
+        setLayoutChunks([]);
+      }
     }
-  }, [currentProject]);
+  }, [currentProject, setResultFromProject, reset]);
 
   const handleContentChange = useCallback((newContent: string) => {
     setContent(newContent);
@@ -73,13 +105,8 @@ const Index = () => {
   }, [content, keywords, result, markUnsaved]);
 
   const handleLoadProject = async (projectId: string) => {
-    const project = await loadProject(projectId);
-    if (project) {
-      reset();
-      setParsedElements([]);
-      setLayoutChunks([]);
-      setActiveTab('content');
-    }
+    await loadProject(projectId);
+    // Results will be restored in the useEffect when currentProject changes
   };
 
   const handleNewProject = () => {
@@ -90,6 +117,8 @@ const Index = () => {
     reset();
     setParsedElements([]);
     setLayoutChunks([]);
+    setOptimizedContent("");
+    setOptimizationResult(null);
     setActiveTab('content');
   };
 
@@ -119,6 +148,9 @@ const Index = () => {
     setLayoutChunks(chunks);
     setContentHashAtAnalysis(content);
     
+    // Set flag to auto-navigate when analysis completes
+    shouldNavigateToResults.current = true;
+    
     analyze({
       content,
       keywords,
@@ -132,12 +164,20 @@ const Index = () => {
     renameProject(projectId, newName);
   };
 
-  const handleApplyOptimization = useCallback((optimizedContent: string) => {
-    setContent(optimizedContent);
-    markUnsaved(optimizedContent, keywords, chunkerOptions, result);
+  const handleApplyOptimization = useCallback((newOptimizedContent: string) => {
+    setOptimizedContent(newOptimizedContent);
+    setContent(newOptimizedContent);
+    markUnsaved(newOptimizedContent, keywords, chunkerOptions, result);
     // Switch to content tab to show the new content
     setActiveTab('content');
   }, [keywords, chunkerOptions, result, markUnsaved]);
+  
+  const handleOptimizationComplete = useCallback((optResult: FullOptimizationResult, finalContent: string) => {
+    setOptimizationResult(optResult);
+    setOptimizedContent(finalContent);
+    // Save to project
+    markUnsaved(content, keywords, chunkerOptions, result);
+  }, [content, keywords, chunkerOptions, result, markUnsaved]);
 
   const wordCount = content.trim() ? content.trim().split(/\s+/).length : 0;
   const tokenCount = Math.ceil(wordCount * 1.3);
