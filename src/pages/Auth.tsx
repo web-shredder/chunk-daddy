@@ -9,7 +9,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Loader2, AlertCircle } from 'lucide-react';
-import chunkDaddyMascot from '@/assets/chunk-daddy.png';
+import chunkDaddyLogo from '@/assets/chunk-daddy-logo.png';
 
 const signInSchema = z.object({
   email: z.string().trim().email({ message: 'Invalid email address' }),
@@ -69,9 +69,9 @@ const Auth = () => {
         <CardHeader className="text-center">
           <div className="flex justify-center mb-4">
             <img 
-              src={chunkDaddyMascot} 
+              src={chunkDaddyLogo} 
               alt="Chunk Daddy" 
-              className="w-16 h-16 rounded-xl object-contain"
+              className="w-40 h-auto object-contain"
             />
           </div>
           <CardTitle className="text-2xl font-bold">Chunk Daddy</CardTitle>
