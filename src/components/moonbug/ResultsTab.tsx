@@ -4,7 +4,6 @@ import {
   ChevronLeft,
   ChevronRight,
   ChevronDown,
-  ChevronUp,
   Copy,
   Download,
   Search,
@@ -18,7 +17,6 @@ import {
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -32,8 +30,9 @@ import {
 } from '@/components/ui/collapsible';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
-import { formatScore, getScoreColorClass, getImprovementColorClass, formatImprovement } from '@/lib/similarity';
+import { formatScore, getScoreColorClass } from '@/lib/similarity';
 import { downloadCSV } from '@/lib/csv-export';
+import { ScoreGrid } from './ScoreItem';
 import type { LayoutAwareChunk, DocumentElement } from '@/lib/layout-chunker';
 import type { ChunkScore, AnalysisResult } from '@/hooks/useAnalysis';
 
@@ -588,93 +587,14 @@ export function ResultsTab({
               {/* Similarity Scores - All 5 Algorithms */}
               {selectedScore && (
                 <div>
-                  <h4 className="text-label mb-3">Similarity Scores by Algorithm</h4>
+                  <h4 className="text-label mb-3">Relevance Scores</h4>
                   <div className="space-y-4">
                     {selectedScore.keywordScores.map((ks) => (
-                      <div
+                      <ScoreGrid 
                         key={ks.keyword}
-                        className="p-4 bg-background border border-border rounded-lg space-y-3"
-                      >
-                        <div className="flex items-center justify-between">
-                          <span className="text-sm font-medium text-foreground">
-                            "{ks.keyword}"
-                          </span>
-                        </div>
-                        
-                        {/* Score Grid */}
-                        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3">
-                          {/* Cosine Similarity */}
-                          <div className="space-y-1">
-                            <div className="text-[10px] uppercase tracking-wider text-muted-foreground font-medium">
-                              Cosine Similarity
-                            </div>
-                            <div className={cn(
-                              "font-mono text-lg font-semibold",
-                              getScoreColorClass(ks.scores.cosine)
-                            )}>
-                              {formatScore(ks.scores.cosine)}
-                            </div>
-                            <div className="text-[10px] text-muted-foreground">
-                              Higher = more similar
-                            </div>
-                          </div>
-
-                          {/* Chamfer Distance */}
-                          <div className="space-y-1">
-                            <div className="text-[10px] uppercase tracking-wider text-muted-foreground font-medium">
-                              Chamfer Similarity
-                            </div>
-                            <div className={cn(
-                              "font-mono text-lg font-semibold",
-                              getScoreColorClass(ks.scores.chamfer)
-                            )}>
-                              {formatScore(ks.scores.chamfer)}
-                            </div>
-                            <div className="text-[10px] text-muted-foreground">
-                              Higher = more similar
-                            </div>
-                          </div>
-
-                          {/* Euclidean Distance */}
-                          <div className="space-y-1">
-                            <div className="text-[10px] uppercase tracking-wider text-muted-foreground font-medium">
-                              Euclidean Distance
-                            </div>
-                            <div className="font-mono text-lg font-semibold text-foreground">
-                              {formatScore(ks.scores.euclidean)}
-                            </div>
-                            <div className="text-[10px] text-muted-foreground">
-                              Lower = more similar
-                            </div>
-                          </div>
-
-                          {/* Manhattan Distance */}
-                          <div className="space-y-1">
-                            <div className="text-[10px] uppercase tracking-wider text-muted-foreground font-medium">
-                              Manhattan Distance
-                            </div>
-                            <div className="font-mono text-lg font-semibold text-foreground">
-                              {formatScore(ks.scores.manhattan)}
-                            </div>
-                            <div className="text-[10px] text-muted-foreground">
-                              Lower = more similar
-                            </div>
-                          </div>
-
-                          {/* Dot Product */}
-                          <div className="space-y-1">
-                            <div className="text-[10px] uppercase tracking-wider text-muted-foreground font-medium">
-                              Dot Product
-                            </div>
-                            <div className="font-mono text-lg font-semibold text-foreground">
-                              {formatScore(ks.scores.dotProduct)}
-                            </div>
-                            <div className="text-[10px] text-muted-foreground">
-                              Higher = more similar
-                            </div>
-                          </div>
-                        </div>
-                      </div>
+                        keyword={ks.keyword}
+                        scores={ks.scores}
+                      />
                     ))}
                   </div>
                 </div>
