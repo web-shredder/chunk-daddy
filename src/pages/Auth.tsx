@@ -5,26 +5,36 @@ import { useAuth } from '@/hooks/useAuth';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { Textarea } from '@/components/ui/textarea';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Alert, AlertDescription } from '@/components/ui/alert';
-import { Loader2, AlertCircle } from 'lucide-react';
+import { Loader2, AlertCircle, CheckCircle2 } from 'lucide-react';
 import chunkDaddyMascot from '@/assets/chunk-daddy.png';
 
-const authSchema = z.object({
+const signInSchema = z.object({
   email: z.string().trim().email({ message: 'Invalid email address' }),
   password: z.string().min(6, { message: 'Password must be at least 6 characters' }),
 });
 
+const requestAccessSchema = z.object({
+  name: z.string().trim().min(2, { message: 'Name must be at least 2 characters' }).max(100, { message: 'Name too long' }),
+  email: z.string().trim().email({ message: 'Invalid email address' }),
+  message: z.string().trim().min(10, { message: 'Please tell us why you want access (at least 10 characters)' }).max(500, { message: 'Message too long (max 500 characters)' }),
+});
+
 const Auth = () => {
   const navigate = useNavigate();
-  const { user, loading: authLoading, signIn, signUp } = useAuth();
+  const { user, loading: authLoading, signIn } = useAuth();
   
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [name, setName] = useState('');
+  const [message, setMessage] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [activeTab, setActiveTab] = useState('signin');
+  const [requestSent, setRequestSent] = useState(false);
 
   useEffect(() => {
     if (user) {
@@ -32,20 +42,15 @@ const Auth = () => {
     }
   }, [user, navigate]);
 
-  const validateForm = () => {
-    const result = authSchema.safeParse({ email, password });
-    if (!result.success) {
-      setError(result.error.errors[0].message);
-      return false;
-    }
-    return true;
-  };
-
   const handleSignIn = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
     
-    if (!validateForm()) return;
+    const result = signInSchema.safeParse({ email, password });
+    if (!result.success) {
+      setError(result.error.errors[0].message);
+      return;
+    }
     
     setLoading(true);
     const { error } = await signIn(email, password);
@@ -60,23 +65,22 @@ const Auth = () => {
     }
   };
 
-  const handleSignUp = async (e: React.FormEvent) => {
+  const handleRequestAccess = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
     
-    if (!validateForm()) return;
+    const result = requestAccessSchema.safeParse({ name, email, message });
+    if (!result.success) {
+      setError(result.error.errors[0].message);
+      return;
+    }
     
     setLoading(true);
-    const { error } = await signUp(email, password);
+    // For now, just simulate sending the request
+    // In the future, this could send an email or store in database
+    await new Promise(resolve => setTimeout(resolve, 1000));
     setLoading(false);
-    
-    if (error) {
-      if (error.message.includes('User already registered')) {
-        setError('This email is already registered. Please sign in instead.');
-      } else {
-        setError(error.message);
-      }
-    }
+    setRequestSent(true);
   };
 
   if (authLoading) {
@@ -104,10 +108,10 @@ const Auth = () => {
           </CardDescription>
         </CardHeader>
         <CardContent>
-          <Tabs value={activeTab} onValueChange={setActiveTab}>
+          <Tabs value={activeTab} onValueChange={(val) => { setActiveTab(val); setError(null); }}>
             <TabsList className="grid w-full grid-cols-2 mb-6">
               <TabsTrigger value="signin">Sign In</TabsTrigger>
-              <TabsTrigger value="signup">Sign Up</TabsTrigger>
+              <TabsTrigger value="request">Request Access</TabsTrigger>
             </TabsList>
             
             {error && (
@@ -154,41 +158,62 @@ const Auth = () => {
               </form>
             </TabsContent>
             
-            <TabsContent value="signup">
-              <form onSubmit={handleSignUp} className="space-y-4">
-                <div className="space-y-2">
-                  <Label htmlFor="signup-email">Email</Label>
-                  <Input
-                    id="signup-email"
-                    type="email"
-                    placeholder="you@example.com"
-                    value={email}
-                    onChange={(e) => setEmail(e.target.value)}
-                    disabled={loading}
-                  />
+            <TabsContent value="request">
+              {requestSent ? (
+                <div className="text-center py-6 space-y-3">
+                  <CheckCircle2 className="h-12 w-12 text-green-500 mx-auto" />
+                  <h3 className="font-semibold text-lg">Request Sent!</h3>
+                  <p className="text-sm text-muted-foreground">
+                    We'll review your request and get back to you soon.
+                  </p>
                 </div>
-                <div className="space-y-2">
-                  <Label htmlFor="signup-password">Password</Label>
-                  <Input
-                    id="signup-password"
-                    type="password"
-                    placeholder="••••••••"
-                    value={password}
-                    onChange={(e) => setPassword(e.target.value)}
-                    disabled={loading}
-                  />
-                </div>
-                <Button type="submit" className="w-full" disabled={loading}>
-                  {loading ? (
-                    <>
-                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                      Creating account...
-                    </>
-                  ) : (
-                    'Create Account'
-                  )}
-                </Button>
-              </form>
+              ) : (
+                <form onSubmit={handleRequestAccess} className="space-y-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="request-name">Name</Label>
+                    <Input
+                      id="request-name"
+                      type="text"
+                      placeholder="Your name"
+                      value={name}
+                      onChange={(e) => setName(e.target.value)}
+                      disabled={loading}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="request-email">Email</Label>
+                    <Input
+                      id="request-email"
+                      type="email"
+                      placeholder="you@example.com"
+                      value={email}
+                      onChange={(e) => setEmail(e.target.value)}
+                      disabled={loading}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="request-message">Why do you want access?</Label>
+                    <Textarea
+                      id="request-message"
+                      placeholder="Tell us about your use case..."
+                      value={message}
+                      onChange={(e) => setMessage(e.target.value)}
+                      disabled={loading}
+                      rows={3}
+                    />
+                  </div>
+                  <Button type="submit" className="w-full" disabled={loading}>
+                    {loading ? (
+                      <>
+                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                        Sending...
+                      </>
+                    ) : (
+                      'Request Access'
+                    )}
+                  </Button>
+                </form>
+              )}
             </TabsContent>
           </Tabs>
         </CardContent>
