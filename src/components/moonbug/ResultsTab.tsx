@@ -373,14 +373,20 @@ export function ResultsTab({
           {/* Detail Content */}
           <ScrollArea className="flex-1">
             <div className="p-6 space-y-8">
-              {/* Passage Score Hero */}
+              {/* Passage Score Hero - Average of per-keyword passage scores */}
               {selectedScore && (() => {
+                // Calculate passage score for each keyword, then average
+                const keywordPassageScores = selectedScore.keywordScores.map(ks => 
+                  calculatePassageScore(ks.scores.cosine, ks.scores.chamfer)
+                );
+                const avgPassageScore = Math.round(
+                  keywordPassageScores.reduce((sum, ps) => sum + ps, 0) / keywordPassageScores.length
+                );
                 const avgCosine = selectedScore.keywordScores.reduce((sum, ks) => sum + ks.scores.cosine, 0) / selectedScore.keywordScores.length;
                 const avgChamfer = selectedScore.keywordScores.reduce((sum, ks) => sum + ks.scores.chamfer, 0) / selectedScore.keywordScores.length;
-                const passageScore = calculatePassageScore(avgCosine, avgChamfer);
                 return (
                   <PassageScoreHero 
-                    score={passageScore} 
+                    score={avgPassageScore} 
                     cosineScore={avgCosine}
                     chamferScore={avgChamfer}
                   />
@@ -429,11 +435,17 @@ export function ResultsTab({
               {selectedScore && <div>
                   <h4 className="text-label mb-3">Similarity Scores by Algorithm</h4>
                   <div className="space-y-4">
-                    {selectedScore.keywordScores.map(ks => <div key={ks.keyword} className="p-4 bg-background border border-border rounded-lg space-y-3">
+                    {selectedScore.keywordScores.map(ks => {
+                      const keywordPassageScore = calculatePassageScore(ks.scores.cosine, ks.scores.chamfer);
+                      const keywordTier = getPassageScoreTier(keywordPassageScore);
+                      return <div key={ks.keyword} className="p-4 bg-background border border-border rounded-lg space-y-3">
                         <div className="flex items-center justify-between">
                           <span className="text-sm font-medium text-foreground">
                             "{ks.keyword}"
                           </span>
+                          <Badge variant="secondary" className={cn("text-xs px-2 py-0.5 font-mono", getPassageScoreTierColorClass(keywordTier))}>
+                            Score: {keywordPassageScore}
+                          </Badge>
                         </div>
                         
                         {/* Score Grid */}
@@ -503,7 +515,8 @@ export function ResultsTab({
                             </div>
                           </div>
                         </div>
-                      </div>)}
+                      </div>;
+                    })}
                   </div>
                 </div>}
             </div>
