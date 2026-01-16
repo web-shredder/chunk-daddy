@@ -8,7 +8,6 @@ import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
-  TooltipProvider,
 } from '@/components/ui/tooltip';
 import { Info, Layers, Split, Repeat } from 'lucide-react';
 import { previewChunkCount, type ChunkerOptions } from '@/lib/layout-chunker';
@@ -79,19 +78,17 @@ export function ChunkingSettings({ content, options, onChange }: ChunkingSetting
               <Label htmlFor="cascade" className="text-sm font-medium cursor-pointer">
                 Enable Heading Cascade
               </Label>
-              <TooltipProvider delayDuration={200}>
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <Info className="h-3.5 w-3.5 text-muted-foreground" />
-                  </TooltipTrigger>
-                  <TooltipContent side="right" className="max-w-[280px]">
-                    <p className="text-xs">
-                      Prepends parent headings to each chunk for better semantic context.
-                      This is how Google's RAG systems improve retrieval accuracy.
-                    </p>
-                  </TooltipContent>
-                </Tooltip>
-              </TooltipProvider>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Info className="h-3.5 w-3.5 text-muted-foreground" />
+                </TooltipTrigger>
+                <TooltipContent side="right" className="max-w-[280px]">
+                  <p className="text-xs">
+                    Prepends parent headings to each chunk for better semantic context.
+                    This is how Google's RAG systems improve retrieval accuracy.
+                  </p>
+                </TooltipContent>
+              </Tooltip>
             </div>
             <p className="text-xs text-muted-foreground">
               Each chunk includes its parent headings for context
@@ -137,19 +134,17 @@ export function ChunkingSettings({ content, options, onChange }: ChunkingSetting
             <div className="flex items-center gap-2">
               <Repeat className="h-3.5 w-3.5 text-muted-foreground" />
               <Label className="text-sm font-medium">Chunk Overlap</Label>
-              <TooltipProvider delayDuration={200}>
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <Info className="h-3.5 w-3.5 text-muted-foreground" />
-                  </TooltipTrigger>
-                  <TooltipContent side="right" className="max-w-[240px]">
-                    <p className="text-xs">
-                      When long paragraphs are split, this many tokens from the end of each chunk
-                      are included at the start of the next chunk.
-                    </p>
-                  </TooltipContent>
-                </Tooltip>
-              </TooltipProvider>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Info className="h-3.5 w-3.5 text-muted-foreground" />
+                </TooltipTrigger>
+                <TooltipContent side="right" className="max-w-[240px]">
+                  <p className="text-xs">
+                    When long paragraphs are split, this many tokens from the end of each chunk
+                    are included at the start of the next chunk.
+                  </p>
+                </TooltipContent>
+              </Tooltip>
             </div>
             <Badge variant="outline" className="text-xs font-mono">
               {options.chunkOverlap} tokens
