@@ -140,7 +140,7 @@ Enter another paragraph here by adding a blank line above..."
               <CardContent className="space-y-4">
                 <div className="space-y-3">
                   <Label className="text-sm font-medium">Target Keywords</Label>
-                  <KeywordInput keywords={keywords} onChange={setKeywords} />
+                  <KeywordInput keywords={keywords} onChange={setKeywords} content={content} />
                 </div>
 
                 <Separator />
