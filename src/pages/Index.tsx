@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { Loader2 } from "lucide-react";
-import { TopBar, TabBar, ContentTab, AnalyzeTab, ResultsTab, OptimizeTab, type TabId } from "@/components/moonbug";
+import { TopBar, TabBar, ContentTab, AnalyzeTab, ResultsTab, OptimizeTab, ReportTab, type TabId } from "@/components/moonbug";
 import { useApiKey } from "@/hooks/useApiKey";
 import { useAnalysis, type AnalysisResult } from "@/hooks/useAnalysis";
 import { useAuth } from "@/hooks/useAuth";
@@ -216,6 +216,8 @@ const Index = () => {
     setOptimizedContent(finalContent);
     // Save to project with optimization data
     markUnsaved(content, keywords, chunkerOptions, result, finalContent, optResult);
+    // Navigate to report tab
+    setActiveTab('report');
   }, [content, keywords, chunkerOptions, result, markUnsaved]);
 
   const wordCount = content.trim() ? content.trim().split(/\s+/).length : 0;
@@ -223,6 +225,7 @@ const Index = () => {
   const hasContent = content.trim().length > 0;
   const hasChunks = layoutChunks.length > 0;
   const hasAnalysis = !!result;
+  const hasOptimizationResult = !!optimizationResult;
   const contentModified = hasAnalysis && content !== contentHashAtAnalysis;
 
   if (authLoading) {
@@ -255,6 +258,7 @@ const Index = () => {
         onTabChange={setActiveTab}
         hasContent={hasContent}
         hasAnalysis={hasAnalysis}
+        hasOptimizationResult={hasOptimizationResult}
         isAnalyzing={isAnalyzing}
         isSaving={isSaving}
         hasUnsavedChanges={hasUnsavedChanges}
@@ -312,6 +316,21 @@ const Index = () => {
           currentScores={result?.chunkScores}
           onApplyOptimization={handleApplyOptimization}
           onGoToAnalyze={() => setActiveTab('analyze')}
+          onReanalyze={handleAnalyze}
+          onSaveProject={handleSave}
+          onOptimizationComplete={handleOptimizationComplete}
+        />
+      )}
+
+      {activeTab === 'report' && (
+        <ReportTab
+          hasOptimizationResult={hasOptimizationResult}
+          optimizationResult={optimizationResult}
+          optimizedContent={optimizedContent}
+          originalContent={content}
+          keywords={keywords}
+          onApplyContent={handleApplyOptimization}
+          onGoToOptimize={() => setActiveTab('optimize')}
           onReanalyze={handleAnalyze}
           onSaveProject={handleSave}
         />
