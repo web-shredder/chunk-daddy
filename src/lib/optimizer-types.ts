@@ -103,6 +103,13 @@ export interface OptimizationSummary {
   tradeOffConsiderations: TradeOffConsideration[];
 }
 
+// Full score metrics for a query
+export interface FullScoreMetrics {
+  cosine: number;
+  chamfer: number;
+  passageScore: number;
+}
+
 export interface FullOptimizationResult {
   analysis: ContentAnalysis;
   optimizedChunks: ValidatedChunk[];
@@ -111,4 +118,7 @@ export interface FullOptimizationResult {
   timestamp: Date;
   summary?: OptimizationSummary;
   originalScores?: Record<number, Record<string, number>>;
+  // Full metrics for before/after display
+  originalFullScores?: Record<number, Record<string, FullScoreMetrics>>;
+  optimizedFullScores?: Record<number, Record<string, FullScoreMetrics>>;
 }

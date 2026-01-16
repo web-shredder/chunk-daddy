@@ -336,6 +336,8 @@ export function OptimizeTab({
             acceptedChunks={acceptedChunks}
             rejectedChunks={rejectedChunks}
             editedChunks={editedChunks}
+            originalFullScores={optimizationResult.originalFullScores}
+            optimizedFullScores={optimizationResult.optimizedFullScores}
           />
         </div>
       </div>

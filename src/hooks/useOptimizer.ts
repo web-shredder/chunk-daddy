@@ -310,6 +310,8 @@ export function useOptimizer() {
         timestamp: new Date(),
         summary,
         originalScores: originalScoresCosineOnly,
+        originalFullScores: originalScoresMap,
+        optimizedFullScores: optimizedScoresMap,
       };
 
       setState({
