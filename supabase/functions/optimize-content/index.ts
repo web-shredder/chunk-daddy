@@ -287,7 +287,7 @@ Suggest keywords that:
       toolChoice = { type: "function", function: { name: "suggest_keywords" } };
     }
 
-    const response = await fetch('https://api.openai.com/v1/chat/completions', {
+    const response = await fetch('https://api.openai.com/v1/responses', {
       method: 'POST',
       headers: {
         'Authorization': `Bearer ${OPENAI_API_KEY}`,
@@ -295,14 +295,14 @@ Suggest keywords that:
       },
       body: JSON.stringify({
         model: 'gpt-5.2',
-        messages: [
-          { role: 'system', content: systemPrompt },
+        input: [
+          { role: 'developer', content: systemPrompt },
           { role: 'user', content: userPrompt }
         ],
         tools,
         tool_choice: toolChoice,
         max_output_tokens: 4096,
-        reasoning_effort: 'none',
+        reasoning: { effort: 'none' },
       }),
     });
 
@@ -330,17 +330,18 @@ Suggest keywords that:
     const data = await response.json();
     console.log('AI response received');
 
-    // Extract the tool call result
-    const toolCall = data.choices?.[0]?.message?.tool_calls?.[0];
+    // Extract the tool call result from Responses API format
+    const output = data.output;
+    const toolCall = output?.find((item: any) => item.type === 'function_call');
     if (!toolCall) {
-      console.error('No tool call in response');
+      console.error('No tool call in response', JSON.stringify(data, null, 2));
       return new Response(
         JSON.stringify({ error: 'AI did not return structured output' }),
         { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
 
-    const result = JSON.parse(toolCall.function.arguments);
+    const result = JSON.parse(toolCall.arguments);
     console.log(`${type} completed successfully`);
 
     return new Response(
