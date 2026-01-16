@@ -59,26 +59,24 @@ marked.setOptions({
 
 function ToolbarButton({ icon, label, onClick, isActive }: ToolbarButtonProps) {
   return (
-    <TooltipProvider delayDuration={300}>
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <Button
-            variant="ghost"
-            size="icon"
-            className={cn(
-              "h-8 w-8",
-              isActive && "bg-accent text-accent-foreground"
-            )}
-            onClick={onClick}
-          >
-            {icon}
-          </Button>
-        </TooltipTrigger>
-        <TooltipContent side="bottom">
-          <p className="text-xs">{label}</p>
-        </TooltipContent>
-      </Tooltip>
-    </TooltipProvider>
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <Button
+          variant="ghost"
+          size="icon"
+          className={cn(
+            "h-8 w-8",
+            isActive && "bg-accent text-accent-foreground"
+          )}
+          onClick={onClick}
+        >
+          {icon}
+        </Button>
+      </TooltipTrigger>
+      <TooltipContent side="bottom">
+        <p className="text-xs">{label}</p>
+      </TooltipContent>
+    </Tooltip>
   );
 }
 
@@ -183,6 +181,7 @@ export function MarkdownEditor({
   }
   
   return (
+    <TooltipProvider delayDuration={300}>
     <div className="border border-border rounded-lg overflow-hidden bg-card">
       {/* Toolbar */}
       <div className="flex items-center justify-between px-2 py-1.5 border-b border-border bg-muted/30">
@@ -312,5 +311,6 @@ export function MarkdownEditor({
         </div>
       </div>
     </div>
+    </TooltipProvider>
   );
 }
