@@ -34,6 +34,7 @@ interface MarkdownEditorProps {
   onChange: (value: string) => void;
   placeholder?: string;
   minHeight?: string;
+  maxHeight?: string;
 }
 
 interface ToolbarButtonProps {
@@ -82,8 +83,9 @@ function ToolbarButton({ icon, label, onClick, isActive }: ToolbarButtonProps) {
 export function MarkdownEditor({
   value,
   onChange,
-  placeholder = 'Paste or write your markdown content here...',
+  placeholder = 'Start typing or paste your content here...',
   minHeight = '400px',
+  maxHeight,
 }: MarkdownEditorProps) {
   const [copied, setCopied] = useState(false);
   const [isUpdatingFromProp, setIsUpdatingFromProp] = useState(false);
@@ -280,7 +282,7 @@ export function MarkdownEditor({
       {/* WYSIWYG Editor */}
       <div 
         className="tiptap-container relative overflow-auto"
-        style={{ minHeight }}
+        style={{ minHeight, maxHeight }}
       >
         <EditorContent 
           editor={editor} 
@@ -288,7 +290,8 @@ export function MarkdownEditor({
         />
       </div>
       
-      {/* Stats Bar */}
+      {/* Stats Bar - only show when content exists */}
+      {value.trim() && (
       <div className="flex items-center justify-between px-3 py-2 border-t border-border bg-muted/30 text-xs text-muted-foreground">
         <div className="flex items-center gap-4">
           <span>{stats.charCount.toLocaleString()} characters</span>
@@ -308,6 +311,7 @@ export function MarkdownEditor({
           )}
         </div>
       </div>
+      )}
     </div>
   );
 }

@@ -106,36 +106,38 @@ const Index = () => {
           <div className="space-y-6">
             <Card>
               <CardHeader>
-                <CardTitle className="text-base">Content Input</CardTitle>
+                <div className="flex items-center gap-2">
+                  <span className="flex items-center justify-center w-6 h-6 rounded-full bg-primary/10 text-primary text-xs font-semibold">1</span>
+                  <CardTitle className="text-base">Content Input</CardTitle>
+                </div>
                 <CardDescription>
-                  Enter your markdown content. Use headings (# ## ###) for structure.
+                  Paste or write your markdown. Use headings (# ## ###) for structure.
                 </CardDescription>
               </CardHeader>
               <CardContent>
                 <MarkdownEditor
                   value={content}
                   onChange={setContent}
-                  placeholder="# Your Title
-
-## First Section
-
-Your content here. Chunk Daddy will parse the heading structure and create layout-aware chunks with cascading context.
-
-## Second Section
-
-Add more sections with different heading levels..."
-                  minHeight="350px"
+                  placeholder="Start typing or paste your content here..."
+                  minHeight="300px"
+                  maxHeight="500px"
                 />
               </CardContent>
             </Card>
           </div>
 
-          {/* Right Panel - Configuration & Results */}
+          {/* Right Panel - Configuration & Analyze */}
           <div className="space-y-6">
             {/* Keywords */}
             <Card>
               <CardHeader className="pb-3">
-                <CardTitle className="text-base">Target Keywords</CardTitle>
+                <div className="flex items-center gap-2">
+                  <span className="flex items-center justify-center w-6 h-6 rounded-full bg-primary/10 text-primary text-xs font-semibold">2</span>
+                  <CardTitle className="text-base">Target Keywords</CardTitle>
+                </div>
+                <CardDescription className="mt-1">
+                  Add keywords to test retrieval relevance against your content.
+                </CardDescription>
               </CardHeader>
               <CardContent>
                 <KeywordInput keywords={keywords} onChange={setKeywords} content={content} />
@@ -143,37 +145,77 @@ Add more sections with different heading levels..."
             </Card>
             
             {/* Chunking Settings */}
-            <ChunkingSettings
-              content={content}
-              options={chunkerOptions}
-              onChange={setChunkerOptions}
-            />
+            <Card>
+              <CardHeader className="pb-3">
+                <div className="flex items-center gap-2">
+                  <span className="flex items-center justify-center w-6 h-6 rounded-full bg-primary/10 text-primary text-xs font-semibold">3</span>
+                  <CardTitle className="text-base">Chunking Settings</CardTitle>
+                </div>
+                <CardDescription className="mt-1">
+                  Configure how your content gets split into chunks.
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <ChunkingSettings
+                  content={content}
+                  options={chunkerOptions}
+                  onChange={setChunkerOptions}
+                  hideCard
+                />
+              </CardContent>
+            </Card>
 
             {/* Analyze Button */}
-            <Button
-              onClick={handleAnalyze}
-              disabled={!canAnalyze || isAnalyzing}
-              className="w-full h-12 text-base font-medium"
-              size="lg"
-            >
-              {isAnalyzing ? "Analyzing..." : "chunk it, daddy"}
-            </Button>
+            <Card className="border-primary/20 bg-primary/5">
+              <CardContent className="pt-6 pb-6">
+                <Button
+                  onClick={handleAnalyze}
+                  disabled={!canAnalyze || isAnalyzing}
+                  className="w-full h-12 text-base font-medium"
+                  size="lg"
+                >
+                  {isAnalyzing ? (
+                    <>
+                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                      Analyzing...
+                    </>
+                  ) : (
+                    <>
+                      <Zap className="h-4 w-4 mr-2" />
+                      chunk it, daddy
+                    </>
+                  )}
+                </Button>
+                
+                {isAnalyzing && (
+                  <div className="space-y-2 mt-4">
+                    <Progress value={progress} className="h-2" />
+                    <p className="text-xs text-muted-foreground text-center">
+                      Generating embeddings and calculating similarity...
+                    </p>
+                  </div>
+                )}
 
-            {isAnalyzing && (
-              <div className="space-y-2">
-                <Progress value={progress} className="h-2" />
-                <p className="text-xs text-muted-foreground text-center">
-                  Generating embeddings and calculating similarity...
-                </p>
-              </div>
-            )}
-
-            {analysisError && (
-              <Alert variant="destructive">
-                <AlertCircle className="h-4 w-4" />
-                <AlertDescription>{analysisError}</AlertDescription>
-              </Alert>
-            )}
+                {analysisError && (
+                  <Alert variant="destructive" className="mt-4">
+                    <AlertCircle className="h-4 w-4" />
+                    <AlertDescription>{analysisError}</AlertDescription>
+                  </Alert>
+                )}
+                
+                {!canAnalyze && !isAnalyzing && (
+                  <p className="text-xs text-muted-foreground text-center mt-3">
+                    {!content.trim() 
+                      ? "Add content to get started" 
+                      : !keywords.some(k => k.trim()) 
+                        ? "Add at least one keyword" 
+                        : !isValid 
+                          ? "Waiting for API..." 
+                          : "Ready to analyze"}
+                  </p>
+                )}
+              </CardContent>
+            </Card>
           </div>
         </div>
 

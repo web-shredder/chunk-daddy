@@ -16,11 +16,12 @@ interface ChunkingSettingsProps {
   content: string;
   options: ChunkerOptions;
   onChange: (options: ChunkerOptions) => void;
+  hideCard?: boolean;
 }
 
 const STORAGE_KEY = 'chunk-daddy-settings';
 
-export function ChunkingSettings({ content, options, onChange }: ChunkingSettingsProps) {
+export function ChunkingSettings({ content, options, onChange, hideCard = false }: ChunkingSettingsProps) {
   const [chunkPreview, setChunkPreview] = useState(0);
   
   // Load from localStorage on mount
@@ -51,27 +52,18 @@ export function ChunkingSettings({ content, options, onChange }: ChunkingSetting
     }
   }, [content, options]);
   
-  return (
-    <Card>
-      <CardHeader className="pb-3">
-        <div className="flex items-center justify-between">
-          <CardTitle className="text-sm font-medium flex items-center gap-2">
-            <Layers className="h-4 w-4 text-primary" />
-            Chunking Settings
-          </CardTitle>
-          {chunkPreview > 0 && (
-            <Badge variant="secondary" className="text-xs">
-              ~{chunkPreview} chunks
-            </Badge>
-          )}
+  const settingsContent = (
+    <div className="space-y-5">
+      {/* Chunk preview badge - show at top when hideCard */}
+      {hideCard && chunkPreview > 0 && (
+        <div className="flex justify-end">
+          <Badge variant="secondary" className="text-xs">
+            ~{chunkPreview} chunks
+          </Badge>
         </div>
-        <CardDescription className="text-xs">
-          Configure layout-aware chunking with heading cascades
-        </CardDescription>
-      </CardHeader>
+      )}
       
-      <CardContent className="space-y-5">
-        {/* Heading Cascade Toggle */}
+      {/* Heading Cascade Toggle */}
         <div className="flex items-start justify-between gap-4">
           <div className="space-y-1">
             <div className="flex items-center gap-2">
@@ -165,6 +157,34 @@ export function ChunkingSettings({ content, options, onChange }: ChunkingSetting
             <span>200</span>
           </div>
         </div>
+    </div>
+  );
+  
+  if (hideCard) {
+    return settingsContent;
+  }
+  
+  return (
+    <Card>
+      <CardHeader className="pb-3">
+        <div className="flex items-center justify-between">
+          <CardTitle className="text-sm font-medium flex items-center gap-2">
+            <Layers className="h-4 w-4 text-primary" />
+            Chunking Settings
+          </CardTitle>
+          {chunkPreview > 0 && (
+            <Badge variant="secondary" className="text-xs">
+              ~{chunkPreview} chunks
+            </Badge>
+          )}
+        </div>
+        <CardDescription className="text-xs">
+          Configure layout-aware chunking with heading cascades
+        </CardDescription>
+      </CardHeader>
+      
+      <CardContent>
+        {settingsContent}
       </CardContent>
     </Card>
   );
