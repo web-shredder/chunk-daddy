@@ -237,8 +237,8 @@ export function CascadeComparisonView({
           </CardTitle>
         </CardHeader>
         <CardContent>
-          <ScrollArea className="max-h-[500px]">
-            <div className="space-y-4">
+          <ScrollArea className="h-[500px]">
+            <div className="space-y-4 pr-4">
               {chunks.map((chunk, idx) => (
                 <ChunkComparison
                   key={chunk.id}
