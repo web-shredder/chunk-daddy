@@ -13,6 +13,7 @@ import {
   TreeDeciduous,
   List,
   Table,
+  Zap,
 } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
@@ -539,7 +540,27 @@ export function ResultsTab({
           {/* Detail Content */}
           <ScrollArea className="flex-1">
             <div className="p-6 space-y-6">
-              {/* PASSAGE SCORE HERO - FIRST */}
+              {/* Passage Score Explainer - Always Visible */}
+              <div className="p-4 bg-muted/30 border border-border rounded-lg">
+                <h4 className="text-sm font-semibold text-foreground mb-2 flex items-center gap-2">
+                  <Zap className="h-4 w-4 text-primary" />
+                  What is Passage Score?
+                </h4>
+                <p className="text-xs text-muted-foreground leading-relaxed mb-3">
+                  Passage Score (0-100) predicts how likely this passage will be retrieved by RAG systems. 
+                  It combines <span className="font-medium text-foreground">semantic relevance</span> (cosine similarity) 
+                  with <span className="font-medium text-foreground">multi-aspect coverage</span> (chamfer similarity).
+                </p>
+                <div className="flex flex-wrap gap-2 text-[10px] font-medium">
+                  <span className="px-2 py-0.5 rounded bg-emerald-500/15 text-emerald-500">90+ Excellent</span>
+                  <span className="px-2 py-0.5 rounded bg-emerald-400/15 text-emerald-400">75-89 Good</span>
+                  <span className="px-2 py-0.5 rounded bg-amber-500/15 text-amber-500">60-74 Moderate</span>
+                  <span className="px-2 py-0.5 rounded bg-orange-500/15 text-orange-500">40-59 Weak</span>
+                  <span className="px-2 py-0.5 rounded bg-rose-400/15 text-rose-400">0-39 Poor</span>
+                </div>
+              </div>
+
+              {/* PASSAGE SCORE HERO */}
               {selectedScore && (() => {
                 // Calculate average scores across all keywords for this passage
                 const avgCosine = selectedScore.keywordScores.reduce(
