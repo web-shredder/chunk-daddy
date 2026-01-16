@@ -196,3 +196,101 @@ All colors MUST be HSL.
 .prose img {
   @apply max-w-full h-auto rounded-lg my-4;
 }
+
+/* Tiptap Editor Styles */
+.tiptap-container {
+  @apply bg-background;
+}
+
+.tiptap-editor {
+  @apply min-h-full outline-none;
+}
+
+.tiptap-editor.is-editor-empty:first-child::before {
+  content: attr(data-placeholder);
+  @apply text-muted-foreground pointer-events-none float-left h-0;
+}
+
+.tiptap-editor h1 {
+  @apply text-2xl font-bold mt-6 mb-4 text-foreground border-b border-border pb-2;
+}
+
+.tiptap-editor h2 {
+  @apply text-xl font-semibold mt-5 mb-3 text-foreground;
+}
+
+.tiptap-editor h3 {
+  @apply text-lg font-semibold mt-4 mb-2 text-foreground;
+}
+
+.tiptap-editor h4,
+.tiptap-editor h5,
+.tiptap-editor h6 {
+  @apply text-base font-medium mt-3 mb-2 text-foreground;
+}
+
+.tiptap-editor p {
+  @apply my-3 leading-relaxed text-foreground/90;
+}
+
+.tiptap-editor ul {
+  @apply my-3 pl-6 list-disc;
+}
+
+.tiptap-editor ol {
+  @apply my-3 pl-6 list-decimal;
+}
+
+.tiptap-editor li {
+  @apply my-1 text-foreground/90;
+}
+
+.tiptap-editor li p {
+  @apply my-0;
+}
+
+.tiptap-editor code {
+  @apply bg-muted px-1.5 py-0.5 rounded text-sm font-mono text-foreground;
+}
+
+.tiptap-editor pre {
+  @apply bg-muted p-4 rounded-lg overflow-x-auto my-4;
+}
+
+.tiptap-editor pre code {
+  @apply bg-transparent p-0;
+}
+
+.tiptap-editor blockquote {
+  @apply border-l-4 border-primary/30 pl-4 italic text-muted-foreground my-4;
+}
+
+.tiptap-editor strong {
+  @apply font-semibold text-foreground;
+}
+
+.tiptap-editor em {
+  @apply italic;
+}
+
+.tiptap-editor hr {
+  @apply my-6 border-border;
+}
+
+/* Focus styles for the editor */
+.tiptap-editor:focus {
+  @apply outline-none;
+}
+
+.ProseMirror {
+  @apply min-h-[350px];
+}
+
+.ProseMirror:focus {
+  @apply outline-none;
+}
+
+.ProseMirror p.is-editor-empty:first-child::before {
+  content: attr(data-placeholder);
+  @apply text-muted-foreground pointer-events-none float-left h-0;
+}

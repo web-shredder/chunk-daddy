@@ -1,10 +1,12 @@
-import { useState, useCallback } from 'react';
-import ReactMarkdown from 'react-markdown';
-import remarkGfm from 'remark-gfm';
+import { useState, useCallback, useEffect } from 'react';
+import { useEditor, EditorContent } from '@tiptap/react';
+import StarterKit from '@tiptap/starter-kit';
+import Link from '@tiptap/extension-link';
+import Placeholder from '@tiptap/extension-placeholder';
+import TurndownService from 'turndown';
+import { marked } from 'marked';
 import { Button } from '@/components/ui/button';
 import { Separator } from '@/components/ui/separator';
-import { Textarea } from '@/components/ui/textarea';
-import { ScrollArea } from '@/components/ui/scroll-area';
 import {
   Tooltip,
   TooltipContent,
@@ -18,7 +20,7 @@ import {
   Heading1,
   Heading2,
   Heading3,
-  Link,
+  Link as LinkIcon,
   List,
   Trash2,
   FileText,
@@ -39,9 +41,23 @@ interface ToolbarButtonProps {
   icon: React.ReactNode;
   label: string;
   onClick: () => void;
+  isActive?: boolean;
 }
 
-function ToolbarButton({ icon, label, onClick }: ToolbarButtonProps) {
+// Initialize turndown for HTML to Markdown conversion
+const turndownService = new TurndownService({
+  headingStyle: 'atx',
+  codeBlockStyle: 'fenced',
+  bulletListMarker: '-',
+});
+
+// Configure marked for Markdown to HTML conversion
+marked.setOptions({
+  breaks: true,
+  gfm: true,
+});
+
+function ToolbarButton({ icon, label, onClick, isActive }: ToolbarButtonProps) {
   return (
     <TooltipProvider delayDuration={300}>
       <Tooltip>
@@ -49,7 +65,10 @@ function ToolbarButton({ icon, label, onClick }: ToolbarButtonProps) {
           <Button
             variant="ghost"
             size="icon"
-            className="h-8 w-8"
+            className={cn(
+              "h-8 w-8",
+              isActive && "bg-accent text-accent-foreground"
+            )}
             onClick={onClick}
           >
             {icon}
@@ -70,25 +89,63 @@ export function MarkdownEditor({
   minHeight = '400px',
 }: MarkdownEditorProps) {
   const [copied, setCopied] = useState(false);
+  const [isUpdatingFromProp, setIsUpdatingFromProp] = useState(false);
   
   const stats = getDocumentStats(value);
   
-  const insertText = useCallback((prefix: string, suffix: string = '') => {
-    const textarea = document.querySelector('textarea[data-markdown-editor]') as HTMLTextAreaElement;
-    if (!textarea) return;
+  const editor = useEditor({
+    extensions: [
+      StarterKit.configure({
+        heading: {
+          levels: [1, 2, 3, 4, 5, 6],
+        },
+      }),
+      Link.configure({
+        openOnClick: false,
+        HTMLAttributes: {
+          class: 'text-primary underline underline-offset-2 hover:text-primary/80 cursor-pointer',
+        },
+      }),
+      Placeholder.configure({
+        placeholder,
+        emptyEditorClass: 'is-editor-empty',
+      }),
+    ],
+    content: '',
+    editorProps: {
+      attributes: {
+        class: 'tiptap-editor prose prose-sm dark:prose-invert focus:outline-none',
+      },
+    },
+    onUpdate: ({ editor }) => {
+      if (isUpdatingFromProp) return;
+      
+      // Convert Tiptap content to markdown
+      const html = editor.getHTML();
+      const markdown = turndownService.turndown(html);
+      onChange(markdown);
+    },
+  });
+
+  // Sync value prop to editor content
+  useEffect(() => {
+    if (!editor || editor.isDestroyed) return;
     
-    const start = textarea.selectionStart;
-    const end = textarea.selectionEnd;
-    const selectedText = value.substring(start, end);
-    const newText = value.substring(0, start) + prefix + selectedText + suffix + value.substring(end);
-    onChange(newText);
+    // Get current markdown from editor
+    const currentHtml = editor.getHTML();
+    const currentMarkdown = turndownService.turndown(currentHtml);
     
-    // Restore cursor position
-    setTimeout(() => {
-      textarea.focus();
-      textarea.setSelectionRange(start + prefix.length, start + prefix.length + selectedText.length);
-    }, 0);
-  }, [value, onChange]);
+    // Only update if value actually changed (avoid cursor jumping)
+    if (value !== currentMarkdown) {
+      setIsUpdatingFromProp(true);
+      
+      // Convert markdown to HTML and set content
+      const html = marked.parse(value) as string;
+      editor.commands.setContent(html, { emitUpdate: false });
+      
+      setIsUpdatingFromProp(false);
+    }
+  }, [value, editor]);
   
   const handleCopy = useCallback(async () => {
     await navigator.clipboard.writeText(value);
@@ -98,11 +155,32 @@ export function MarkdownEditor({
   
   const handleClear = useCallback(() => {
     onChange('');
-  }, [onChange]);
+    editor?.commands.clearContent();
+  }, [onChange, editor]);
   
   const handleLoadSample = useCallback(() => {
     onChange(SAMPLE_MARKDOWN);
   }, [onChange]);
+
+  const setLink = useCallback(() => {
+    if (!editor) return;
+    
+    const previousUrl = editor.getAttributes('link').href;
+    const url = window.prompt('URL', previousUrl);
+
+    if (url === null) return;
+
+    if (url === '') {
+      editor.chain().focus().extendMarkRange('link').unsetLink().run();
+      return;
+    }
+
+    editor.chain().focus().extendMarkRange('link').setLink({ href: url }).run();
+  }, [editor]);
+  
+  if (!editor) {
+    return null;
+  }
   
   return (
     <div className="border border-border rounded-lg overflow-hidden bg-card">
@@ -112,17 +190,20 @@ export function MarkdownEditor({
           <ToolbarButton
             icon={<Heading1 className="h-4 w-4" />}
             label="Heading 1"
-            onClick={() => insertText('# ', '\n')}
+            onClick={() => editor.chain().focus().toggleHeading({ level: 1 }).run()}
+            isActive={editor.isActive('heading', { level: 1 })}
           />
           <ToolbarButton
             icon={<Heading2 className="h-4 w-4" />}
             label="Heading 2"
-            onClick={() => insertText('## ', '\n')}
+            onClick={() => editor.chain().focus().toggleHeading({ level: 2 }).run()}
+            isActive={editor.isActive('heading', { level: 2 })}
           />
           <ToolbarButton
             icon={<Heading3 className="h-4 w-4" />}
             label="Heading 3"
-            onClick={() => insertText('### ', '\n')}
+            onClick={() => editor.chain().focus().toggleHeading({ level: 3 }).run()}
+            isActive={editor.isActive('heading', { level: 3 })}
           />
           
           <Separator orientation="vertical" className="h-5 mx-1" />
@@ -130,30 +211,35 @@ export function MarkdownEditor({
           <ToolbarButton
             icon={<Bold className="h-4 w-4" />}
             label="Bold"
-            onClick={() => insertText('**', '**')}
+            onClick={() => editor.chain().focus().toggleBold().run()}
+            isActive={editor.isActive('bold')}
           />
           <ToolbarButton
             icon={<Italic className="h-4 w-4" />}
             label="Italic"
-            onClick={() => insertText('*', '*')}
+            onClick={() => editor.chain().focus().toggleItalic().run()}
+            isActive={editor.isActive('italic')}
           />
           <ToolbarButton
             icon={<Code className="h-4 w-4" />}
             label="Code"
-            onClick={() => insertText('`', '`')}
+            onClick={() => editor.chain().focus().toggleCode().run()}
+            isActive={editor.isActive('code')}
           />
           
           <Separator orientation="vertical" className="h-5 mx-1" />
           
           <ToolbarButton
-            icon={<Link className="h-4 w-4" />}
+            icon={<LinkIcon className="h-4 w-4" />}
             label="Link"
-            onClick={() => insertText('[', '](url)')}
+            onClick={setLink}
+            isActive={editor.isActive('link')}
           />
           <ToolbarButton
             icon={<List className="h-4 w-4" />}
             label="List"
-            onClick={() => insertText('- ', '\n')}
+            onClick={() => editor.chain().focus().toggleBulletList().run()}
+            isActive={editor.isActive('bulletList')}
           />
         </div>
         
@@ -194,45 +280,15 @@ export function MarkdownEditor({
         </div>
       </div>
       
-      {/* Editor and Preview */}
-      <div className="grid grid-cols-2 divide-x divide-border" style={{ minHeight }}>
-        {/* Editor Panel */}
-        <div className="relative">
-          <div className="absolute top-2 left-3 text-xs text-muted-foreground font-medium">
-            Editor
-          </div>
-          <Textarea
-            data-markdown-editor
-            value={value}
-            onChange={(e) => onChange(e.target.value)}
-            placeholder={placeholder}
-            className={cn(
-              "w-full h-full resize-none border-0 rounded-none focus-visible:ring-0 focus-visible:ring-offset-0",
-              "font-mono text-sm leading-relaxed pt-8 pb-4 px-3"
-            )}
-            style={{ minHeight }}
-          />
-        </div>
-        
-        {/* Preview Panel */}
-        <div className="relative bg-muted/20">
-          <div className="absolute top-2 left-3 text-xs text-muted-foreground font-medium">
-            Preview
-          </div>
-          <ScrollArea className="h-full pt-8 pb-4 px-3" style={{ minHeight }}>
-            {value ? (
-              <div className="prose prose-sm dark:prose-invert max-w-none">
-                <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                  {value}
-                </ReactMarkdown>
-              </div>
-            ) : (
-              <p className="text-sm text-muted-foreground italic">
-                Preview will appear here...
-              </p>
-            )}
-          </ScrollArea>
-        </div>
+      {/* WYSIWYG Editor */}
+      <div 
+        className="tiptap-container relative overflow-auto"
+        style={{ minHeight }}
+      >
+        <EditorContent 
+          editor={editor} 
+          className="h-full w-full px-4 py-4"
+        />
       </div>
       
       {/* Stats Bar */}
