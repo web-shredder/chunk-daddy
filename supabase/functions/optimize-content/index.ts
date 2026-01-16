@@ -245,12 +245,14 @@ Make explanations clear for content creators who may not know RAG internals.`;
     } else if (type === 'suggest_keywords') {
       systemPrompt = `You are an SEO and content retrieval expert. Analyze content to identify the most valuable target SEO keywords that users would likely search for to find this content.
 
+CRITICAL REQUIREMENT: Each keyword MUST be exactly 2-5 words long. No single-word keywords. No phrases longer than 5 words.
+
 Focus on:
 1. Primary topics and entities mentioned
 2. User intent - what questions would lead someone to this content
-3. Long-tail keywords with good specificity
+3. Long-tail keywords with good specificity (2-5 words)
 4. Keywords that would have high retrieval relevance
-5. Mix of head terms and specific phrases
+5. Mix of head terms and specific multi-word phrases
 
 Prioritize keywords by search intent alignment and retrieval potential.`;
 
@@ -262,6 +264,7 @@ ${content}
 """
 
 Suggest keywords that:
+- Are exactly 2-5 words long (REQUIRED - no single words, no phrases over 5 words)
 - Represent the main topics users would search for
 - Have high semantic alignment with the content
 - Would be useful for embedding-based retrieval testing`;

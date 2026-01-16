@@ -66,9 +66,15 @@ export function KeywordInput({
         throw new Error(data?.error || error?.message || 'Failed to suggest keywords');
       }
 
-      const suggestedKeywords: KeywordSuggestion[] = data.result.keywords;
-      setSuggestions(suggestedKeywords);
-      toast.success(`Found ${suggestedKeywords.length} keyword suggestions`);
+      // Filter to only keywords with 2-5 words
+      const allKeywords: KeywordSuggestion[] = data.result.keywords;
+      const validKeywords = allKeywords.filter(k => {
+        const wordCount = k.keyword.trim().split(/\s+/).length;
+        return wordCount >= 2 && wordCount <= 5;
+      });
+      
+      setSuggestions(validKeywords);
+      toast.success(`Found ${validKeywords.length} keyword suggestions`);
     } catch (err) {
       console.error('Keyword suggestion error:', err);
       toast.error(err instanceof Error ? err.message : 'Failed to suggest keywords');
