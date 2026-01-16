@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { Settings, ChevronDown, FolderOpen, LogOut, Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
-import chunkDaddyMascot from '@/assets/chunk-daddy.png';
+import chunkDaddyLogo from '@/assets/chunk-daddy-logo.png';
 interface TopBarProps {
   projectName: string;
   projects: Array<{
@@ -28,11 +28,13 @@ export function TopBar({
 }: TopBarProps) {
   return <header className="h-14 bg-surface border-b border-border flex items-center px-6 gap-6 shrink-0">
       {/* Logo */}
-      <div className="flex items-center gap-2">
-        <img alt="Chunk Daddy" className="w-12 h-12 rounded object-contain" src="/lovable-uploads/a730b7d9-aaaa-431f-9b8c-3d7debe190f4.png" />
-        <span className="text-base font-semibold text-foreground">
-          Chunk Daddy
-        </span>
+      <div className="flex items-center">
+        <img 
+          alt="Chunk Daddy" 
+          className="h-10 object-contain" 
+          style={{ aspectRatio: '5/3' }}
+          src={chunkDaddyLogo} 
+        />
       </div>
 
       {/* Project Switcher */}
