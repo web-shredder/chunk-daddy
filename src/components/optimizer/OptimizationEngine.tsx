@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Sparkles, Loader2, CheckCircle2, AlertCircle, ChevronDown, ChevronUp, Copy, Download, FileDown } from 'lucide-react';
+import { Sparkles, Loader2, CheckCircle2, AlertCircle, ChevronDown, ChevronUp, Copy, Download, FileDown, BarChart3 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Progress } from '@/components/ui/progress';
 import { Alert, AlertDescription } from '@/components/ui/alert';
@@ -8,6 +8,7 @@ import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/component
 import { useOptimizer, type OptimizationStep } from '@/hooks/useOptimizer';
 import { RecommendationCard } from './RecommendationCard';
 import { DiffView } from './DiffView';
+import { OptimizationSummary } from './OptimizationSummary';
 import { toast } from 'sonner';
 import type { KeywordScore } from '@/hooks/useAnalysis';
 
@@ -40,8 +41,9 @@ export function OptimizationEngine({
 }: OptimizationEngineProps) {
   const { step, progress, error, result, optimize, reset } = useOptimizer();
   const [acceptedChanges, setAcceptedChanges] = useState<Set<string>>(new Set());
-  const [showDiff, setShowDiff] = useState(true);
-  const [showRecommendations, setShowRecommendations] = useState(true);
+  const [showSummary, setShowSummary] = useState(true);
+  const [showDiff, setShowDiff] = useState(false);
+  const [showRecommendations, setShowRecommendations] = useState(false);
 
   const handleOptimize = async () => {
     try {
@@ -200,6 +202,26 @@ export function OptimizationEngine({
               </Button>
             </div>
           </div>
+
+          {/* Analysis Summary - NEW SECTION */}
+          {result.summary && (
+            <Collapsible open={showSummary} onOpenChange={setShowSummary}>
+              <CollapsibleTrigger asChild>
+                <Button variant="ghost" className="w-full justify-between px-2" size="sm">
+                  <span className="text-sm font-medium flex items-center gap-2">
+                    <BarChart3 className="h-4 w-4" />
+                    Analysis Summary
+                  </span>
+                  {showSummary ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+                </Button>
+              </CollapsibleTrigger>
+              <CollapsibleContent className="pt-2">
+                <OptimizationSummary summary={result.summary} />
+              </CollapsibleContent>
+            </Collapsible>
+          )}
+
+          <Separator />
 
           {/* Diff View */}
           <Collapsible open={showDiff} onOpenChange={setShowDiff}>

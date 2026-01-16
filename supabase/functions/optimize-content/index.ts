@@ -7,12 +7,13 @@ const corsHeaders = {
 };
 
 interface OptimizationRequest {
-  type: 'analyze' | 'optimize' | 'explain' | 'suggest_keywords';
+  type: 'analyze' | 'optimize' | 'explain' | 'suggest_keywords' | 'summarize';
   content: string;
   queries?: string[];
   currentScores?: Record<string, number>;
   analysis?: any;
   validatedChanges?: any;
+  chunkScoreData?: any; // For summarize: original and optimized scores per chunk per query
 }
 
 // Dynamic token limits by operation type - prevents truncation while optimizing costs
@@ -20,7 +21,8 @@ const maxTokensByType: Record<OptimizationRequest['type'], number> = {
   'analyze': 8192,         // Structured analysis, moderate size
   'optimize': 32768,       // Full rewritten content - largest output
   'explain': 4096,         // Short explanations
-  'suggest_keywords': 2048 // Just a keyword list
+  'suggest_keywords': 2048, // Just a keyword list
+  'summarize': 8192        // RAG explanations, suggestions, trade-offs
 };
 
 serve(async (req) => {
@@ -38,7 +40,7 @@ serve(async (req) => {
       );
     }
 
-    const { type, content, queries, currentScores, analysis, validatedChanges }: OptimizationRequest = await req.json();
+    const { type, content, queries, currentScores, analysis, validatedChanges, chunkScoreData }: OptimizationRequest = await req.json();
 
     console.log(`Processing ${type} request for content length: ${content?.length}, queries: ${queries?.length}`);
 
@@ -296,6 +298,87 @@ Suggest keywords that:
         }
       }];
       toolChoice = { type: "function", function: { name: "suggest_keywords" } };
+    
+    } else if (type === 'summarize') {
+      systemPrompt = `You are a RAG retrieval optimization expert. Analyze cosine similarity score changes and provide:
+
+1. RAG Impact Explanations: For each query's score change, explain in 1-2 sentences WHY the change matters for RAG retrieval. Be specific about vector search implications.
+
+2. Further Optimization Suggestions: Suggest 2-4 additional actions that could further improve cosine similarity. Be honest - if improvements are unlikely, say so.
+
+3. Trade-Off Considerations: List 2-4 potential concerns users should consider before applying changes (brand voice, UX, readability, etc.).
+
+Be specific and actionable. Use the actual score numbers provided.`;
+
+      userPrompt = `Analyze these cosine similarity score changes from content optimization:
+
+Score Data by Chunk:
+${JSON.stringify(chunkScoreData, null, 2)}
+
+Queries: ${queries?.join(', ') || 'None'}
+
+Changes Applied:
+${JSON.stringify(validatedChanges?.map((c: any) => ({ 
+  chunk: c.chunk_number, 
+  heading: c.heading,
+  changes: c.changes_applied?.map((ch: any) => ch.change_type + ': ' + ch.reason)
+})), null, 2)}
+
+For each query score change, explain the RAG retrieval impact. Then provide further suggestions and trade-off considerations.`;
+
+      tools = [{
+        type: "function",
+        function: {
+          name: "generate_summary",
+          description: "Generate optimization summary with RAG explanations",
+          parameters: {
+            type: "object",
+            properties: {
+              rag_explanations: {
+                type: "array",
+                description: "RAG impact explanation for each chunk-query pair",
+                items: {
+                  type: "object",
+                  properties: {
+                    chunk_number: { type: "integer" },
+                    query: { type: "string" },
+                    explanation: { type: "string", description: "1-2 sentence explanation of why this score change matters for RAG retrieval" }
+                  },
+                  required: ["chunk_number", "query", "explanation"]
+                }
+              },
+              further_suggestions: {
+                type: "array",
+                description: "Additional optimization suggestions",
+                items: {
+                  type: "object",
+                  properties: {
+                    suggestion: { type: "string" },
+                    expected_impact: { type: "string", enum: ["high", "medium", "low", "unlikely"] },
+                    reasoning: { type: "string" }
+                  },
+                  required: ["suggestion", "expected_impact", "reasoning"]
+                }
+              },
+              trade_off_considerations: {
+                type: "array",
+                description: "Concerns to consider before applying changes",
+                items: {
+                  type: "object",
+                  properties: {
+                    category: { type: "string", enum: ["brand", "ux", "readability", "seo", "other"] },
+                    concern: { type: "string" },
+                    severity: { type: "string", enum: ["minor", "moderate", "significant"] }
+                  },
+                  required: ["category", "concern", "severity"]
+                }
+              }
+            },
+            required: ["rag_explanations", "further_suggestions", "trade_off_considerations"]
+          }
+        }
+      }];
+      toolChoice = { type: "function", function: { name: "generate_summary" } };
     }
 
     const responseTools = (tools ?? []).map((t: any) => {
