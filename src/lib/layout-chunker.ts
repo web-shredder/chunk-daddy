@@ -146,9 +146,7 @@ function buildCascadeText(headings: HeadingInfo[]): string {
 function splitLongParagraph(
   text: string,
   maxTokens: number,
-  overlapTokens: number,
-  cascadeText: string,
-  cascadeTokens: number
+  overlapTokens: number
 ): string[] {
   // Split into sentences
   const sentences = text.match(/[^.!?]+[.!?]+/g) || [text];
@@ -156,7 +154,8 @@ function splitLongParagraph(
   
   let currentSentences: string[] = [];
   let currentTokens = 0;
-  const availableTokens = maxTokens - cascadeTokens;
+  // Headings don't count toward token limit - full maxTokens available for content
+  const availableTokens = maxTokens;
   
   for (let i = 0; i < sentences.length; i++) {
     const sentence = sentences[i].trim();
@@ -221,7 +220,8 @@ export function createLayoutAwareChunks(
     const headingPath = element.headings.map(h => h.text);
     const headingLevels = element.headings.map(h => h.level);
     
-    if (totalTokens <= opts.maxChunkSize) {
+    // Only paragraph content counts toward max size - headings are always included for context
+    if (contentTokens <= opts.maxChunkSize) {
       // Single chunk
       const fullText = cascadeText 
         ? cascadeText + '\n\n' + element.content 
@@ -247,9 +247,7 @@ export function createLayoutAwareChunks(
       const splitParagraphs = splitLongParagraph(
         element.content,
         opts.maxChunkSize,
-        opts.chunkOverlap,
-        cascadeText,
-        cascadeTokens
+        opts.chunkOverlap
       );
       
       for (const para of splitParagraphs) {
