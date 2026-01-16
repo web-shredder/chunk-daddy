@@ -82,6 +82,7 @@ interface ScoreGridProps {
     euclidean: number;
     manhattan: number;
     dotProduct: number;
+    daddyScore?: number;
   };
   keyword: string;
 }

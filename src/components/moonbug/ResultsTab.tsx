@@ -30,9 +30,10 @@ import {
 } from '@/components/ui/collapsible';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
-import { formatScore, getScoreColorClass } from '@/lib/similarity';
+import { formatScore, getScoreColorClass, calculateDaddyScore, getDaddyScoreTier, getDaddyScoreTierBgClass } from '@/lib/similarity';
 import { downloadCSV } from '@/lib/csv-export';
 import { ScoreGrid } from './ScoreItem';
+import { DaddyScoreHero, MiniDaddyScore } from './DaddyScoreHero';
 import type { LayoutAwareChunk, DocumentElement } from '@/lib/layout-chunker';
 import type { ChunkScore, AnalysisResult } from '@/hooks/useAnalysis';
 
@@ -183,10 +184,15 @@ function HeadingNodeView({
         
         <CollapsibleContent>
           {node.chunks.map(({ chunk, score }) => {
-            const avgScore = score
+            const avgCosine = score
               ? score.keywordScores.reduce((sum, ks) => sum + ks.scores.cosine, 0) /
                 score.keywordScores.length
               : 0;
+            const avgChamfer = score
+              ? score.keywordScores.reduce((sum, ks) => sum + ks.scores.chamfer, 0) /
+                score.keywordScores.length
+              : 0;
+            const daddyScore = calculateDaddyScore(avgCosine, avgChamfer);
             const isSelected = selectedChunkId === chunk.id;
             const chunkNum = parseInt(chunk.id.replace('chunk-', ''));
             
@@ -205,15 +211,7 @@ function HeadingNodeView({
                   {chunk.textWithoutCascade.slice(0, 50)}...
                 </span>
                 {score && (
-                  <Badge
-                    variant="secondary"
-                    className={cn(
-                      "text-[10px] px-1.5 py-0 h-4 shrink-0 font-mono",
-                      getScoreColorClass(avgScore)
-                    )}
-                  >
-                    {avgScore.toFixed(2)}
-                  </Badge>
+                  <MiniDaddyScore score={daddyScore} />
                 )}
               </button>
             );
@@ -433,10 +431,17 @@ export function ResultsTab({
               <div className="p-2 space-y-0.5">
                 {filteredChunks.map((chunk, idx) => {
                   const score = chunkScores[chunks.indexOf(chunk)];
-                  const avgScore = score
+                  // Calculate Daddy Score for this chunk
+                  const avgCosine = score
                     ? score.keywordScores.reduce((sum, ks) => sum + ks.scores.cosine, 0) /
                       score.keywordScores.length
                     : 0;
+                  const avgChamfer = score
+                    ? score.keywordScores.reduce((sum, ks) => sum + ks.scores.chamfer, 0) /
+                      score.keywordScores.length
+                    : 0;
+                  const daddyScore = calculateDaddyScore(avgCosine, avgChamfer);
+                  const tier = getDaddyScoreTier(daddyScore);
                   const isActive = chunks.indexOf(chunk) === selectedIndex;
 
                   return (
@@ -453,15 +458,7 @@ export function ResultsTab({
                           ? chunk.headingPath[chunk.headingPath.length - 1]
                           : `Chunk ${chunk.id.replace('chunk-', '')}`}
                       </span>
-                      <Badge
-                        variant="secondary"
-                        className={cn(
-                          'text-[10px] px-1.5 py-0 h-4 shrink-0 font-mono',
-                          getScoreColorClass(avgScore)
-                        )}
-                      >
-                        {avgScore.toFixed(2)}
-                      </Badge>
+                      <MiniDaddyScore score={daddyScore} />
                     </button>
                   );
                 })}
@@ -541,7 +538,27 @@ export function ResultsTab({
 
           {/* Detail Content */}
           <ScrollArea className="flex-1">
-            <div className="p-6 space-y-8">
+            <div className="p-6 space-y-6">
+              {/* DADDY SCORE HERO - FIRST */}
+              {selectedScore && (() => {
+                // Calculate average scores across all keywords for this chunk
+                const avgCosine = selectedScore.keywordScores.reduce(
+                  (sum, ks) => sum + ks.scores.cosine, 0
+                ) / selectedScore.keywordScores.length;
+                const avgChamfer = selectedScore.keywordScores.reduce(
+                  (sum, ks) => sum + ks.scores.chamfer, 0
+                ) / selectedScore.keywordScores.length;
+                const daddyScore = calculateDaddyScore(avgCosine, avgChamfer);
+                
+                return (
+                  <DaddyScoreHero 
+                    score={daddyScore}
+                    cosineScore={avgCosine}
+                    chamferScore={avgChamfer}
+                  />
+                );
+              })()}
+
               {/* Heading Context */}
               {selectedChunk?.headingPath.length > 0 && (
                 <div>
@@ -584,20 +601,30 @@ export function ResultsTab({
                 </dl>
               </div>
 
-              {/* Similarity Scores - All 5 Algorithms */}
+              {/* Advanced Metrics - Collapsible */}
               {selectedScore && (
-                <div>
-                  <h4 className="text-label mb-3">Relevance Scores</h4>
-                  <div className="space-y-4">
-                    {selectedScore.keywordScores.map((ks) => (
-                      <ScoreGrid 
-                        key={ks.keyword}
-                        keyword={ks.keyword}
-                        scores={ks.scores}
-                      />
-                    ))}
-                  </div>
-                </div>
+                <Collapsible>
+                  <CollapsibleTrigger asChild>
+                    <button className="flex items-center gap-2 text-sm font-medium text-muted-foreground hover:text-foreground transition-colors group">
+                      <ChevronRight className="h-4 w-4 transition-transform group-data-[state=open]:rotate-90" />
+                      Advanced Metrics
+                      <span className="text-xs text-muted-foreground/60">
+                        ({selectedScore.keywordScores.length} {selectedScore.keywordScores.length === 1 ? 'query' : 'queries'})
+                      </span>
+                    </button>
+                  </CollapsibleTrigger>
+                  <CollapsibleContent>
+                    <div className="mt-4 space-y-4">
+                      {selectedScore.keywordScores.map((ks) => (
+                        <ScoreGrid 
+                          key={ks.keyword}
+                          keyword={ks.keyword}
+                          scores={ks.scores}
+                        />
+                      ))}
+                    </div>
+                  </CollapsibleContent>
+                </Collapsible>
               )}
             </div>
           </ScrollArea>

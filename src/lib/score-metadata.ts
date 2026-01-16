@@ -9,6 +9,13 @@ export interface ScoreMetadata {
 }
 
 export const SCORE_METADATA: Record<string, ScoreMetadata> = {
+  daddyScore: {
+    label: 'Daddy Score',
+    range: '0 to 100',
+    direction: 'higher',
+    explanation: 'Composite retrieval probability metric. Combines cosine (70%) and chamfer (30%) similarity to predict how likely this chunk is to be retrieved by RAG systems.',
+    hasQuality: true
+  },
   cosine: {
     label: 'Cosine Similarity',
     range: '-1 to 1',
@@ -63,6 +70,14 @@ export function getScoreQuality(metricKey: string, value: number): ScoreQuality 
     if (value >= 0.7) return 'good';
     if (value >= 0.5) return 'fair';
     if (value >= 0.3) return 'weak';
+    return 'poor';
+  }
+
+  if (metricKey === 'daddyScore') {
+    if (value >= 90) return 'excellent';
+    if (value >= 75) return 'good';
+    if (value >= 60) return 'fair';
+    if (value >= 40) return 'weak';
     return 'poor';
   }
   
