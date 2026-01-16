@@ -5,4 +5,4 @@ export { AnalyzeTab } from './AnalyzeTab';
 export { ResultsTab } from './ResultsTab';
 export { OptimizeTab } from './OptimizeTab';
 export { ScoreItem, ScoreGrid } from './ScoreItem';
-export { DaddyScoreHero, MiniDaddyScore } from './DaddyScoreHero';
+export { PassageScoreHero, MiniPassageScore, DaddyScoreHero, MiniDaddyScore } from './PassageScoreHero';

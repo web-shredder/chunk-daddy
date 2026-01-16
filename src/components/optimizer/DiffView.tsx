@@ -1,7 +1,7 @@
 import { cn } from '@/lib/utils';
 import type { ValidatedChunk } from '@/lib/optimizer-types';
-import { FileText, ArrowRight, TrendingUp, TrendingDown, Minus, Zap } from 'lucide-react';
-import { calculateDaddyScore, getDaddyScoreTier, getDaddyScoreTierBgClass, formatScore, formatImprovement, getImprovementColorClass } from '@/lib/similarity';
+import { FileText, ArrowRight, Zap } from 'lucide-react';
+import { calculatePassageScore, getPassageScoreTier, getPassageScoreTierBgClass, formatScore, formatImprovement, getImprovementColorClass } from '@/lib/similarity';
 
 interface DiffViewProps {
   originalContent: string;
@@ -31,15 +31,15 @@ export function DiffView({ optimizedChunks, acceptedChanges, originalScores }: D
         const newCosine = newScores?.cosine;
         const newChamfer = newScores?.chamfer;
         
-        const origDaddy = origCosine !== undefined && origChamfer !== undefined 
-          ? calculateDaddyScore(origCosine, origChamfer) 
+        const origPassage = origCosine !== undefined && origChamfer !== undefined 
+          ? calculatePassageScore(origCosine, origChamfer) 
           : undefined;
-        const newDaddy = newCosine !== undefined && newChamfer !== undefined 
-          ? calculateDaddyScore(newCosine, newChamfer) 
+        const newPassage = newCosine !== undefined && newChamfer !== undefined 
+          ? calculatePassageScore(newCosine, newChamfer) 
           : undefined;
         
-        const daddyImprovement = origDaddy !== undefined && newDaddy !== undefined
-          ? ((newDaddy - origDaddy) / Math.max(origDaddy, 1)) * 100
+        const passageImprovement = origPassage !== undefined && newPassage !== undefined
+          ? ((newPassage - origPassage) / Math.max(origPassage, 1)) * 100
           : undefined;
         
         const cosineImprovement = origCosine !== undefined && newCosine !== undefined
@@ -51,39 +51,39 @@ export function DiffView({ optimizedChunks, acceptedChanges, originalScores }: D
           key={idx} 
           className="border rounded-lg overflow-hidden"
         >
-          {/* Chunk Header with Score Comparison */}
+          {/* Passage Header with Score Comparison */}
           <div className="flex items-center justify-between px-4 py-3 bg-muted/30 border-b">
             <div className="flex items-center gap-2 text-sm font-medium">
               <FileText className="h-4 w-4 text-muted-foreground" />
-              <span>Chunk {chunk.chunk_number}</span>
+              <span>Passage {chunk.chunk_number}</span>
               {chunk.heading && (
                 <span className="text-muted-foreground">— {chunk.heading}</span>
               )}
             </div>
             <div className="flex items-center gap-3">
               {/* Score improvement badge */}
-              {newDaddy !== undefined && (
+              {newPassage !== undefined && (
                 <div className={cn(
                   "flex items-center gap-1.5 px-2 py-1 rounded-md text-xs font-medium",
-                  getDaddyScoreTierBgClass(getDaddyScoreTier(newDaddy))
+                  getPassageScoreTierBgClass(getPassageScoreTier(newPassage))
                 )}>
                   <Zap className="h-3 w-3" />
-                  {origDaddy !== undefined ? (
+                  {origPassage !== undefined ? (
                     <>
-                      <span className="opacity-60">{origDaddy}</span>
+                      <span className="opacity-60">{origPassage}</span>
                       <ArrowRight className="h-3 w-3 opacity-60" />
-                      <span className="font-bold">{newDaddy}</span>
-                      {daddyImprovement !== undefined && daddyImprovement !== 0 && (
+                      <span className="font-bold">{newPassage}</span>
+                      {passageImprovement !== undefined && passageImprovement !== 0 && (
                         <span className={cn(
                           "ml-1",
-                          daddyImprovement > 0 ? "text-green-600 dark:text-green-400" : "text-red-500"
+                          passageImprovement > 0 ? "text-primary" : "text-muted-foreground"
                         )}>
-                          {daddyImprovement > 0 ? '+' : ''}{daddyImprovement.toFixed(0)}%
+                          {passageImprovement > 0 ? '+' : ''}{passageImprovement.toFixed(0)}%
                         </span>
                       )}
                     </>
                   ) : (
-                    <span className="font-bold">{newDaddy}</span>
+                    <span className="font-bold">{newPassage}</span>
                   )}
                 </div>
               )}

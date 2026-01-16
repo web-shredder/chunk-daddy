@@ -30,10 +30,10 @@ import {
 } from '@/components/ui/collapsible';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
-import { formatScore, getScoreColorClass, calculateDaddyScore, getDaddyScoreTier, getDaddyScoreTierBgClass } from '@/lib/similarity';
+import { formatScore, getScoreColorClass, calculatePassageScore, getPassageScoreTier, getPassageScoreTierBgClass } from '@/lib/similarity';
 import { downloadCSV } from '@/lib/csv-export';
 import { ScoreGrid } from './ScoreItem';
-import { DaddyScoreHero, MiniDaddyScore } from './DaddyScoreHero';
+import { PassageScoreHero, MiniPassageScore } from './PassageScoreHero';
 import type { LayoutAwareChunk, DocumentElement } from '@/lib/layout-chunker';
 import type { ChunkScore, AnalysisResult } from '@/hooks/useAnalysis';
 
@@ -192,7 +192,7 @@ function HeadingNodeView({
               ? score.keywordScores.reduce((sum, ks) => sum + ks.scores.chamfer, 0) /
                 score.keywordScores.length
               : 0;
-            const daddyScore = calculateDaddyScore(avgCosine, avgChamfer);
+            const passageScore = calculatePassageScore(avgCosine, avgChamfer);
             const isSelected = selectedChunkId === chunk.id;
             const chunkNum = parseInt(chunk.id.replace('chunk-', ''));
             
@@ -211,7 +211,7 @@ function HeadingNodeView({
                   {chunk.textWithoutCascade.slice(0, 50)}...
                 </span>
                 {score && (
-                  <MiniDaddyScore score={daddyScore} />
+                  <MiniPassageScore score={passageScore} />
                 )}
               </button>
             );
@@ -257,7 +257,7 @@ export function ResultsTab({
         <div className="empty-state">
           <BarChart3 size={48} strokeWidth={1} />
           <h3>No analysis yet</h3>
-          <p>Run an analysis to see chunk structure and relevance scores</p>
+          <p>Run an analysis to see passage structure and relevance scores</p>
           <button className="btn-secondary" onClick={onGoToAnalyze}>
             Go to Analyze
           </button>
@@ -419,7 +419,7 @@ export function ResultsTab({
               <Input
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder="Search chunks..."
+                placeholder="Search passages..."
                 className="pl-9 moonbug-input h-8 text-[13px]"
               />
             </div>
@@ -431,7 +431,7 @@ export function ResultsTab({
               <div className="p-2 space-y-0.5">
                 {filteredChunks.map((chunk, idx) => {
                   const score = chunkScores[chunks.indexOf(chunk)];
-                  // Calculate Daddy Score for this chunk
+                  // Calculate Passage Score for this chunk
                   const avgCosine = score
                     ? score.keywordScores.reduce((sum, ks) => sum + ks.scores.cosine, 0) /
                       score.keywordScores.length
@@ -440,8 +440,8 @@ export function ResultsTab({
                     ? score.keywordScores.reduce((sum, ks) => sum + ks.scores.chamfer, 0) /
                       score.keywordScores.length
                     : 0;
-                  const daddyScore = calculateDaddyScore(avgCosine, avgChamfer);
-                  const tier = getDaddyScoreTier(daddyScore);
+                  const passageScore = calculatePassageScore(avgCosine, avgChamfer);
+                  const tier = getPassageScoreTier(passageScore);
                   const isActive = chunks.indexOf(chunk) === selectedIndex;
 
                   return (
@@ -456,9 +456,9 @@ export function ResultsTab({
                       <span className="truncate flex-1">
                         {chunk.headingPath.length > 0
                           ? chunk.headingPath[chunk.headingPath.length - 1]
-                          : `Chunk ${chunk.id.replace('chunk-', '')}`}
+                          : `Passage ${chunk.id.replace('chunk-', '')}`}
                       </span>
-                      <MiniDaddyScore score={daddyScore} />
+                      <MiniPassageScore score={passageScore} />
                     </button>
                   );
                 })}
@@ -493,7 +493,7 @@ export function ResultsTab({
                 <ChevronLeft className="h-4 w-4" />
               </button>
               <span className="text-[13px] text-muted-foreground font-mono">
-                Chunk {selectedIndex + 1} / {chunks.length}
+                Passage {selectedIndex + 1} of {chunks.length}
               </span>
               <button
                 onClick={() =>
@@ -539,20 +539,20 @@ export function ResultsTab({
           {/* Detail Content */}
           <ScrollArea className="flex-1">
             <div className="p-6 space-y-6">
-              {/* DADDY SCORE HERO - FIRST */}
+              {/* PASSAGE SCORE HERO - FIRST */}
               {selectedScore && (() => {
-                // Calculate average scores across all keywords for this chunk
+                // Calculate average scores across all keywords for this passage
                 const avgCosine = selectedScore.keywordScores.reduce(
                   (sum, ks) => sum + ks.scores.cosine, 0
                 ) / selectedScore.keywordScores.length;
                 const avgChamfer = selectedScore.keywordScores.reduce(
                   (sum, ks) => sum + ks.scores.chamfer, 0
                 ) / selectedScore.keywordScores.length;
-                const daddyScore = calculateDaddyScore(avgCosine, avgChamfer);
+                const passageScore = calculatePassageScore(avgCosine, avgChamfer);
                 
                 return (
-                  <DaddyScoreHero 
-                    score={daddyScore}
+                  <PassageScoreHero 
+                    score={passageScore}
                     cosineScore={avgCosine}
                     chamferScore={avgChamfer}
                   />
