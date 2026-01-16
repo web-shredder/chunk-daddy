@@ -59,23 +59,33 @@ export function TopBar({
   const [isRenameOpen, setIsRenameOpen] = useState(false);
   const [isDeleteOpen, setIsDeleteOpen] = useState(false);
   const [newName, setNewName] = useState('');
+  const [projectToDelete, setProjectToDelete] = useState<{ id: string; name: string } | null>(null);
+  const [projectToRename, setProjectToRename] = useState<{ id: string; name: string } | null>(null);
 
-  const handleOpenRename = () => {
+  const handleOpenRename = (projectId: string, projectName: string) => {
+    setProjectToRename({ id: projectId, name: projectName });
     setNewName(projectName);
     setIsRenameOpen(true);
   };
 
   const handleRename = () => {
-    if (newName.trim() && currentProjectId && onRenameProject) {
-      onRenameProject(currentProjectId, newName.trim());
+    if (newName.trim() && projectToRename && onRenameProject) {
+      onRenameProject(projectToRename.id, newName.trim());
       setIsRenameOpen(false);
+      setProjectToRename(null);
     }
   };
 
+  const handleOpenDelete = (projectId: string, projectName: string) => {
+    setProjectToDelete({ id: projectId, name: projectName });
+    setIsDeleteOpen(true);
+  };
+
   const handleDelete = () => {
-    if (currentProjectId && onDeleteProject) {
-      onDeleteProject(currentProjectId);
+    if (projectToDelete && onDeleteProject) {
+      onDeleteProject(projectToDelete.id);
       setIsDeleteOpen(false);
+      setProjectToDelete(null);
     }
   };
 
@@ -108,38 +118,45 @@ export function TopBar({
               </div>
             ) : (
               <>
-                {/* Rename current project */}
-                {currentProjectId && onRenameProject && (
-                  <DropdownMenuItem onClick={handleOpenRename}>
-                    <Pencil className="h-4 w-4 mr-2 text-muted-foreground" />
-                    <span>Rename Project</span>
-                  </DropdownMenuItem>
-                )}
-                
-                {/* Delete current project */}
-                {currentProjectId && onDeleteProject && (
-                  <DropdownMenuItem 
-                    onClick={() => setIsDeleteOpen(true)}
-                    className="text-destructive focus:text-destructive"
-                  >
-                    <Trash2 className="h-4 w-4 mr-2" />
-                    <span>Delete Project</span>
-                  </DropdownMenuItem>
-                )}
-                
-                {currentProjectId && (onRenameProject || onDeleteProject) && (
-                  <DropdownMenuSeparator />
-                )}
-
                 {projects.map((project) => (
-                  <DropdownMenuItem
+                  <div
                     key={project.id}
-                    onClick={() => onSelectProject(project.id)}
-                    className={project.id === currentProjectId ? 'bg-accent-muted' : ''}
+                    className={`flex items-center group ${project.id === currentProjectId ? 'bg-accent-muted' : ''}`}
                   >
-                    <FolderOpen className="h-4 w-4 mr-2 text-muted-foreground" />
-                    <span className="truncate">{project.project_name}</span>
-                  </DropdownMenuItem>
+                    <DropdownMenuItem
+                      onClick={() => onSelectProject(project.id)}
+                      className="flex-1"
+                    >
+                      <FolderOpen className="h-4 w-4 mr-2 text-muted-foreground" />
+                      <span className="truncate flex-1">{project.project_name}</span>
+                    </DropdownMenuItem>
+                    <div className="flex items-center gap-0.5 pr-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                      {onRenameProject && (
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleOpenRename(project.id, project.project_name);
+                          }}
+                          className="p-1 rounded hover:bg-white/10 text-muted-foreground hover:text-foreground"
+                          title="Rename"
+                        >
+                          <Pencil className="h-3.5 w-3.5" />
+                        </button>
+                      )}
+                      {onDeleteProject && (
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleOpenDelete(project.id, project.project_name);
+                          }}
+                          className="p-1 rounded hover:bg-destructive/20 text-muted-foreground hover:text-destructive"
+                          title="Delete"
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </button>
+                      )}
+                    </div>
+                  </div>
                 ))}
                 {projects.length > 0 && <DropdownMenuSeparator />}
                 <DropdownMenuItem onClick={onNewProject}>
@@ -177,7 +194,10 @@ export function TopBar({
       </header>
 
       {/* Rename Dialog */}
-      <Dialog open={isRenameOpen} onOpenChange={setIsRenameOpen}>
+      <Dialog open={isRenameOpen} onOpenChange={(open) => {
+        setIsRenameOpen(open);
+        if (!open) setProjectToRename(null);
+      }}>
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
             <DialogTitle>Rename Project</DialogTitle>
@@ -212,12 +232,15 @@ export function TopBar({
       </Dialog>
 
       {/* Delete Confirmation Dialog */}
-      <AlertDialog open={isDeleteOpen} onOpenChange={setIsDeleteOpen}>
+      <AlertDialog open={isDeleteOpen} onOpenChange={(open) => {
+        setIsDeleteOpen(open);
+        if (!open) setProjectToDelete(null);
+      }}>
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>Delete Project</AlertDialogTitle>
             <AlertDialogDescription>
-              Are you sure you want to delete "{projectName}"? This action cannot be undone.
+              Are you sure you want to delete "{projectToDelete?.name}"? This action cannot be undone.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
