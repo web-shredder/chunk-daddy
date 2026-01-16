@@ -63,9 +63,7 @@ const Index = () => {
         <div className="container max-w-7xl mx-auto px-4 py-4">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-lg bg-primary flex items-center justify-center">
-                <Zap className="h-5 w-5 text-primary-foreground" />
-              </div>
+              <img src="/favicon.png" alt="Chunk Daddy" className="w-10 h-10 rounded-lg" />
               <div>
                 <h1 className="text-xl font-bold">Chunk Daddy</h1>
                 <p className="text-xs text-muted-foreground">Layout-Aware Content Chunking for RAG Systems</p>
