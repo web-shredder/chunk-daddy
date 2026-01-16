@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { BarChart3, ChevronLeft, ChevronRight, ChevronDown, ChevronUp, Copy, Download, Search, AlertCircle, FileJson, FileText, TreeDeciduous, List, Table } from 'lucide-react';
+import { DismissableTip } from '@/components/DismissableTip';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { ScrollArea } from '@/components/ui/scroll-area';
@@ -373,6 +374,10 @@ export function ResultsTab({
           {/* Detail Content */}
           <ScrollArea className="flex-1">
             <div className="p-6 space-y-8">
+              <DismissableTip tipId="results-score">
+                Passage Score predicts how likely this chunk is to be cited in AI search results. 75+ is competitive, 90+ is excellent.
+              </DismissableTip>
+
               {/* Passage Score Hero - Average of per-keyword passage scores */}
               {selectedScore && (() => {
                 // Calculate passage score for each keyword, then average

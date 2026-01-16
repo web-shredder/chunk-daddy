@@ -13,6 +13,7 @@ import {
   TrendingDown,
   Minus,
 } from 'lucide-react';
+import { DismissableTip } from '@/components/DismissableTip';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -416,6 +417,10 @@ export function OptimizeTab({
                 AI-powered content optimization to improve chunk relevance for your queries
               </p>
             </div>
+
+            <DismissableTip tipId="optimize-intro">
+              AI will rewrite low-scoring chunks to improve your Passage Score and increase the chance of being cited in AI search results.
+            </DismissableTip>
 
             <OptimizationEngine
               content={content}
