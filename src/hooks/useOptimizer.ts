@@ -8,6 +8,9 @@ import type {
   ValidatedChunk,
   ChangeExplanation,
   FullOptimizationResult,
+  OptimizationSummary,
+  ChunkScoreSummary,
+  QueryScoreDetail,
 } from '@/lib/optimizer-types';
 
 export type OptimizationStep = 'idle' | 'analyzing' | 'optimizing' | 'scoring' | 'explaining' | 'complete' | 'error';
@@ -97,7 +100,10 @@ export function useOptimizer() {
 
       setState(prev => ({ ...prev, progress: 70 }));
 
-      // Calculate scores and improvements
+      // Calculate scores and improvements + capture for summary
+      const originalScoresMap: Record<number, Record<string, number>> = {};
+      const optimizedScoresMap: Record<number, Record<string, number>> = {};
+      
       const validatedChunks: ValidatedChunk[] = optimization.optimized_chunks.map((chunk, chunkIdx) => {
         const chunkScores: Record<string, number> = {};
         const originalScores: Record<string, number> = {};
@@ -120,6 +126,10 @@ export function useOptimizer() {
           chunkScores[query] = optimizedMetrics.cosine;
           originalScores[query] = originalMetrics.cosine;
         });
+
+        // Store for summary generation
+        originalScoresMap[chunkIdx] = originalScores;
+        optimizedScoresMap[chunkIdx] = chunkScores;
 
         // Calculate actual improvements for each change
         const validatedChanges = chunk.changes_applied.map(change => {
@@ -147,7 +157,22 @@ export function useOptimizer() {
         };
       });
 
-      setState(prev => ({ ...prev, step: 'explaining', progress: 85 }));
+      setState(prev => ({ ...prev, step: 'explaining', progress: 80 }));
+
+      // Prepare chunk score data for summary generation
+      const chunkScoreData = validatedChunks.map((chunk, idx) => ({
+        chunk_number: chunk.chunk_number,
+        heading: chunk.heading,
+        scores: queries.map(query => ({
+          query,
+          original: originalScoresMap[idx]?.[query] || 0,
+          optimized: optimizedScoresMap[idx]?.[query] || 0,
+          percent_change: calculateImprovement(
+            originalScoresMap[idx]?.[query] || 0,
+            optimizedScoresMap[idx]?.[query] || 0
+          ),
+        })),
+      }));
 
       // Step 4: Generate explanations
       console.log('Step 4: Generating explanations...');
@@ -162,12 +187,42 @@ export function useOptimizer() {
       const explanations: ChangeExplanation[] = explainData.result.explanations;
       console.log('Explanations complete:', explanations.length, 'explanations generated');
 
+      setState(prev => ({ ...prev, progress: 90 }));
+
+      // Step 5: Generate summary with RAG explanations
+      console.log('Step 5: Generating optimization summary...');
+      const { data: summaryData, error: summaryError } = await supabase.functions.invoke('optimize-content', {
+        body: { 
+          type: 'summarize', 
+          content, 
+          queries, 
+          validatedChanges: validatedChunks,
+          chunkScoreData,
+        },
+      });
+
+      let summary: OptimizationSummary | undefined;
+      
+      if (summaryError || summaryData?.error) {
+        console.warn('Summary generation failed, using fallback:', summaryData?.error || summaryError?.message);
+        // Build fallback summary without AI explanations
+        summary = buildFallbackSummary(chunkScoreData, queries, validatedChunks);
+      } else {
+        // Build summary from AI response
+        const summaryResult = summaryData.result;
+        summary = buildSummaryFromAI(chunkScoreData, queries, validatedChunks, summaryResult);
+      }
+
+      console.log('Summary complete');
+
       const fullResult: FullOptimizationResult = {
         analysis,
         optimizedChunks: validatedChunks,
         explanations,
         originalContent: content,
         timestamp: new Date(),
+        summary,
+        originalScores: originalScoresMap,
       };
 
       setState({
@@ -205,4 +260,122 @@ export function useOptimizer() {
     optimize,
     reset,
   };
+}
+
+// Build summary from AI response
+function buildSummaryFromAI(
+  chunkScoreData: any[],
+  queries: string[],
+  validatedChunks: ValidatedChunk[],
+  aiResult: any
+): OptimizationSummary {
+  const ragExplanations = aiResult.rag_explanations || [];
+  
+  // Build chunk scores with RAG explanations
+  const chunkScores: ChunkScoreSummary[] = chunkScoreData.map((chunk, idx) => {
+    const queryScores: QueryScoreDetail[] = chunk.scores.map((qs: any) => {
+      const explanation = ragExplanations.find(
+        (e: any) => e.chunk_number === chunk.chunk_number && e.query === qs.query
+      );
+      return {
+        query: qs.query,
+        originalCosine: qs.original,
+        optimizedCosine: qs.optimized,
+        percentChange: qs.percent_change,
+        ragImpactExplanation: explanation?.explanation || getDefaultRagExplanation(qs.percent_change),
+      };
+    });
+
+    const avgImprovement = queryScores.length > 0
+      ? queryScores.reduce((sum, qs) => sum + qs.percentChange, 0) / queryScores.length
+      : 0;
+
+    return {
+      chunkNumber: chunk.chunk_number,
+      heading: chunk.heading,
+      queryScores,
+      overallImprovement: avgImprovement,
+    };
+  });
+
+  // Calculate overall averages
+  const allOriginal = chunkScoreData.flatMap(c => c.scores.map((s: any) => s.original));
+  const allOptimized = chunkScoreData.flatMap(c => c.scores.map((s: any) => s.optimized));
+  const overallOriginalAvg = allOriginal.length > 0 ? allOriginal.reduce((a, b) => a + b, 0) / allOriginal.length : 0;
+  const overallOptimizedAvg = allOptimized.length > 0 ? allOptimized.reduce((a, b) => a + b, 0) / allOptimized.length : 0;
+  const overallPercentChange = calculateImprovement(overallOriginalAvg, overallOptimizedAvg);
+
+  return {
+    chunkScores,
+    overallOriginalAvg,
+    overallOptimizedAvg,
+    overallPercentChange,
+    furtherSuggestions: (aiResult.further_suggestions || []).map((s: any) => ({
+      suggestion: s.suggestion,
+      expectedImpact: s.expected_impact,
+      reasoning: s.reasoning,
+    })),
+    tradeOffConsiderations: (aiResult.trade_off_considerations || []).map((t: any) => ({
+      category: t.category,
+      concern: t.concern,
+      severity: t.severity,
+    })),
+  };
+}
+
+// Build fallback summary without AI explanations
+function buildFallbackSummary(
+  chunkScoreData: any[],
+  queries: string[],
+  validatedChunks: ValidatedChunk[]
+): OptimizationSummary {
+  const chunkScores: ChunkScoreSummary[] = chunkScoreData.map((chunk) => {
+    const queryScores: QueryScoreDetail[] = chunk.scores.map((qs: any) => ({
+      query: qs.query,
+      originalCosine: qs.original,
+      optimizedCosine: qs.optimized,
+      percentChange: qs.percent_change,
+      ragImpactExplanation: getDefaultRagExplanation(qs.percent_change),
+    }));
+
+    const avgImprovement = queryScores.length > 0
+      ? queryScores.reduce((sum, qs) => sum + qs.percentChange, 0) / queryScores.length
+      : 0;
+
+    return {
+      chunkNumber: chunk.chunk_number,
+      heading: chunk.heading,
+      queryScores,
+      overallImprovement: avgImprovement,
+    };
+  });
+
+  const allOriginal = chunkScoreData.flatMap(c => c.scores.map((s: any) => s.original));
+  const allOptimized = chunkScoreData.flatMap(c => c.scores.map((s: any) => s.optimized));
+  const overallOriginalAvg = allOriginal.length > 0 ? allOriginal.reduce((a, b) => a + b, 0) / allOriginal.length : 0;
+  const overallOptimizedAvg = allOptimized.length > 0 ? allOptimized.reduce((a, b) => a + b, 0) / allOptimized.length : 0;
+  const overallPercentChange = calculateImprovement(overallOriginalAvg, overallOptimizedAvg);
+
+  return {
+    chunkScores,
+    overallOriginalAvg,
+    overallOptimizedAvg,
+    overallPercentChange,
+    furtherSuggestions: [],
+    tradeOffConsiderations: [],
+  };
+}
+
+// Generate default RAG explanation based on percent change
+function getDefaultRagExplanation(percentChange: number): string {
+  if (percentChange > 10) {
+    return 'Significant improvement in semantic alignment. This chunk will rank much closer in vector search results for this query.';
+  } else if (percentChange > 0) {
+    return 'Moderate improvement in cosine similarity. The optimized text better matches the query\'s semantic intent.';
+  } else if (percentChange < -10) {
+    return 'Score decreased significantly. Review the changes to ensure key terms weren\'t removed.';
+  } else if (percentChange < 0) {
+    return 'Slight decrease in similarity. This may be acceptable if other queries improved.';
+  }
+  return 'Similarity remained stable. The content was already well-aligned with this query.';
 }

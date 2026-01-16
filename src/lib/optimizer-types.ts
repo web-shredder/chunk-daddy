@@ -66,10 +66,49 @@ export interface ExplanationsResult {
   explanations: ChangeExplanation[];
 }
 
+// Enhanced summary types for detailed analysis reporting
+export interface QueryScoreDetail {
+  query: string;
+  originalCosine: number;
+  optimizedCosine: number;
+  percentChange: number;
+  ragImpactExplanation: string;
+}
+
+export interface ChunkScoreSummary {
+  chunkNumber: number;
+  heading?: string;
+  queryScores: QueryScoreDetail[];
+  overallImprovement: number;
+}
+
+export interface FurtherOptimizationSuggestion {
+  suggestion: string;
+  expectedImpact: 'high' | 'medium' | 'low' | 'unlikely';
+  reasoning: string;
+}
+
+export interface TradeOffConsideration {
+  category: 'brand' | 'ux' | 'readability' | 'seo' | 'other';
+  concern: string;
+  severity: 'minor' | 'moderate' | 'significant';
+}
+
+export interface OptimizationSummary {
+  chunkScores: ChunkScoreSummary[];
+  overallOriginalAvg: number;
+  overallOptimizedAvg: number;
+  overallPercentChange: number;
+  furtherSuggestions: FurtherOptimizationSuggestion[];
+  tradeOffConsiderations: TradeOffConsideration[];
+}
+
 export interface FullOptimizationResult {
   analysis: ContentAnalysis;
   optimizedChunks: ValidatedChunk[];
   explanations: ChangeExplanation[];
   originalContent: string;
   timestamp: Date;
+  summary?: OptimizationSummary;
+  originalScores?: Record<number, Record<string, number>>;
 }
