@@ -1,7 +1,7 @@
-import { FileText, Microscope, BarChart3, Loader2, Check, Save } from 'lucide-react';
+import { FileText, Microscope, BarChart3, Sparkles, Loader2, Check, Save } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
-export type TabId = 'content' | 'analyze' | 'results';
+export type TabId = 'content' | 'analyze' | 'results' | 'optimize';
 
 interface Tab {
   id: TabId;
@@ -13,6 +13,7 @@ const tabs: Tab[] = [
   { id: 'content', icon: FileText, label: 'Content' },
   { id: 'analyze', icon: Microscope, label: 'Analyze' },
   { id: 'results', icon: BarChart3, label: 'Results' },
+  { id: 'optimize', icon: Sparkles, label: 'Optimize' },
 ];
 
 interface TabBarProps {
@@ -53,6 +54,7 @@ export function TabBar({
   const getTabDisabled = (tabId: TabId): boolean => {
     if (tabId === 'analyze') return !hasContent;
     if (tabId === 'results') return !hasAnalysis;
+    if (tabId === 'optimize') return !hasAnalysis;
     return false;
   };
 
