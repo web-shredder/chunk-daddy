@@ -1,13 +1,26 @@
 import { useState } from 'react';
-import { Plus, X, Play, Loader2, Microscope, Wand2 } from 'lucide-react';
+import { Plus, X, Play, Loader2, Microscope, Sparkles, Check } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Slider } from '@/components/ui/slider';
 import { Switch } from '@/components/ui/switch';
 import { Progress } from '@/components/ui/progress';
+import { Checkbox } from '@/components/ui/checkbox';
+import { Badge } from '@/components/ui/badge';
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from '@/components/ui/collapsible';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
 import type { ChunkerOptions } from '@/lib/layout-chunker';
+
+interface ExpandedQuery {
+  keyword: string;
+  isOriginal: boolean;
+  selected: boolean;
+}
 
 interface AnalyzeTabProps {
   hasChunks: boolean;
@@ -34,6 +47,8 @@ export function AnalyzeTab({
 }: AnalyzeTabProps) {
   const [newQuery, setNewQuery] = useState('');
   const [isGenerating, setIsGenerating] = useState(false);
+  const [expandedQueries, setExpandedQueries] = useState<ExpandedQuery[]>([]);
+  const [fanoutOpen, setFanoutOpen] = useState(true);
 
   const addQuery = () => {
     if (newQuery.trim() && !keywords.includes(newQuery.trim())) {
@@ -53,11 +68,21 @@ export function AnalyzeTab({
     }
 
     setIsGenerating(true);
+    setExpandedQueries([]);
+
     try {
       const { data, error } = await supabase.functions.invoke('optimize-content', {
         body: {
           type: 'suggest_keywords',
-          content: `Generate 4-6 semantic query variations for RAG testing based on: "${newQuery.trim()}"`,
+          content: `Generate semantically related search queries for: "${newQuery.trim()}"
+          
+Context: This is for testing RAG retrieval. Generate 4 related queries:
+1. Direct synonym or alternative phrasing
+2. More specific sub-topic
+3. Related concept
+4. Common alternative term
+
+Keep queries concise (2-4 words each).`,
         },
       });
 
@@ -66,19 +91,47 @@ export function AnalyzeTab({
       }
 
       const suggestions = data.result?.keywords?.map((k: { keyword: string }) => k.keyword) || [];
-      const newQueries = [newQuery.trim(), ...suggestions].filter(
-        (q, i, arr) => arr.indexOf(q) === i && !keywords.includes(q)
-      );
-      
-      onKeywordsChange([...keywords, ...newQueries]);
-      setNewQuery('');
-      toast.success(`Added ${newQueries.length} queries`);
+      const expanded: ExpandedQuery[] = [
+        { keyword: newQuery.trim(), isOriginal: true, selected: true },
+        ...suggestions.slice(0, 4).map((s: string) => ({
+          keyword: s,
+          isOriginal: false,
+          selected: true,
+        })),
+      ];
+
+      setExpandedQueries(expanded);
+      toast.success(`Generated ${expanded.length - 1} related queries`);
     } catch (err) {
       console.error(err);
       toast.error('Failed to generate variations');
     } finally {
       setIsGenerating(false);
     }
+  };
+
+  const toggleExpandedQuery = (keyword: string) => {
+    setExpandedQueries(prev =>
+      prev.map(q =>
+        q.keyword === keyword ? { ...q, selected: !q.selected } : q
+      )
+    );
+  };
+
+  const applyExpandedQueries = () => {
+    const selected = expandedQueries
+      .filter(q => q.selected)
+      .map(q => q.keyword)
+      .filter(k => !keywords.includes(k));
+    
+    onKeywordsChange([...keywords, ...selected]);
+    setExpandedQueries([]);
+    setNewQuery('');
+    toast.success(`Added ${selected.length} queries`);
+  };
+
+  const clearExpandedQueries = () => {
+    setExpandedQueries([]);
   };
 
   if (!hasChunks) {
@@ -131,19 +184,69 @@ export function AnalyzeTab({
             <button
               onClick={handleGenerateFanout}
               disabled={!newQuery.trim() || isGenerating}
-              className="btn-secondary"
-              title="Generate variations"
+              className="btn-secondary gap-1.5"
+              title="Generate related query variations"
             >
               {isGenerating ? (
                 <Loader2 className="h-4 w-4 animate-spin" />
               ) : (
-                <Wand2 className="h-4 w-4" />
+                <Sparkles className="h-4 w-4" />
               )}
+              <span className="hidden sm:inline text-xs">Expand</span>
             </button>
           </div>
 
+          {/* Fanout Expanded Queries */}
+          {expandedQueries.length > 0 && (
+            <Collapsible open={fanoutOpen} onOpenChange={setFanoutOpen}>
+              <div className="border border-accent/30 rounded-lg p-3 bg-accent/5 space-y-3">
+                <CollapsibleTrigger asChild>
+                  <button className="flex items-center justify-between w-full text-sm font-medium text-foreground">
+                    <span>Related Queries ({expandedQueries.filter(q => q.selected).length} selected)</span>
+                    <Sparkles className="h-4 w-4 text-accent" />
+                  </button>
+                </CollapsibleTrigger>
+
+                <CollapsibleContent className="space-y-3">
+                  <div className="space-y-2">
+                    {expandedQueries.map((query) => (
+                      <label
+                        key={query.keyword}
+                        className="flex items-center gap-2 cursor-pointer p-2 rounded-md hover:bg-background/50"
+                      >
+                        <Checkbox
+                          checked={query.selected}
+                          onCheckedChange={() => toggleExpandedQuery(query.keyword)}
+                        />
+                        <span className="text-sm flex-1">{query.keyword}</span>
+                        {query.isOriginal && (
+                          <Badge variant="secondary" className="text-[10px] px-1.5 py-0 h-4">
+                            primary
+                          </Badge>
+                        )}
+                      </label>
+                    ))}
+                  </div>
+
+                  <div className="flex items-center gap-2">
+                    <button onClick={applyExpandedQueries} className="btn-primary flex-1 h-8 text-sm">
+                      <Check className="h-3.5 w-3.5 mr-1.5" />
+                      Apply Selected
+                    </button>
+                    <button
+                      onClick={clearExpandedQueries}
+                      className="btn-secondary h-8"
+                    >
+                      <X className="h-4 w-4" />
+                    </button>
+                  </div>
+                </CollapsibleContent>
+              </div>
+            </Collapsible>
+          )}
+
           {/* Query List */}
-          <div className="flex-1 space-y-2 max-h-[300px] overflow-y-auto">
+          <div className="flex-1 space-y-2 max-h-[250px] overflow-y-auto">
             {keywords.length === 0 ? (
               <p className="text-sm text-muted-foreground text-center py-8">
                 Add queries to test retrieval relevance

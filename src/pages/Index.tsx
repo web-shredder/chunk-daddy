@@ -204,6 +204,13 @@ const Index = () => {
           contentModified={contentModified}
           onReanalyze={handleAnalyze}
           onGoToAnalyze={() => setActiveTab('analyze')}
+          content={content}
+          onApplyOptimization={(optimizedContent) => {
+            setContent(optimizedContent);
+            markUnsaved(optimizedContent, keywords, chunkerOptions, result);
+          }}
+          elements={parsedElements}
+          result={result}
         />
       )}
     </div>

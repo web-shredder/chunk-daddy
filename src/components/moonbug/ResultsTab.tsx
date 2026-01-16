@@ -4,27 +4,40 @@ import {
   ChevronLeft,
   ChevronRight,
   ChevronDown,
+  ChevronUp,
   Copy,
   Download,
   Search,
   AlertCircle,
   FileJson,
   FileText,
+  TreeDeciduous,
+  List,
+  Sparkles,
+  Table,
 } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { ScrollArea } from '@/components/ui/scroll-area';
+import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from '@/components/ui/collapsible';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
 import { formatScore, getScoreColorClass } from '@/lib/similarity';
-import type { LayoutAwareChunk } from '@/lib/layout-chunker';
-import type { ChunkScore } from '@/hooks/useAnalysis';
+import { downloadCSV } from '@/lib/csv-export';
+import { OptimizationEngine } from '@/components/optimizer/OptimizationEngine';
+import type { LayoutAwareChunk, DocumentElement } from '@/lib/layout-chunker';
+import type { ChunkScore, AnalysisResult } from '@/hooks/useAnalysis';
 
 interface ResultsTabProps {
   hasResults: boolean;
@@ -34,6 +47,198 @@ interface ResultsTabProps {
   contentModified: boolean;
   onReanalyze: () => void;
   onGoToAnalyze: () => void;
+  // For optimizer
+  content: string;
+  onApplyOptimization: (optimizedContent: string) => void;
+  // For document structure
+  elements: DocumentElement[];
+  result?: AnalysisResult;
+}
+
+// Tree node for document structure
+interface HeadingNode {
+  heading: DocumentElement;
+  children: HeadingNode[];
+  chunks: Array<{
+    chunk: LayoutAwareChunk;
+    score?: ChunkScore;
+  }>;
+}
+
+function buildHeadingTree(
+  elements: DocumentElement[],
+  chunks: LayoutAwareChunk[],
+  chunkScores?: ChunkScore[]
+): HeadingNode[] {
+  const root: HeadingNode[] = [];
+  const stack: HeadingNode[] = [];
+  
+  const chunksByPath = new Map<string, Array<{ chunk: LayoutAwareChunk; score?: ChunkScore }>>();
+  
+  for (const chunk of chunks) {
+    const pathKey = chunk.headingPath.join(' > ');
+    if (!chunksByPath.has(pathKey)) {
+      chunksByPath.set(pathKey, []);
+    }
+    const score = chunkScores?.find(cs => cs.chunkId === chunk.id);
+    chunksByPath.get(pathKey)!.push({ chunk, score });
+  }
+  
+  for (const element of elements) {
+    if (element.type === 'heading') {
+      const node: HeadingNode = {
+        heading: element,
+        children: [],
+        chunks: [],
+      };
+      
+      const pathKey = element.headings.map(h => h.text).join(' > ');
+      const matchingChunks = chunksByPath.get(pathKey) || [];
+      node.chunks = matchingChunks;
+      
+      while (stack.length > 0 && stack[stack.length - 1].heading.level! >= element.level!) {
+        stack.pop();
+      }
+      
+      if (stack.length === 0) {
+        root.push(node);
+      } else {
+        stack[stack.length - 1].children.push(node);
+      }
+      
+      stack.push(node);
+    }
+  }
+  
+  const orphanChunks = chunks.filter(c => c.headingPath.length === 0);
+  if (orphanChunks.length > 0) {
+    const orphanNode: HeadingNode = {
+      heading: {
+        type: 'heading',
+        level: 0,
+        content: '(Document Root)',
+        headings: [],
+        lineStart: 0,
+        lineEnd: 0,
+      },
+      children: [],
+      chunks: orphanChunks.map(chunk => ({
+        chunk,
+        score: chunkScores?.find(cs => cs.chunkId === chunk.id),
+      })),
+    };
+    root.unshift(orphanNode);
+  }
+  
+  return root;
+}
+
+function HeadingNodeView({
+  node,
+  keywords,
+  depth = 0,
+  onSelectChunk,
+  selectedChunkId,
+}: {
+  node: HeadingNode;
+  keywords: string[];
+  depth?: number;
+  onSelectChunk: (chunkIndex: number) => void;
+  selectedChunkId?: string;
+  allChunks: LayoutAwareChunk[];
+}) {
+  const [isOpen, setIsOpen] = useState(true);
+  const hasContent = node.children.length > 0 || node.chunks.length > 0;
+  const level = node.heading.level || 0;
+  
+  return (
+    <div className={cn("relative", depth > 0 && "ml-4 border-l border-border/50 pl-2")}>
+      <Collapsible open={isOpen} onOpenChange={setIsOpen}>
+        <CollapsibleTrigger asChild>
+          <button className={cn(
+            "flex items-center gap-2 w-full text-left py-1.5 px-2 rounded-md",
+            "hover:bg-muted/50 transition-colors group"
+          )}>
+            {hasContent ? (
+              isOpen ? (
+                <ChevronDown className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+              ) : (
+                <ChevronRight className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+              )
+            ) : (
+              <span className="w-3.5" />
+            )}
+            
+            <span className={cn(
+              "text-sm truncate",
+              level === 1 && "font-semibold text-foreground",
+              level === 2 && "font-medium text-foreground",
+              level >= 3 && "text-muted-foreground"
+            )}>
+              {node.heading.content}
+            </span>
+            
+            {level > 0 && (
+              <Badge variant="outline" className="text-[10px] px-1 py-0 h-4 shrink-0">
+                H{level}
+              </Badge>
+            )}
+          </button>
+        </CollapsibleTrigger>
+        
+        <CollapsibleContent>
+          {node.chunks.map(({ chunk, score }) => {
+            const avgScore = score
+              ? score.keywordScores.reduce((sum, ks) => sum + ks.scores.cosine, 0) /
+                score.keywordScores.length
+              : 0;
+            const isSelected = selectedChunkId === chunk.id;
+            const chunkNum = parseInt(chunk.id.replace('chunk-', ''));
+            
+            return (
+              <button
+                key={chunk.id}
+                onClick={() => onSelectChunk(chunkNum)}
+                className={cn(
+                  "flex items-center gap-2 w-full text-left py-1.5 px-2 ml-5 rounded-md",
+                  "hover:bg-muted/50 transition-colors text-xs",
+                  isSelected && "bg-accent/20 border-l-2 border-accent"
+                )}
+              >
+                <FileText className="h-3 w-3 text-muted-foreground shrink-0" />
+                <span className="text-muted-foreground truncate flex-1">
+                  {chunk.textWithoutCascade.slice(0, 50)}...
+                </span>
+                {score && (
+                  <Badge
+                    variant="secondary"
+                    className={cn(
+                      "text-[10px] px-1.5 py-0 h-4 shrink-0 font-mono",
+                      getScoreColorClass(avgScore)
+                    )}
+                  >
+                    {avgScore.toFixed(2)}
+                  </Badge>
+                )}
+              </button>
+            );
+          })}
+          
+          {node.children.map((child, idx) => (
+            <HeadingNodeView
+              key={idx}
+              node={child}
+              keywords={keywords}
+              depth={depth + 1}
+              onSelectChunk={onSelectChunk}
+              selectedChunkId={selectedChunkId}
+              allChunks={[]}
+            />
+          ))}
+        </CollapsibleContent>
+      </Collapsible>
+    </div>
+  );
 }
 
 export function ResultsTab({
@@ -44,10 +249,14 @@ export function ResultsTab({
   contentModified,
   onReanalyze,
   onGoToAnalyze,
+  content,
+  onApplyOptimization,
+  elements,
+  result,
 }: ResultsTabProps) {
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedIndex, setSelectedIndex] = useState(0);
-  const [expandedHeadings, setExpandedHeadings] = useState<Set<string>>(new Set(['root']));
+  const [viewMode, setViewMode] = useState<'list' | 'structure'>('list');
 
   if (!hasResults) {
     return (
@@ -67,10 +276,9 @@ export function ResultsTab({
   const selectedChunk = chunks[selectedIndex];
   const selectedScore = chunkScores[selectedIndex];
 
-  // Filter chunks by search
   const filteredChunks = searchQuery
     ? chunks.filter(
-        (c, i) =>
+        (c) =>
           c.text.toLowerCase().includes(searchQuery.toLowerCase()) ||
           c.headingPath.some((h) =>
             h.toLowerCase().includes(searchQuery.toLowerCase())
@@ -112,11 +320,57 @@ export function ResultsTab({
     toast.success('Exported as JSON');
   };
 
+  const exportMarkdown = () => {
+    const lines: string[] = [];
+    lines.push('# Chunk Daddy Analysis Report\n');
+    lines.push(`Exported: ${new Date().toLocaleString()}\n`);
+    
+    lines.push('## Chunks\n');
+    for (const chunk of chunks) {
+      const score = chunkScores.find(cs => cs.chunkId === chunk.id);
+      lines.push(`### ${chunk.id}`);
+      lines.push(`**Heading Path:** ${chunk.headingPath.join(' > ') || '(root)'}\n`);
+      
+      if (score) {
+        lines.push('| Keyword | Cosine |');
+        lines.push('|---------|--------|');
+        for (const ks of score.keywordScores) {
+          lines.push(`| ${ks.keyword} | ${ks.scores.cosine.toFixed(4)} |`);
+        }
+        lines.push('');
+      }
+      
+      lines.push('```');
+      lines.push(chunk.textWithoutCascade.slice(0, 300) + (chunk.textWithoutCascade.length > 300 ? '...' : ''));
+      lines.push('```\n');
+    }
+    
+    const blob = new Blob([lines.join('\n')], { type: 'text/markdown' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `chunk-daddy-report-${new Date().toISOString().slice(0, 10)}.md`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+    toast.success('Exported as Markdown');
+  };
+
+  const handleExportCSV = () => {
+    if (result) {
+      downloadCSV(result, `chunk-daddy-results-${new Date().toISOString().slice(0, 10)}.csv`);
+      toast.success('Exported as CSV');
+    }
+  };
+
   const getScoreClass = (value: number) => {
     if (value >= 0.7) return 'score-high';
     if (value >= 0.5) return 'score-medium';
     return 'score-low';
   };
+
+  const tree = buildHeadingTree(elements, chunks, chunkScores);
 
   return (
     <div className="flex-1 flex flex-col bg-background overflow-hidden">
@@ -132,10 +386,37 @@ export function ResultsTab({
       )}
 
       <div className="flex-1 flex overflow-hidden">
-        {/* Left: Tree Structure */}
+        {/* Left: Tree/List Structure */}
         <div className="w-80 border-r border-border flex flex-col bg-surface shrink-0">
-          {/* Search */}
-          <div className="p-4 border-b border-border">
+          {/* Header with view toggle */}
+          <div className="p-3 border-b border-border space-y-2">
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => setViewMode('list')}
+                className={cn(
+                  "flex-1 flex items-center justify-center gap-1.5 py-1.5 px-2 rounded-md text-xs transition-colors",
+                  viewMode === 'list' 
+                    ? "bg-accent/20 text-accent" 
+                    : "text-muted-foreground hover:text-foreground hover:bg-muted/50"
+                )}
+              >
+                <List className="h-3.5 w-3.5" />
+                List
+              </button>
+              <button
+                onClick={() => setViewMode('structure')}
+                className={cn(
+                  "flex-1 flex items-center justify-center gap-1.5 py-1.5 px-2 rounded-md text-xs transition-colors",
+                  viewMode === 'structure' 
+                    ? "bg-accent/20 text-accent" 
+                    : "text-muted-foreground hover:text-foreground hover:bg-muted/50"
+                )}
+              >
+                <TreeDeciduous className="h-3.5 w-3.5" />
+                Structure
+              </button>
+            </div>
+            
             <div className="relative">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
               <Input
@@ -147,44 +428,59 @@ export function ResultsTab({
             </div>
           </div>
 
-          {/* Tree Content */}
+          {/* Content */}
           <ScrollArea className="flex-1">
-            <div className="p-2 space-y-0.5">
-              {filteredChunks.map((chunk, idx) => {
-                const score = chunkScores[chunks.indexOf(chunk)];
-                const avgScore = score
-                  ? score.keywordScores.reduce((sum, ks) => sum + ks.scores.cosine, 0) /
-                    score.keywordScores.length
-                  : 0;
-                const isActive = chunks.indexOf(chunk) === selectedIndex;
+            {viewMode === 'list' ? (
+              <div className="p-2 space-y-0.5">
+                {filteredChunks.map((chunk, idx) => {
+                  const score = chunkScores[chunks.indexOf(chunk)];
+                  const avgScore = score
+                    ? score.keywordScores.reduce((sum, ks) => sum + ks.scores.cosine, 0) /
+                      score.keywordScores.length
+                    : 0;
+                  const isActive = chunks.indexOf(chunk) === selectedIndex;
 
-                return (
-                  <button
-                    key={chunk.id}
-                    onClick={() => setSelectedIndex(chunks.indexOf(chunk))}
-                    className={cn(
-                      'tree-item w-full text-left',
-                      isActive && 'active'
-                    )}
-                  >
-                    <span className="truncate flex-1">
-                      {chunk.headingPath.length > 0
-                        ? chunk.headingPath[chunk.headingPath.length - 1]
-                        : `Chunk ${chunk.id.replace('chunk-', '')}`}
-                    </span>
-                    <Badge
-                      variant="secondary"
+                  return (
+                    <button
+                      key={chunk.id}
+                      onClick={() => setSelectedIndex(chunks.indexOf(chunk))}
                       className={cn(
-                        'text-[10px] px-1.5 py-0 h-4 shrink-0 font-mono',
-                        getScoreColorClass(avgScore)
+                        'tree-item w-full text-left',
+                        isActive && 'active'
                       )}
                     >
-                      {avgScore.toFixed(2)}
-                    </Badge>
-                  </button>
-                );
-              })}
-            </div>
+                      <span className="truncate flex-1">
+                        {chunk.headingPath.length > 0
+                          ? chunk.headingPath[chunk.headingPath.length - 1]
+                          : `Chunk ${chunk.id.replace('chunk-', '')}`}
+                      </span>
+                      <Badge
+                        variant="secondary"
+                        className={cn(
+                          'text-[10px] px-1.5 py-0 h-4 shrink-0 font-mono',
+                          getScoreColorClass(avgScore)
+                        )}
+                      >
+                        {avgScore.toFixed(2)}
+                      </Badge>
+                    </button>
+                  );
+                })}
+              </div>
+            ) : (
+              <div className="p-2 space-y-0.5">
+                {tree.map((node, idx) => (
+                  <HeadingNodeView
+                    key={idx}
+                    node={node}
+                    keywords={keywords}
+                    onSelectChunk={(chunkNum) => setSelectedIndex(chunkNum)}
+                    selectedChunkId={selectedChunk?.id}
+                    allChunks={chunks}
+                  />
+                ))}
+              </div>
+            )}
           </ScrollArea>
         </div>
 
@@ -229,6 +525,16 @@ export function ResultsTab({
                     <FileJson className="h-4 w-4 mr-2" />
                     Export as JSON
                   </DropdownMenuItem>
+                  <DropdownMenuItem onClick={exportMarkdown}>
+                    <FileText className="h-4 w-4 mr-2" />
+                    Export as Markdown
+                  </DropdownMenuItem>
+                  {result && (
+                    <DropdownMenuItem onClick={handleExportCSV}>
+                      <Table className="h-4 w-4 mr-2" />
+                      Export as CSV
+                    </DropdownMenuItem>
+                  )}
                 </DropdownMenuContent>
               </DropdownMenu>
             </div>
@@ -305,6 +611,20 @@ export function ResultsTab({
                   </div>
                 </div>
               )}
+
+              {/* Optimizer */}
+              <div className="pt-4 border-t border-border">
+                <h4 className="text-label mb-3 flex items-center gap-2">
+                  <Sparkles className="h-4 w-4 text-accent" />
+                  Auto-Optimize
+                </h4>
+                <OptimizationEngine
+                  content={content}
+                  keywords={keywords}
+                  currentScores={selectedScore?.keywordScores}
+                  onApplyOptimization={onApplyOptimization}
+                />
+              </div>
             </div>
           </ScrollArea>
         </div>
