@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Sparkles, Loader2, CheckCircle2, AlertCircle, ChevronDown, ChevronUp, Copy, Download } from 'lucide-react';
+import { Sparkles, Loader2, CheckCircle2, AlertCircle, ChevronDown, ChevronUp, Copy, Download, FileDown } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Progress } from '@/components/ui/progress';
 import { Alert, AlertDescription } from '@/components/ui/alert';
@@ -78,31 +78,52 @@ export function OptimizationEngine({
     setAcceptedChanges(new Set());
   };
 
-  const handleApplyChanges = () => {
-    if (!result) return;
+  const getOptimizedContent = (onlyAccepted: boolean = false) => {
+    if (!result) return '';
     
-    // Compile optimized content with only accepted changes
-    const compiledContent = result.optimizedChunks
-      .map(chunk => {
-        const hasAcceptedChanges = chunk.changes_applied.some(c => acceptedChanges.has(c.change_id));
-        if (!hasAcceptedChanges) {
-          return chunk.original_text;
-        }
-        return (chunk.heading ? `## ${chunk.heading}\n\n` : '') + chunk.optimized_text;
-      })
+    if (onlyAccepted) {
+      // Compile content with only accepted changes
+      return result.optimizedChunks
+        .map(chunk => {
+          const hasAcceptedChanges = chunk.changes_applied.some(c => acceptedChanges.has(c.change_id));
+          if (!hasAcceptedChanges) {
+            return chunk.original_text;
+          }
+          return (chunk.heading ? `## ${chunk.heading}\n\n` : '') + chunk.optimized_text;
+        })
+        .join('\n\n');
+    }
+    
+    // Full optimized content
+    return result.optimizedChunks
+      .map(chunk => (chunk.heading ? `## ${chunk.heading}\n\n` : '') + chunk.optimized_text)
       .join('\n\n');
+  };
 
+  const handleApplyChanges = () => {
+    const compiledContent = getOptimizedContent(true);
     onApplyOptimization(compiledContent);
     toast.success(`Applied ${acceptedChanges.size} optimizations to content`);
   };
 
   const handleCopyOptimized = () => {
-    if (!result) return;
-    const text = result.optimizedChunks
-      .map(chunk => (chunk.heading ? `## ${chunk.heading}\n\n` : '') + chunk.optimized_text)
-      .join('\n\n');
+    const text = getOptimizedContent(false);
     navigator.clipboard.writeText(text);
     toast.success('Copied optimized content to clipboard');
+  };
+
+  const handleExportMarkdown = () => {
+    const text = getOptimizedContent(acceptedChanges.size > 0);
+    const blob = new Blob([text], { type: 'text/markdown' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `optimized-content-${new Date().toISOString().split('T')[0]}.md`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    toast.success('Downloaded optimized content as markdown');
   };
 
   const isProcessing = ['analyzing', 'optimizing', 'scoring', 'explaining'].includes(step);
@@ -157,6 +178,10 @@ export function OptimizationEngine({
               <Button variant="outline" size="sm" onClick={handleCopyOptimized}>
                 <Copy className="h-4 w-4 mr-1.5" />
                 Copy
+              </Button>
+              <Button variant="outline" size="sm" onClick={handleExportMarkdown}>
+                <FileDown className="h-4 w-4 mr-1.5" />
+                Export .md
               </Button>
               <Button variant="outline" size="sm" onClick={reset}>
                 Reset

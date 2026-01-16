@@ -248,6 +248,7 @@ const Index = () => {
             projectName={currentProject?.project_name || 'Untitled Project'}
             onRename={handleRenameProject}
             onSave={handleSave}
+            onNew={handleNewProject}
             isSaving={isSaving}
             hasUnsavedChanges={hasUnsavedChanges}
             lastSavedAt={lastSavedAt}
