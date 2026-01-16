@@ -55,7 +55,7 @@ export function OptimizationEngine({
         return acc;
       }, {} as Record<string, number>);
 
-      const optimizationResult = await optimize(content, keywords, scoresMap);
+      const optimizationResult = await optimize({ content, queries: keywords, currentScores: scoresMap });
       setAcceptedChanges(new Set());
       
       // If we have a callback and result, call it

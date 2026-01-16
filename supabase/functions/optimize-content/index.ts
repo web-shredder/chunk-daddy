@@ -6,23 +6,31 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
+interface QueryChunkAssignment {
+  chunkIndex: number;
+  queries: string[];
+}
+
 interface OptimizationRequest {
-  type: 'analyze' | 'optimize' | 'explain' | 'suggest_keywords' | 'summarize';
+  type: 'analyze' | 'optimize' | 'optimize_focused' | 'explain' | 'suggest_keywords' | 'summarize';
   content: string;
   queries?: string[];
   currentScores?: Record<string, number>;
   analysis?: any;
   validatedChanges?: any;
   chunkScoreData?: any; // For summarize: original and optimized scores per chunk per query
+  queryAssignments?: QueryChunkAssignment[]; // For optimize_focused: which queries to optimize each chunk for
+  chunks?: string[]; // For optimize_focused: the pre-split chunks
 }
 
 // Dynamic token limits by operation type - prevents truncation while optimizing costs
 const maxTokensByType: Record<OptimizationRequest['type'], number> = {
-  'analyze': 8192,         // Structured analysis, moderate size
-  'optimize': 32768,       // Full rewritten content - largest output
-  'explain': 4096,         // Short explanations
-  'suggest_keywords': 2048, // Just a keyword list
-  'summarize': 8192        // RAG explanations, suggestions, trade-offs
+  'analyze': 8192,           // Structured analysis, moderate size
+  'optimize': 32768,         // Full rewritten content - largest output
+  'optimize_focused': 16384, // Per-chunk focused optimization
+  'explain': 4096,           // Short explanations
+  'suggest_keywords': 2048,  // Just a keyword list
+  'summarize': 8192          // RAG explanations, suggestions, trade-offs
 };
 
 // Passage Score context to educate AI about the scoring system
@@ -65,7 +73,7 @@ serve(async (req) => {
       );
     }
 
-    const { type, content, queries, currentScores, analysis, validatedChanges, chunkScoreData }: OptimizationRequest = await req.json();
+    const { type, content, queries, currentScores, analysis, validatedChanges, chunkScoreData, queryAssignments, chunks }: OptimizationRequest = await req.json();
 
     console.log(`Processing ${type} request for content length: ${content?.length}, queries: ${queries?.length}`);
 
@@ -232,6 +240,108 @@ Maintain readability - don't make it robotic.`;
         }
       }];
       toolChoice = { type: "function", function: { name: "generate_optimizations" } };
+
+    } else if (type === 'optimize_focused') {
+      // FOCUSED OPTIMIZATION: Each chunk is optimized ONLY for its assigned queries
+      // This prevents keyword stuffing and creates natural, focused content
+      
+      if (!queryAssignments || !chunks || chunks.length === 0) {
+        return new Response(
+          JSON.stringify({ error: 'optimize_focused requires queryAssignments and chunks' }),
+          { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        );
+      }
+
+      systemPrompt = `You are a focused content optimizer for RAG retrieval systems.
+
+${PASSAGE_SCORE_CONTEXT}
+
+CRITICAL INSTRUCTION: You will receive chunks with SPECIFIC query assignments.
+Each chunk should ONLY be optimized for its assigned queries.
+Do NOT try to add keywords or concepts from other chunks' queries.
+This creates focused, natural content rather than keyword-stuffed messes.
+
+OPTIMIZATION STRATEGIES:
+For assigned queries only:
+- Front-load key entities and topic keywords from ASSIGNED queries
+- Use exact query terminology where natural
+- Add context that improves multi-aspect coverage for ASSIGNED queries
+- Ensure the chunk is self-contained for its topic
+
+CONSTRAINTS:
+- Only optimize for ASSIGNED queries - ignore other queries completely
+- Maintain natural, readable prose
+- Preserve original meaning and facts
+- Keep professional tone
+- Minimize repetition`;
+
+      // Build the focused prompt with chunk-query assignments
+      const chunkAssignmentDetails = queryAssignments.map((assignment) => {
+        const chunkText = chunks[assignment.chunkIndex] || '';
+        return `
+CHUNK ${assignment.chunkIndex + 1}:
+"""
+${chunkText}
+"""
+ASSIGNED QUERIES (optimize ONLY for these): 
+${assignment.queries.map((q, i) => `  ${i + 1}. "${q}"`).join('\n')}
+`;
+      }).join('\n---\n');
+
+      userPrompt = `Optimize each chunk ONLY for its assigned queries.
+
+${chunkAssignmentDetails}
+
+For each chunk:
+1. Rewrite to maximize Passage Score for ASSIGNED queries only
+2. Do NOT add content targeting other queries
+3. Track specific changes made
+4. Keep content natural and focused`;
+
+      tools = [{
+        type: "function",
+        function: {
+          name: "generate_focused_optimizations",
+          description: "Generate focused optimizations per chunk for assigned queries only",
+          parameters: {
+            type: "object",
+            properties: {
+              optimized_chunks: {
+                type: "array",
+                items: {
+                  type: "object",
+                  properties: {
+                    chunk_number: { type: "integer", description: "1-indexed chunk number" },
+                    assigned_queries: { type: "array", items: { type: "string" }, description: "The queries this chunk was optimized for" },
+                    heading: { type: "string", description: "Suggested heading for this chunk" },
+                    original_text: { type: "string" },
+                    optimized_text: { type: "string" },
+                    changes_applied: {
+                      type: "array",
+                      items: {
+                        type: "object",
+                        properties: {
+                          change_id: { type: "string" },
+                          change_type: { type: "string", enum: ["split_paragraph", "add_heading", "replace_pronoun", "add_context", "reorder_sentences", "add_keywords", "improve_clarity"] },
+                          before: { type: "string" },
+                          after: { type: "string" },
+                          target_query: { type: "string", description: "Which assigned query this change targets" },
+                          reason: { type: "string" },
+                          expected_improvement: { type: "string" }
+                        },
+                        required: ["change_id", "change_type", "before", "after", "target_query", "reason", "expected_improvement"]
+                      }
+                    }
+                  },
+                  required: ["chunk_number", "assigned_queries", "original_text", "optimized_text", "changes_applied"]
+                }
+              }
+            },
+            required: ["optimized_chunks"]
+          }
+        }
+      }];
+      toolChoice = { type: "function", function: { name: "generate_focused_optimizations" } };
 
     } else if (type === 'explain') {
       systemPrompt = `You explain content optimization changes in terms of Passage Score impact.
