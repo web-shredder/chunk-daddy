@@ -2,6 +2,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Separator } from '@/components/ui/separator';
+import { ScrollArea } from '@/components/ui/scroll-area';
 import { Download, TrendingUp, TrendingDown, Minus } from 'lucide-react';
 import { downloadCSV } from '@/lib/csv-export';
 import {
@@ -202,15 +203,17 @@ export function ResultsDisplay({ result }: ResultsDisplayProps) {
         <h4 className="text-sm font-medium text-muted-foreground">
           Chunks ({result.chunkScores.length})
         </h4>
-        <div className="grid gap-4">
-          {result.chunkScores.map((chunk) => (
-            <ChunkResult
-              key={chunk.chunkId}
-              chunk={chunk}
-              improvements={result.improvements?.filter(i => i.chunkId === chunk.chunkId)}
-            />
-          ))}
-        </div>
+        <ScrollArea className="max-h-[500px]">
+          <div className="grid gap-4 pr-4">
+            {result.chunkScores.map((chunk) => (
+              <ChunkResult
+                key={chunk.chunkId}
+                chunk={chunk}
+                improvements={result.improvements?.filter(i => i.chunkId === chunk.chunkId)}
+              />
+            ))}
+          </div>
+        </ScrollArea>
       </div>
       
       {/* Optimized Content Scores */}
