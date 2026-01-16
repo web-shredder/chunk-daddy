@@ -11,11 +11,14 @@ import { DiffView } from './DiffView';
 import { toast } from 'sonner';
 import type { KeywordScore } from '@/hooks/useAnalysis';
 
+import type { FullOptimizationResult } from '@/lib/optimizer-types';
+
 interface OptimizationEngineProps {
   content: string;
   keywords: string[];
   currentScores?: KeywordScore[];
   onApplyOptimization: (optimizedContent: string) => void;
+  onOptimizationComplete?: (result: FullOptimizationResult, finalContent: string) => void;
 }
 
 const stepLabels: Record<OptimizationStep, string> = {
@@ -33,6 +36,7 @@ export function OptimizationEngine({
   keywords,
   currentScores,
   onApplyOptimization,
+  onOptimizationComplete,
 }: OptimizationEngineProps) {
   const { step, progress, error, result, optimize, reset } = useOptimizer();
   const [acceptedChanges, setAcceptedChanges] = useState<Set<string>>(new Set());
@@ -47,8 +51,16 @@ export function OptimizationEngine({
         return acc;
       }, {} as Record<string, number>);
 
-      await optimize(content, keywords, scoresMap);
+      const optimizationResult = await optimize(content, keywords, scoresMap);
       setAcceptedChanges(new Set());
+      
+      // If we have a callback and result, call it
+      if (onOptimizationComplete && optimizationResult) {
+        const fullContent = optimizationResult.optimizedChunks
+          .map(chunk => (chunk.heading ? `## ${chunk.heading}\n\n` : '') + chunk.optimized_text)
+          .join('\n\n');
+        onOptimizationComplete(optimizationResult, fullContent);
+      }
     } catch (err) {
       // Error is already handled in the hook
     }

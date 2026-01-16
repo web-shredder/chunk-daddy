@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import { Loader2 } from "lucide-react";
-import { TopBar, TabBar, ContentTab, AnalyzeTab, ResultsTab, type TabId } from "@/components/moonbug";
+import { TopBar, TabBar, ContentTab, AnalyzeTab, ResultsTab, OptimizeTab, type TabId } from "@/components/moonbug";
 import { useApiKey } from "@/hooks/useApiKey";
 import { useAnalysis } from "@/hooks/useAnalysis";
 import { useAuth } from "@/hooks/useAuth";
@@ -25,6 +25,7 @@ const Index = () => {
     loadProject,
     newProject,
     markUnsaved,
+    renameProject,
   } = useProjects();
 
   const [activeTab, setActiveTab] = useState<TabId>('content');
@@ -127,6 +128,17 @@ const Index = () => {
     });
   };
 
+  const handleRenameProject = (projectId: string, newName: string) => {
+    renameProject(projectId, newName);
+  };
+
+  const handleApplyOptimization = useCallback((optimizedContent: string) => {
+    setContent(optimizedContent);
+    markUnsaved(optimizedContent, keywords, chunkerOptions, result);
+    // Switch to content tab to show the new content
+    setActiveTab('content');
+  }, [keywords, chunkerOptions, result, markUnsaved]);
+
   const wordCount = content.trim() ? content.trim().split(/\s+/).length : 0;
   const tokenCount = Math.ceil(wordCount * 1.3);
   const hasContent = content.trim().length > 0;
@@ -155,6 +167,7 @@ const Index = () => {
         onSelectProject={handleLoadProject}
         onNewProject={handleNewProject}
         onSignOut={signOut}
+        onRenameProject={handleRenameProject}
       />
       
       <TabBar
@@ -205,12 +218,21 @@ const Index = () => {
           onReanalyze={handleAnalyze}
           onGoToAnalyze={() => setActiveTab('analyze')}
           content={content}
-          onApplyOptimization={(optimizedContent) => {
-            setContent(optimizedContent);
-            markUnsaved(optimizedContent, keywords, chunkerOptions, result);
-          }}
+          onApplyOptimization={handleApplyOptimization}
           elements={parsedElements}
           result={result}
+        />
+      )}
+
+      {activeTab === 'optimize' && (
+        <OptimizeTab
+          hasResults={hasAnalysis}
+          content={content}
+          keywords={keywords}
+          currentScores={result?.chunkScores}
+          onApplyOptimization={handleApplyOptimization}
+          onGoToAnalyze={() => setActiveTab('analyze')}
+          onReanalyze={handleAnalyze}
         />
       )}
     </div>
