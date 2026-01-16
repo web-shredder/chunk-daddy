@@ -39,7 +39,6 @@ export interface AnalysisResult {
 }
 
 export interface UseAnalysisOptions {
-  apiKey: string;
   content: string;
   optimizedContent?: string;
   keywords: string[];
@@ -54,12 +53,7 @@ export function useAnalysis() {
   const [progress, setProgress] = useState(0);
 
   const analyze = useCallback(async (options: UseAnalysisOptions) => {
-    const { apiKey, content, optimizedContent, keywords, strategy, fixedChunkSize } = options;
-
-    if (!apiKey) {
-      setError('Please configure your OpenAI API key');
-      return;
-    }
+    const { content, optimizedContent, keywords, strategy, fixedChunkSize } = options;
 
     if (!content.trim()) {
       setError('Please enter content to analyze');
@@ -99,8 +93,8 @@ export function useAnalysis() {
 
       setProgress(20);
 
-      // Generate all embeddings in one batch
-      const embeddings = await generateEmbeddings(textsToEmbed, apiKey);
+      // Generate all embeddings in one batch via edge function
+      const embeddings = await generateEmbeddings(textsToEmbed);
 
       setProgress(60);
 

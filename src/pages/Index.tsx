@@ -5,9 +5,8 @@ import { Separator } from '@/components/ui/separator';
 import { Switch } from '@/components/ui/switch';
 import { Label } from '@/components/ui/label';
 import { Progress } from '@/components/ui/progress';
-import { AlertCircle, Zap, Settings2 } from 'lucide-react';
+import { AlertCircle, Zap, Check, Loader2 } from 'lucide-react';
 import { Alert, AlertDescription } from '@/components/ui/alert';
-import { ApiKeyInput } from '@/components/ApiKeyInput';
 import { ContentEditor } from '@/components/ContentEditor';
 import { KeywordInput } from '@/components/KeywordInput';
 import { ChunkingStrategySelect } from '@/components/ChunkingStrategySelect';
@@ -17,7 +16,7 @@ import { useAnalysis } from '@/hooks/useAnalysis';
 import type { ChunkingStrategy } from '@/lib/chunking';
 
 const Index = () => {
-  const { apiKey, setApiKey, clearApiKey, isValidating, isValid, error: apiKeyError } = useApiKey();
+  const { isValidating, isValid, error: apiKeyError, recheckStatus } = useApiKey();
   const { analyze, reset, isAnalyzing, error: analysisError, result, progress } = useAnalysis();
   
   const [content, setContent] = useState('');
@@ -29,7 +28,6 @@ const Index = () => {
 
   const handleAnalyze = () => {
     analyze({
-      apiKey,
       content,
       optimizedContent: showOptimized ? optimizedContent : undefined,
       keywords,
@@ -58,10 +56,20 @@ const Index = () => {
               </div>
             </div>
             <div className="flex items-center gap-2">
-              {isValid && (
-                <span className="text-xs bg-green-100 text-green-700 px-2 py-1 rounded-full font-medium">
+              {isValidating ? (
+                <span className="text-xs bg-muted text-muted-foreground px-2 py-1 rounded-full font-medium flex items-center gap-1">
+                  <Loader2 className="h-3 w-3 animate-spin" />
+                  Checking API...
+                </span>
+              ) : isValid ? (
+                <span className="text-xs bg-green-100 text-green-700 px-2 py-1 rounded-full font-medium flex items-center gap-1">
+                  <Check className="h-3 w-3" />
                   API Ready
                 </span>
+              ) : (
+                <Button variant="outline" size="sm" onClick={recheckStatus}>
+                  Retry API Check
+                </Button>
               )}
             </div>
           </div>
@@ -70,6 +78,15 @@ const Index = () => {
 
       {/* Main Content */}
       <main className="container max-w-7xl mx-auto px-4 py-6">
+        {apiKeyError && (
+          <Alert variant="destructive" className="mb-6">
+            <AlertCircle className="h-4 w-4" />
+            <AlertDescription>
+              {apiKeyError} — Please ensure OPENAI_API_KEY is configured in your Cloud secrets.
+            </AlertDescription>
+          </Alert>
+        )}
+
         <div className="grid lg:grid-cols-2 gap-6">
           {/* Left Panel - Content Editor */}
           <div className="space-y-6">
@@ -119,26 +136,12 @@ Enter another paragraph here by adding a blank line above..."
 
           {/* Right Panel - Configuration & Results */}
           <div className="space-y-6">
-            {/* API Key */}
+            {/* Configuration */}
             <Card>
               <CardHeader className="pb-3">
-                <CardTitle className="text-base flex items-center gap-2">
-                  <Settings2 className="h-4 w-4" />
-                  Configuration
-                </CardTitle>
+                <CardTitle className="text-base">Configuration</CardTitle>
               </CardHeader>
               <CardContent className="space-y-4">
-                <ApiKeyInput
-                  apiKey={apiKey}
-                  onApiKeyChange={setApiKey}
-                  isValidating={isValidating}
-                  isValid={isValid}
-                  error={apiKeyError}
-                  onClear={clearApiKey}
-                />
-                
-                <Separator />
-                
                 <div className="space-y-3">
                   <Label className="text-sm font-medium">Target Keywords</Label>
                   <KeywordInput
@@ -201,7 +204,7 @@ Enter another paragraph here by adding a blank line above..."
         <div className="container max-w-7xl mx-auto px-4 py-4">
           <p className="text-xs text-muted-foreground text-center">
             Chunk Daddy uses OpenAI text-embedding-3-large for embedding generation.
-            All calculations are performed locally in your browser.
+            All similarity calculations are performed locally in your browser.
           </p>
         </div>
       </footer>
