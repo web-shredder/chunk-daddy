@@ -301,7 +301,8 @@ Suggest keywords that:
         ],
         tools,
         tool_choice: toolChoice,
-        max_completion_tokens: 4096,
+        max_output_tokens: 4096,
+        reasoning_effort: 'none',
       }),
     });
 
