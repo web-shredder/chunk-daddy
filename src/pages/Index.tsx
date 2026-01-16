@@ -1,29 +1,29 @@
-import { useState } from 'react';
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
-import { Button } from '@/components/ui/button';
-import { Separator } from '@/components/ui/separator';
-import { Switch } from '@/components/ui/switch';
-import { Label } from '@/components/ui/label';
-import { Progress } from '@/components/ui/progress';
-import { AlertCircle, Zap, Check, Loader2 } from 'lucide-react';
-import { Alert, AlertDescription } from '@/components/ui/alert';
-import { ContentEditor } from '@/components/ContentEditor';
-import { KeywordInput } from '@/components/KeywordInput';
-import { ChunkingStrategySelect } from '@/components/ChunkingStrategySelect';
-import { ResultsDisplay } from '@/components/ResultsDisplay';
-import { useApiKey } from '@/hooks/useApiKey';
-import { useAnalysis } from '@/hooks/useAnalysis';
-import type { ChunkingStrategy } from '@/lib/chunking';
+import { useState } from "react";
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Separator } from "@/components/ui/separator";
+import { Switch } from "@/components/ui/switch";
+import { Label } from "@/components/ui/label";
+import { Progress } from "@/components/ui/progress";
+import { AlertCircle, Zap, Check, Loader2 } from "lucide-react";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { ContentEditor } from "@/components/ContentEditor";
+import { KeywordInput } from "@/components/KeywordInput";
+import { ChunkingStrategySelect } from "@/components/ChunkingStrategySelect";
+import { ResultsDisplay } from "@/components/ResultsDisplay";
+import { useApiKey } from "@/hooks/useApiKey";
+import { useAnalysis } from "@/hooks/useAnalysis";
+import type { ChunkingStrategy } from "@/lib/chunking";
 
 const Index = () => {
   const { isValidating, isValid, error: apiKeyError, recheckStatus } = useApiKey();
   const { analyze, reset, isAnalyzing, error: analysisError, result, progress } = useAnalysis();
-  
-  const [content, setContent] = useState('');
-  const [optimizedContent, setOptimizedContent] = useState('');
+
+  const [content, setContent] = useState("");
+  const [optimizedContent, setOptimizedContent] = useState("");
   const [showOptimized, setShowOptimized] = useState(false);
   const [keywords, setKeywords] = useState<string[]>([]);
-  const [strategy, setStrategy] = useState<ChunkingStrategy>('paragraph');
+  const [strategy, setStrategy] = useState<ChunkingStrategy>("paragraph");
   const [fixedSize, setFixedSize] = useState(500);
 
   const handleAnalyze = () => {
@@ -36,7 +36,7 @@ const Index = () => {
     });
   };
 
-  const canAnalyze = isValid && content.trim() && keywords.some(k => k.trim());
+  const canAnalyze = isValid && content.trim() && keywords.some((k) => k.trim());
 
   return (
     <div className="min-h-screen bg-background">
@@ -50,9 +50,7 @@ const Index = () => {
               </div>
               <div>
                 <h1 className="text-xl font-bold">Chunk Daddy</h1>
-                <p className="text-xs text-muted-foreground">
-                  Passage Retrieval Optimization Tool
-                </p>
+                <p className="text-xs text-muted-foreground">Passage Retrieval Optimization Tool</p>
               </div>
             </div>
             <div className="flex items-center gap-2">
@@ -106,22 +104,18 @@ const Index = () => {
 
 Enter another paragraph here by adding a blank line above..."
                 />
-                
+
                 <Separator />
-                
+
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2">
-                    <Switch
-                      id="show-optimized"
-                      checked={showOptimized}
-                      onCheckedChange={setShowOptimized}
-                    />
+                    <Switch id="show-optimized" checked={showOptimized} onCheckedChange={setShowOptimized} />
                     <Label htmlFor="show-optimized" className="text-sm cursor-pointer">
                       Compare with optimized version
                     </Label>
                   </div>
                 </div>
-                
+
                 {showOptimized && (
                   <ContentEditor
                     label="Optimized Content"
@@ -144,14 +138,11 @@ Enter another paragraph here by adding a blank line above..."
               <CardContent className="space-y-4">
                 <div className="space-y-3">
                   <Label className="text-sm font-medium">Target Keywords</Label>
-                  <KeywordInput
-                    keywords={keywords}
-                    onChange={setKeywords}
-                  />
+                  <KeywordInput keywords={keywords} onChange={setKeywords} />
                 </div>
-                
+
                 <Separator />
-                
+
                 <ChunkingStrategySelect
                   strategy={strategy}
                   onChange={setStrategy}
@@ -168,9 +159,9 @@ Enter another paragraph here by adding a blank line above..."
               className="w-full h-12 text-base font-medium"
               size="lg"
             >
-              {isAnalyzing ? 'Analyzing...' : 'Rescore Content'}
+              {isAnalyzing ? "Analyzing..." : "Chunk it, daddy"}
             </Button>
-            
+
             {isAnalyzing && (
               <div className="space-y-2">
                 <Progress value={progress} className="h-2" />
@@ -179,7 +170,7 @@ Enter another paragraph here by adding a blank line above..."
                 </p>
               </div>
             )}
-            
+
             {analysisError && (
               <Alert variant="destructive">
                 <AlertCircle className="h-4 w-4" />
@@ -203,8 +194,8 @@ Enter another paragraph here by adding a blank line above..."
       <footer className="border-t border-border mt-12">
         <div className="container max-w-7xl mx-auto px-4 py-4">
           <p className="text-xs text-muted-foreground text-center">
-            Chunk Daddy uses OpenAI text-embedding-3-large for embedding generation.
-            All similarity calculations are performed locally in your browser.
+            Chunk Daddy uses OpenAI text-embedding-3-large for embedding generation. All similarity calculations are
+            performed locally in your browser.
           </p>
         </div>
       </footer>
