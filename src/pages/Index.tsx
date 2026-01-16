@@ -300,6 +300,7 @@ const Index = () => {
           onApplyOptimization={handleApplyOptimization}
           onGoToAnalyze={() => setActiveTab('analyze')}
           onReanalyze={handleAnalyze}
+          onSaveProject={handleSave}
         />
       )}
     </div>

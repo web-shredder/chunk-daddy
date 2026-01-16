@@ -33,6 +33,7 @@ interface OptimizeTabProps {
   onApplyOptimization: (optimizedContent: string) => void;
   onGoToAnalyze: () => void;
   onReanalyze: () => void;
+  onSaveProject?: () => void;
 }
 
 interface ReportViewProps {
@@ -352,6 +353,7 @@ export function OptimizeTab({
   onApplyOptimization,
   onGoToAnalyze,
   onReanalyze,
+  onSaveProject,
 }: OptimizeTabProps) {
   const [optimizationResult, setOptimizationResult] = useState<FullOptimizationResult | null>(null);
   const [optimizedContent, setOptimizedContent] = useState<string>('');
@@ -424,6 +426,7 @@ export function OptimizeTab({
                 onApplyOptimization(optimizedContent);
               }}
               onOptimizationComplete={handleOptimizationComplete}
+              onSaveProject={onSaveProject}
             />
           </div>
         </div>

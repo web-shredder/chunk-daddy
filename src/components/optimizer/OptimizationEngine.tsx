@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Sparkles, Loader2, CheckCircle2, AlertCircle, ChevronDown, ChevronUp, Copy, Download, FileDown, BarChart3 } from 'lucide-react';
+import { Sparkles, Loader2, CheckCircle2, AlertCircle, ChevronDown, ChevronUp, Copy, Download, FileDown, BarChart3, Save } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Progress } from '@/components/ui/progress';
 import { Alert, AlertDescription } from '@/components/ui/alert';
@@ -20,6 +20,7 @@ interface OptimizationEngineProps {
   currentScores?: KeywordScore[];
   onApplyOptimization: (optimizedContent: string) => void;
   onOptimizationComplete?: (result: FullOptimizationResult, finalContent: string) => void;
+  onSaveProject?: () => void;
 }
 
 const stepLabels: Record<OptimizationStep, string> = {
@@ -38,12 +39,13 @@ export function OptimizationEngine({
   currentScores,
   onApplyOptimization,
   onOptimizationComplete,
+  onSaveProject,
 }: OptimizationEngineProps) {
   const { step, progress, error, result, optimize, reset } = useOptimizer();
   const [acceptedChanges, setAcceptedChanges] = useState<Set<string>>(new Set());
-  const [showSummary, setShowSummary] = useState(true);
-  const [showDiff, setShowDiff] = useState(false);
-  const [showRecommendations, setShowRecommendations] = useState(false);
+  const [showSummary, setShowSummary] = useState(false);
+  const [showDiff, setShowDiff] = useState(true);
+  const [showRecommendations, setShowRecommendations] = useState(true);
 
   const handleOptimize = async () => {
     try {
@@ -223,11 +225,11 @@ export function OptimizationEngine({
 
           <Separator />
 
-          {/* Diff View */}
+          {/* Diff View - Primary view showing chunk-by-chunk changes */}
           <Collapsible open={showDiff} onOpenChange={setShowDiff}>
             <CollapsibleTrigger asChild>
               <Button variant="ghost" className="w-full justify-between px-2" size="sm">
-                <span className="text-sm font-medium">Side-by-Side Comparison</span>
+                <span className="text-sm font-medium">Chunk-by-Chunk Changes</span>
                 {showDiff ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
               </Button>
             </CollapsibleTrigger>
@@ -236,6 +238,7 @@ export function OptimizationEngine({
                 originalContent={result.originalContent}
                 optimizedChunks={result.optimizedChunks}
                 acceptedChanges={acceptedChanges}
+                originalScores={result.originalScores}
               />
             </CollapsibleContent>
           </Collapsible>
@@ -285,12 +288,30 @@ export function OptimizationEngine({
           </Collapsible>
 
           {/* Apply Button */}
-          {acceptedChanges.size > 0 && (
-            <Button onClick={handleApplyChanges} className="w-full" size="lg">
-              <Download className="h-4 w-4 mr-2" />
-              Apply {acceptedChanges.size} Change{acceptedChanges.size !== 1 ? 's' : ''} to Optimized Content
-            </Button>
-          )}
+          <div className="flex items-center gap-2">
+            {acceptedChanges.size > 0 && (
+              <Button onClick={handleApplyChanges} className="flex-1" size="lg">
+                <Download className="h-4 w-4 mr-2" />
+                Apply {acceptedChanges.size} Change{acceptedChanges.size !== 1 ? 's' : ''}
+              </Button>
+            )}
+            {onSaveProject && (
+              <Button 
+                onClick={() => {
+                  if (acceptedChanges.size > 0) {
+                    handleApplyChanges();
+                  }
+                  onSaveProject();
+                  toast.success('Project saved with optimization results');
+                }} 
+                variant={acceptedChanges.size > 0 ? "outline" : "default"}
+                size="lg"
+              >
+                <Save className="h-4 w-4 mr-2" />
+                Save Project
+              </Button>
+            )}
+          </div>
         </div>
       )}
     </div>
