@@ -2,14 +2,26 @@ import { useState } from 'react';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { X, Plus, Sparkles, Loader2 } from 'lucide-react';
+import { Checkbox } from '@/components/ui/checkbox';
+import { X, Plus, Sparkles, Loader2, Wand2, ChevronDown, ChevronUp } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from '@/components/ui/collapsible';
 
 interface KeywordSuggestion {
   keyword: string;
   reason: string;
   intent: string;
+}
+
+interface ExpandedQuery {
+  keyword: string;
+  isOriginal: boolean;
+  selected: boolean;
 }
 
 interface KeywordInputProps {
@@ -22,12 +34,15 @@ interface KeywordInputProps {
 export function KeywordInput({
   keywords,
   onChange,
-  maxKeywords = 5,
+  maxKeywords = 10,
   content = '',
 }: KeywordInputProps) {
   const [inputValue, setInputValue] = useState('');
   const [isSuggesting, setIsSuggesting] = useState(false);
   const [suggestions, setSuggestions] = useState<KeywordSuggestion[]>([]);
+  const [isExpanding, setIsExpanding] = useState(false);
+  const [expandedQueries, setExpandedQueries] = useState<ExpandedQuery[]>([]);
+  const [expandOpen, setExpandOpen] = useState(true);
 
   const handleAdd = () => {
     const trimmed = inputValue.trim();
@@ -100,6 +115,84 @@ export function KeywordInput({
     setSuggestions([]);
   };
 
+  // Query fan-out: expand a keyword into related queries
+  const handleExpandQuery = async (primaryQuery: string) => {
+    if (!primaryQuery.trim()) {
+      toast.error('Select a keyword to expand');
+      return;
+    }
+
+    setIsExpanding(true);
+    setExpandedQueries([]);
+
+    try {
+      const { data, error } = await supabase.functions.invoke('optimize-content', {
+        body: {
+          type: 'suggest_keywords',
+          content: `Generate semantically related search queries for: "${primaryQuery}"
+          
+Context: This is for testing RAG retrieval. Generate 4 related queries:
+1. Direct synonym or alternative phrasing
+2. More specific sub-topic
+3. Related concept
+4. Common alternative term
+
+Keep queries concise (2-4 words each).`,
+        },
+      });
+
+      if (error || data?.error) {
+        throw new Error(data?.error || error?.message || 'Failed to expand query');
+      }
+
+      const suggestions = data.result.keywords || [];
+      const expanded: ExpandedQuery[] = [
+        { keyword: primaryQuery, isOriginal: true, selected: true },
+        ...suggestions.slice(0, 4).map((s: { keyword: string }) => ({
+          keyword: s.keyword,
+          isOriginal: false,
+          selected: true,
+        })),
+      ];
+
+      setExpandedQueries(expanded);
+      toast.success(`Generated ${expanded.length - 1} related queries`);
+    } catch (err) {
+      console.error('Query expansion error:', err);
+      toast.error(err instanceof Error ? err.message : 'Failed to expand query');
+    } finally {
+      setIsExpanding(false);
+    }
+  };
+
+  const toggleExpandedQuery = (keyword: string) => {
+    setExpandedQueries(prev =>
+      prev.map(q =>
+        q.keyword === keyword ? { ...q, selected: !q.selected } : q
+      )
+    );
+  };
+
+  const handleApplyExpanded = () => {
+    const selectedQueries = expandedQueries
+      .filter(q => q.selected)
+      .map(q => q.keyword)
+      .filter(k => !keywords.includes(k));
+    
+    const available = maxKeywords - keywords.length;
+    const toAdd = selectedQueries.slice(0, available);
+    
+    if (toAdd.length > 0) {
+      onChange([...keywords, ...toAdd]);
+      toast.success(`Added ${toAdd.length} queries`);
+    }
+    setExpandedQueries([]);
+  };
+
+  const handleClearExpanded = () => {
+    setExpandedQueries([]);
+  };
+
   return (
     <div className="space-y-3">
       <div className="flex gap-2">
@@ -143,18 +236,90 @@ export function KeywordInput({
             <Badge
               key={keyword}
               variant="secondary"
-              className="px-3 py-1 text-sm"
+              className="px-3 py-1 text-sm group"
             >
               {keyword}
               <button
                 type="button"
+                onClick={() => handleExpandQuery(keyword)}
+                disabled={isExpanding}
+                className="ml-1.5 opacity-50 hover:opacity-100 transition-opacity"
+                title="Expand to related queries"
+              >
+                <Wand2 className="h-3 w-3" />
+              </button>
+              <button
+                type="button"
                 onClick={() => handleRemove(keyword)}
-                className="ml-2 hover:text-destructive"
+                className="ml-1 hover:text-destructive"
               >
                 <X className="h-3 w-3" />
               </button>
             </Badge>
           ))}
+        </div>
+      )}
+
+      {/* Expanded queries panel */}
+      {expandedQueries.length > 0 && (
+        <Collapsible open={expandOpen} onOpenChange={setExpandOpen}>
+          <div className="border rounded-lg p-3 bg-primary/5 space-y-3">
+            <CollapsibleTrigger asChild>
+              <button className="flex items-center justify-between w-full text-sm font-medium">
+                <span className="flex items-center gap-2">
+                  <Wand2 className="h-4 w-4 text-primary" />
+                  Related Queries ({expandedQueries.filter(q => q.selected).length} selected)
+                </span>
+                {expandOpen ? (
+                  <ChevronUp className="h-4 w-4" />
+                ) : (
+                  <ChevronDown className="h-4 w-4" />
+                )}
+              </button>
+            </CollapsibleTrigger>
+
+            <CollapsibleContent className="space-y-3">
+              <div className="space-y-2">
+                {expandedQueries.map((query) => (
+                  <label
+                    key={query.keyword}
+                    className="flex items-center gap-2 cursor-pointer"
+                  >
+                    <Checkbox
+                      checked={query.selected}
+                      onCheckedChange={() => toggleExpandedQuery(query.keyword)}
+                    />
+                    <span className="text-sm">{query.keyword}</span>
+                    {query.isOriginal && (
+                      <Badge variant="outline" className="text-xs">
+                        primary
+                      </Badge>
+                    )}
+                  </label>
+                ))}
+              </div>
+
+              <div className="flex items-center gap-2">
+                <Button size="sm" onClick={handleApplyExpanded} className="flex-1">
+                  Add Selected
+                </Button>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={handleClearExpanded}
+                >
+                  <X className="h-4 w-4" />
+                </Button>
+              </div>
+            </CollapsibleContent>
+          </div>
+        </Collapsible>
+      )}
+
+      {isExpanding && (
+        <div className="flex items-center gap-2 text-sm text-muted-foreground">
+          <Loader2 className="h-4 w-4 animate-spin" />
+          Generating related queries...
         </div>
       )}
 
@@ -201,7 +366,7 @@ export function KeywordInput({
       )}
       
       <p className="text-xs text-muted-foreground">
-        {keywords.length}/{maxKeywords} keywords • Press Enter to add
+        {keywords.length}/{maxKeywords} keywords • Press Enter to add • Click <Wand2 className="h-3 w-3 inline" /> to expand
       </p>
     </div>
   );

@@ -3,12 +3,13 @@ import { formatDistanceToNow } from 'date-fns';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
-import { Save, Pencil, Check, X, Loader2, Cloud, CloudOff } from 'lucide-react';
+import { Save, Pencil, Check, X, Loader2, Cloud, CloudOff, FilePlus } from 'lucide-react';
 
 interface ProjectStatusBarProps {
   projectName: string;
   onRename: (newName: string) => void;
   onSave: () => void;
+  onNew: () => void;
   isSaving: boolean;
   hasUnsavedChanges: boolean;
   lastSavedAt: Date | null;
@@ -18,6 +19,7 @@ export function ProjectStatusBar({
   projectName,
   onRename,
   onSave,
+  onNew,
   isSaving,
   hasUnsavedChanges,
   lastSavedAt,
@@ -50,7 +52,7 @@ export function ProjectStatusBar({
   };
 
   return (
-    <div className="flex items-center gap-3 px-3 py-2 bg-muted/30 rounded-lg border">
+    <div className="sticky top-0 z-40 flex items-center gap-3 px-3 py-2 bg-card/95 backdrop-blur-sm rounded-lg border shadow-sm">
       {/* Project Name */}
       <div className="flex items-center gap-2 flex-1 min-w-0">
         {isEditing ? (
@@ -122,6 +124,16 @@ export function ProjectStatusBar({
               Save
             </>
           )}
+        </Button>
+
+        <Button
+          size="sm"
+          variant="outline"
+          onClick={onNew}
+          className="h-7 px-2 text-xs"
+        >
+          <FilePlus className="h-3.5 w-3.5 mr-1" />
+          New
         </Button>
       </div>
     </div>
