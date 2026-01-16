@@ -10,10 +10,10 @@ export function useApiKey() {
     setIsValidating(true);
     setError(null);
     try {
-      const valid = await checkApiStatus();
-      setIsValid(valid);
-      if (!valid) {
-        setError('API key not configured or invalid');
+      const result = await checkApiStatus();
+      setIsValid(result.valid);
+      if (!result.valid) {
+        setError(result.error || 'API check failed');
       }
     } catch (err) {
       setIsValid(false);

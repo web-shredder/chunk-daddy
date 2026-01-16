@@ -36,11 +36,14 @@ export async function generateEmbedding(text: string): Promise<number[]> {
 /**
  * Check if the embedding service is available
  */
-export async function checkApiStatus(): Promise<boolean> {
+export async function checkApiStatus(): Promise<{ valid: boolean; error?: string }> {
   try {
     await generateEmbedding('test');
-    return true;
-  } catch {
-    return false;
+    return { valid: true };
+  } catch (err) {
+    return { 
+      valid: false, 
+      error: err instanceof Error ? err.message : 'Unknown error' 
+    };
   }
 }
