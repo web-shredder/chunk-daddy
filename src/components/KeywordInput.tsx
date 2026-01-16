@@ -3,13 +3,13 @@ import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Checkbox } from '@/components/ui/checkbox';
-import { X, Sparkles, Loader2, Wand2, RotateCcw } from 'lucide-react';
+import { X, Sparkles, Loader2, Wand2, RotateCcw, Plus } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
 
 interface GeneratedQuery {
   query: string;
-  type: 'primary' | 'synonym' | 'subtopic' | 'related' | 'alternative';
+  type: 'primary' | 'synonym' | 'subtopic' | 'related' | 'alternative' | 'custom';
   selected: boolean;
 }
 
@@ -30,6 +30,7 @@ export function KeywordInput({
   const [isGenerating, setIsGenerating] = useState(false);
   const [generatedQueries, setGeneratedQueries] = useState<GeneratedQuery[]>([]);
   const [hasGenerated, setHasGenerated] = useState(false);
+  const [customQuery, setCustomQuery] = useState('');
 
   const handleGenerateFanout = async () => {
     if (!primaryQuery.trim()) {
@@ -109,6 +110,31 @@ IMPORTANT:
     );
   };
 
+  const handleAddCustomQuery = () => {
+    const trimmed = customQuery.trim();
+    if (!trimmed) {
+      toast.error('Enter a query first');
+      return;
+    }
+
+    // Check for duplicates
+    if (generatedQueries.some(q => q.query.toLowerCase() === trimmed.toLowerCase())) {
+      toast.error('This query already exists');
+      return;
+    }
+
+    setGeneratedQueries(prev => [
+      ...prev,
+      { query: trimmed, type: 'custom', selected: true }
+    ]);
+    setCustomQuery('');
+    toast.success('Query added');
+  };
+
+  const handleRemoveQuery = (query: string) => {
+    setGeneratedQueries(prev => prev.filter(q => q.query !== query));
+  };
+
   const handleApplyQueries = () => {
     const selected = generatedQueries
       .filter(q => q.selected)
@@ -127,6 +153,7 @@ IMPORTANT:
     setPrimaryQuery('');
     setGeneratedQueries([]);
     setHasGenerated(false);
+    setCustomQuery('');
     onChange([]);
   };
 
@@ -144,10 +171,11 @@ IMPORTANT:
 
   const typeLabels: Record<GeneratedQuery['type'], { label: string; color: string }> = {
     primary: { label: 'Primary', color: 'bg-primary text-primary-foreground' },
-    synonym: { label: 'Synonym', color: 'bg-blue-100 text-blue-700' },
-    subtopic: { label: 'Subtopic', color: 'bg-green-100 text-green-700' },
-    related: { label: 'Related', color: 'bg-purple-100 text-purple-700' },
-    alternative: { label: 'Alt Term', color: 'bg-orange-100 text-orange-700' },
+    synonym: { label: 'Synonym', color: 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300' },
+    subtopic: { label: 'Subtopic', color: 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300' },
+    related: { label: 'Related', color: 'bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-300' },
+    alternative: { label: 'Alt Term', color: 'bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-300' },
+    custom: { label: 'Custom', color: 'bg-muted text-muted-foreground' },
   };
 
   // If keywords are already set (loaded from project), show them with option to regenerate
@@ -280,8 +308,45 @@ IMPORTANT:
                 <span className={`text-xs px-2 py-0.5 rounded-full shrink-0 ${typeLabels[gq.type].color}`}>
                   {typeLabels[gq.type].label}
                 </span>
+                {gq.type === 'custom' && (
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      handleRemoveQuery(gq.query);
+                    }}
+                    className="text-muted-foreground hover:text-destructive shrink-0"
+                  >
+                    <X className="h-4 w-4" />
+                  </button>
+                )}
               </label>
             ))}
+          </div>
+
+          {/* Add Custom Query */}
+          <div className="flex gap-2 pt-2 border-t">
+            <Input
+              value={customQuery}
+              onChange={(e) => setCustomQuery(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && customQuery.trim()) {
+                  e.preventDefault();
+                  handleAddCustomQuery();
+                }
+              }}
+              placeholder="Add your own query..."
+              className="flex-1"
+            />
+            <Button
+              variant="outline"
+              size="icon"
+              onClick={handleAddCustomQuery}
+              disabled={!customQuery.trim()}
+            >
+              <Plus className="h-4 w-4" />
+            </Button>
           </div>
 
           <div className="flex gap-2">
