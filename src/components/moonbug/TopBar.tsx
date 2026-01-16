@@ -31,8 +31,7 @@ export function TopBar({
       <div className="flex items-center gap-2">
         <img alt="Chunk Daddy" className="w-20 h-12 rounded object-contain" src="/lovable-uploads/c8eed07c-8b59-45e6-acf5-5605cf3054c6.png" />
         <span className="text-base font-semibold text-foreground">
-          Chunk Daddy
-        </span>
+      </span>
       </div>
 
       {/* Project Switcher */}
