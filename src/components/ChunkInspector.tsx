@@ -3,14 +3,20 @@ import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import {
-  ArrowRight,
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from '@/components/ui/tooltip';
+import {
   FileText,
   Hash,
+  HelpCircle,
   Info,
 } from 'lucide-react';
 import type { LayoutAwareChunk } from '@/lib/layout-chunker';
 import type { ChunkScore } from '@/hooks/useAnalysis';
-import { formatScore, formatImprovement, getScoreColorClass, getImprovementColorClass } from '@/lib/similarity';
+import { formatScore, getScoreColorClass, getImprovementColorClass } from '@/lib/similarity';
 import { cn } from '@/lib/utils';
 
 interface ChunkInspectorProps {
@@ -122,8 +128,21 @@ export function ChunkInspector({
             <Separator />
             
             <div className="space-y-3">
-              <div className="text-xs font-medium text-muted-foreground">
+              <div className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
                 Similarity Scores
+                <TooltipProvider>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <HelpCircle className="h-3 w-3 text-muted-foreground/70 cursor-help" />
+                    </TooltipTrigger>
+                    <TooltipContent side="top" className="max-w-[280px]">
+                      <p className="text-xs">
+                        Compares how well this chunk matches each keyword, 
+                        with and without heading context (cascade).
+                      </p>
+                    </TooltipContent>
+                  </Tooltip>
+                </TooltipProvider>
               </div>
               
               {score.keywordScores.map((ks) => {
@@ -158,12 +177,28 @@ export function ChunkInspector({
                               {formatScore(noCascadeScore.scores.cosine)}
                             </span>
                             {improvement !== null && (
-                              <span className={cn(
-                                "text-xs font-mono",
-                                getImprovementColorClass(improvement)
-                              )}>
-                                ({improvement >= 0 ? '+' : ''}{improvement.toFixed(1)}%)
-                              </span>
+                              <TooltipProvider>
+                                <Tooltip>
+                                  <TooltipTrigger asChild>
+                                    <span className={cn(
+                                      "text-xs font-mono cursor-help inline-flex items-center gap-0.5",
+                                      getImprovementColorClass(improvement)
+                                    )}>
+                                      ({improvement >= 0 ? '+' : ''}{improvement.toFixed(1)}%)
+                                      <HelpCircle className="h-3 w-3 text-muted-foreground/50" />
+                                    </span>
+                                  </TooltipTrigger>
+                                  <TooltipContent side="top" className="max-w-[280px]">
+                                    <p className="text-xs">
+                                      <strong>Cascade Impact:</strong> Shows how much the similarity 
+                                      score changed when parent headings were prepended to the chunk.
+                                      {improvement >= 0 
+                                        ? " Positive values mean heading context improved relevance."
+                                        : " Negative values mean heading context decreased relevance."}
+                                    </p>
+                                  </TooltipContent>
+                                </Tooltip>
+                              </TooltipProvider>
                             )}
                           </div>
                         </div>
