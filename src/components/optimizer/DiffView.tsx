@@ -1,5 +1,6 @@
 import { cn } from '@/lib/utils';
 import type { ValidatedChunk } from '@/lib/optimizer-types';
+import { FileText, ArrowRight } from 'lucide-react';
 
 interface DiffViewProps {
   originalContent: string;
@@ -7,72 +8,184 @@ interface DiffViewProps {
   acceptedChanges: Set<string>;
 }
 
-export function DiffView({ originalContent, optimizedChunks, acceptedChanges }: DiffViewProps) {
-  return (
-    <div className="grid md:grid-cols-2 gap-4">
-      {/* Original Panel */}
-      <div className="space-y-2">
-        <h4 className="text-sm font-medium text-muted-foreground">Original</h4>
-        <div className="bg-muted/30 rounded-lg p-4 text-sm leading-relaxed min-h-[200px] max-h-[400px] overflow-y-auto">
-          {originalContent}
-        </div>
+export function DiffView({ optimizedChunks, acceptedChanges }: DiffViewProps) {
+  if (optimizedChunks.length === 0) {
+    return (
+      <div className="text-center py-8 text-muted-foreground">
+        No optimizations available
       </div>
+    );
+  }
 
-      {/* Optimized Panel */}
-      <div className="space-y-2">
-        <h4 className="text-sm font-medium text-muted-foreground flex items-center gap-2">
-          Optimized
-          <span className="text-xs bg-primary/10 text-primary px-2 py-0.5 rounded-full">
-            {acceptedChanges.size} changes
-          </span>
-        </h4>
-        <div className="bg-muted/30 rounded-lg p-4 text-sm leading-relaxed min-h-[200px] max-h-[400px] overflow-y-auto space-y-4">
-          {optimizedChunks.map((chunk, idx) => (
-            <div key={idx} className="space-y-1">
+  return (
+    <div className="space-y-4">
+      {optimizedChunks.map((chunk, idx) => (
+        <div 
+          key={idx} 
+          className="border rounded-lg overflow-hidden"
+        >
+          {/* Chunk Header */}
+          <div className="flex items-center justify-between px-4 py-2 bg-muted/30 border-b">
+            <div className="flex items-center gap-2 text-sm font-medium">
+              <FileText className="h-4 w-4 text-muted-foreground" />
+              <span>Chunk {chunk.chunk_number}</span>
               {chunk.heading && (
-                <h5 className="font-semibold text-primary">{chunk.heading}</h5>
+                <span className="text-muted-foreground">— {chunk.heading}</span>
               )}
-              <p>
-                {renderTextWithHighlights(chunk, acceptedChanges)}
-              </p>
             </div>
-          ))}
+            <span className={cn(
+              "text-xs px-2 py-0.5 rounded-full",
+              chunk.changes_applied.length > 0 
+                ? "bg-primary/10 text-primary" 
+                : "bg-muted text-muted-foreground"
+            )}>
+              {chunk.changes_applied.length} change{chunk.changes_applied.length !== 1 ? 's' : ''}
+            </span>
+          </div>
+
+          {/* Before / After Panels */}
+          <div className="grid md:grid-cols-2 divide-y md:divide-y-0 md:divide-x">
+            {/* Original Panel */}
+            <div className="p-4 space-y-2">
+              <h4 className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
+                Before
+              </h4>
+              <div className="text-sm leading-relaxed whitespace-pre-wrap bg-destructive/5 rounded-md p-3">
+                {renderOriginalWithDeletions(chunk)}
+              </div>
+            </div>
+
+            {/* Optimized Panel */}
+            <div className="p-4 space-y-2">
+              <h4 className="text-xs font-medium text-muted-foreground uppercase tracking-wide flex items-center gap-2">
+                After
+                <ArrowRight className="h-3 w-3" />
+              </h4>
+              <div className="text-sm leading-relaxed whitespace-pre-wrap bg-green-500/5 rounded-md p-3">
+                {chunk.heading && (
+                  <span className="font-semibold text-primary block mb-2">{chunk.heading}</span>
+                )}
+                {renderOptimizedWithAdditions(chunk, acceptedChanges)}
+              </div>
+            </div>
+          </div>
+
+          {/* Changes List */}
+          {chunk.changes_applied.length > 0 && (
+            <div className="px-4 py-3 bg-muted/20 border-t space-y-2">
+              <h5 className="text-xs font-medium text-muted-foreground">Changes Applied:</h5>
+              <ul className="space-y-1.5">
+                {chunk.changes_applied.map((change, i) => (
+                  <li 
+                    key={change.change_id} 
+                    className={cn(
+                      "text-xs flex items-start gap-2 p-2 rounded",
+                      acceptedChanges.has(change.change_id) 
+                        ? "bg-green-500/10" 
+                        : "bg-muted/50"
+                    )}
+                  >
+                    <span className="font-mono text-muted-foreground shrink-0">
+                      {i + 1}.
+                    </span>
+                    <div className="space-y-1">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="bg-destructive/20 text-destructive-foreground px-1.5 py-0.5 rounded line-through">
+                          {truncateText(change.before, 50)}
+                        </span>
+                        <ArrowRight className="h-3 w-3 text-muted-foreground shrink-0" />
+                        <span className="bg-green-500/20 text-green-700 dark:text-green-400 px-1.5 py-0.5 rounded">
+                          {truncateText(change.after, 50)}
+                        </span>
+                      </div>
+                      <p className="text-muted-foreground italic">{change.reason}</p>
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
         </div>
-      </div>
+      ))}
     </div>
   );
 }
 
-function renderTextWithHighlights(chunk: ValidatedChunk, acceptedChanges: Set<string>) {
-  let text = chunk.optimized_text;
-  
-  // Highlight accepted changes
-  const acceptedChangesList = chunk.changes_applied.filter(c => acceptedChanges.has(c.change_id));
-  
-  if (acceptedChangesList.length === 0) {
-    return text;
-  }
-
-  // Simple highlighting - mark sections that were changed
+function renderOriginalWithDeletions(chunk: ValidatedChunk) {
+  let text = chunk.original_text;
   const parts: React.ReactNode[] = [];
   let lastIndex = 0;
 
-  acceptedChangesList.forEach((change, i) => {
-    const changeIndex = text.indexOf(change.after);
+  // Sort changes by position in the original text
+  const sortedChanges = [...chunk.changes_applied].sort((a, b) => {
+    const posA = text.indexOf(a.before);
+    const posB = text.indexOf(b.before);
+    return posA - posB;
+  });
+
+  sortedChanges.forEach((change, i) => {
+    const changeIndex = text.indexOf(change.before, lastIndex);
     if (changeIndex !== -1) {
       // Add text before the change
       if (changeIndex > lastIndex) {
         parts.push(<span key={`text-${i}`}>{text.slice(lastIndex, changeIndex)}</span>);
       }
-      // Add highlighted change
+      // Add deleted text with strikethrough
       parts.push(
-        <mark
-          key={`change-${i}`}
-          className="bg-green-200/50 dark:bg-green-900/50 px-0.5 rounded"
-          title={change.reason}
+        <del
+          key={`del-${i}`}
+          className="bg-destructive/20 text-destructive line-through decoration-destructive/50"
+          title={`Changed to: ${change.after}`}
+        >
+          {change.before}
+        </del>
+      );
+      lastIndex = changeIndex + change.before.length;
+    }
+  });
+
+  // Add remaining text
+  if (lastIndex < text.length) {
+    parts.push(<span key="text-end">{text.slice(lastIndex)}</span>);
+  }
+
+  return parts.length > 0 ? <>{parts}</> : text;
+}
+
+function renderOptimizedWithAdditions(chunk: ValidatedChunk, acceptedChanges: Set<string>) {
+  let text = chunk.optimized_text;
+  const parts: React.ReactNode[] = [];
+  let lastIndex = 0;
+
+  // Sort changes by position in the optimized text
+  const sortedChanges = [...chunk.changes_applied].sort((a, b) => {
+    const posA = text.indexOf(a.after);
+    const posB = text.indexOf(b.after);
+    return posA - posB;
+  });
+
+  sortedChanges.forEach((change, i) => {
+    const changeIndex = text.indexOf(change.after, lastIndex);
+    if (changeIndex !== -1) {
+      // Add text before the change
+      if (changeIndex > lastIndex) {
+        parts.push(<span key={`text-${i}`}>{text.slice(lastIndex, changeIndex)}</span>);
+      }
+      // Add highlighted new text
+      const isAccepted = acceptedChanges.has(change.change_id);
+      parts.push(
+        <ins
+          key={`ins-${i}`}
+          className={cn(
+            "no-underline rounded px-0.5",
+            isAccepted 
+              ? "bg-green-500/30 text-green-700 dark:text-green-300" 
+              : "bg-green-500/15 text-green-600 dark:text-green-400"
+          )}
+          title={`Changed from: ${change.before}`}
         >
           {change.after}
-        </mark>
+        </ins>
       );
       lastIndex = changeIndex + change.after.length;
     }
@@ -84,4 +197,9 @@ function renderTextWithHighlights(chunk: ValidatedChunk, acceptedChanges: Set<st
   }
 
   return parts.length > 0 ? <>{parts}</> : text;
+}
+
+function truncateText(text: string, maxLength: number): string {
+  if (text.length <= maxLength) return text;
+  return text.slice(0, maxLength) + '…';
 }
