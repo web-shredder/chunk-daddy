@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import { 
   Sparkles, 
   Copy, 
@@ -10,19 +10,28 @@ import {
   ArrowLeft,
   Play,
   TrendingUp,
-  TrendingDown,
-  Minus,
+  Target,
+  Loader2,
 } from 'lucide-react';
 import { DismissableTip } from '@/components/DismissableTip';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
+import { Progress } from '@/components/ui/progress';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
-import { OptimizationEngine } from '@/components/optimizer/OptimizationEngine';
 import { MarkdownEditor } from '@/components/MarkdownEditor';
-import { formatScore, getScoreColorClass, formatImprovement, getImprovementColorClass } from '@/lib/similarity';
+import { QueryAssignmentPreview } from '@/components/optimizer/QueryAssignmentPreview';
+import { ChunkReviewPanel } from '@/components/optimizer/ChunkReviewPanel';
+import { useOptimizer } from '@/hooks/useOptimizer';
+import { formatScore, getScoreColorClass, formatImprovement, getImprovementColorClass, calculatePassageScore } from '@/lib/similarity';
+import { 
+  computeQueryAssignments, 
+  analysisResultToChunkScores,
+  type QueryAssignmentMap,
+  type ChunkScoreData,
+} from '@/lib/query-assignment';
 import type { FullOptimizationResult, ValidatedChunk } from '@/lib/optimizer-types';
 import type { ChunkScore } from '@/hooks/useAnalysis';
 
@@ -35,8 +44,371 @@ interface OptimizeTabProps {
   onGoToAnalyze: () => void;
   onReanalyze: () => void;
   onSaveProject?: () => void;
+  chunks?: string[];
 }
 
+type OptimizeViewState = 'assignment' | 'optimizing' | 'review' | 'report';
+
+export function OptimizeTab({
+  hasResults,
+  content,
+  keywords,
+  currentScores,
+  onApplyOptimization,
+  onGoToAnalyze,
+  onReanalyze,
+  onSaveProject,
+  chunks: providedChunks,
+}: OptimizeTabProps) {
+  const [viewState, setViewState] = useState<OptimizeViewState>('assignment');
+  const [optimizationResult, setOptimizationResult] = useState<FullOptimizationResult | null>(null);
+  const [optimizedContent, setOptimizedContent] = useState<string>('');
+  
+  // Review state
+  const [acceptedChunks, setAcceptedChunks] = useState<Set<number>>(new Set());
+  const [rejectedChunks, setRejectedChunks] = useState<Set<number>>(new Set());
+  const [editedChunks, setEditedChunks] = useState<Map<number, string>>(new Map());
+  
+  const { step, progress, error, result, optimize, reset } = useOptimizer();
+
+  // Compute query assignments from current scores
+  const { assignmentMap, chunkScores, chunkTexts } = useMemo(() => {
+    if (!currentScores || currentScores.length === 0) {
+      return { 
+        assignmentMap: { assignments: [], chunkAssignments: [], unassignedQueries: [] } as QueryAssignmentMap,
+        chunkScores: [] as ChunkScoreData[],
+        chunkTexts: [] as string[],
+      };
+    }
+
+    // Convert ChunkScore[] to ChunkScoreData[] format
+    const scoreData: ChunkScoreData[] = currentScores.map((cs, idx) => {
+      const scores: Record<string, number> = {};
+      cs.keywordScores.forEach(ks => {
+        // Use Passage Score for assignment decisions
+        const passageScore = calculatePassageScore(ks.scores.cosine, ks.scores.chamfer);
+        scores[ks.keyword] = passageScore / 100; // Normalize to 0-1
+      });
+      return {
+        chunkIndex: idx,
+        heading: undefined, // ChunkScore doesn't have heading
+        text: cs.text || '',
+        scores,
+      };
+    });
+
+    const texts = scoreData.map(s => s.text);
+    const map = computeQueryAssignments(scoreData, keywords, 0.3);
+
+    return { assignmentMap: map, chunkScores: scoreData, chunkTexts: texts };
+  }, [currentScores, keywords]);
+
+  const [queryAssignments, setQueryAssignments] = useState<QueryAssignmentMap>(assignmentMap);
+  
+  // Update assignments when analysis results change
+  useMemo(() => {
+    if (assignmentMap.assignments.length > 0) {
+      setQueryAssignments(assignmentMap);
+    }
+  }, [assignmentMap]);
+
+  if (!hasResults) {
+    return (
+      <div className="flex-1 flex items-center justify-center">
+        <div className="empty-state">
+          <Sparkles size={48} strokeWidth={1} />
+          <h3>Run analysis first</h3>
+          <p>Analyze your content to enable AI-powered optimization</p>
+          <button className="btn-secondary" onClick={onGoToAnalyze}>
+            Go to Analyze
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  const handleAssignmentChange = (newMap: QueryAssignmentMap) => {
+    setQueryAssignments(newMap);
+  };
+
+  const handleStartOptimization = async () => {
+    setViewState('optimizing');
+    
+    try {
+      const scoresMap = currentScores?.reduce((acc, cs) => {
+        cs.keywordScores.forEach(ks => {
+          acc[ks.keyword] = ks.scores.cosine;
+        });
+        return acc;
+      }, {} as Record<string, number>);
+
+      const result = await optimize({
+        content,
+        queries: keywords,
+        currentScores: scoresMap,
+        queryAssignments,
+        chunks: chunkTexts,
+        useFocusedOptimization: queryAssignments.chunkAssignments.length > 0,
+      });
+
+      if (result) {
+        setOptimizationResult(result);
+        const fullContent = result.optimizedChunks
+          .map(chunk => (chunk.heading ? `## ${chunk.heading}\n\n` : '') + chunk.optimized_text)
+          .join('\n\n');
+        setOptimizedContent(fullContent);
+        
+        // Auto-accept all chunks initially
+        setAcceptedChunks(new Set(result.optimizedChunks.map((_, i) => i)));
+        setRejectedChunks(new Set());
+        setEditedChunks(new Map());
+        
+        setViewState('review');
+      }
+    } catch (err) {
+      setViewState('assignment');
+    }
+  };
+
+  const handleAcceptChunk = (chunkIndex: number) => {
+    setRejectedChunks(prev => {
+      const next = new Set(prev);
+      next.delete(chunkIndex);
+      return next;
+    });
+    setAcceptedChunks(prev => {
+      const next = new Set(prev);
+      next.add(chunkIndex);
+      return next;
+    });
+  };
+
+  const handleRejectChunk = (chunkIndex: number) => {
+    setAcceptedChunks(prev => {
+      const next = new Set(prev);
+      next.delete(chunkIndex);
+      return next;
+    });
+    setRejectedChunks(prev => {
+      const next = new Set(prev);
+      next.add(chunkIndex);
+      return next;
+    });
+  };
+
+  const handleEditChunk = (chunkIndex: number, newText: string) => {
+    setEditedChunks(prev => {
+      const next = new Map(prev);
+      next.set(chunkIndex, newText);
+      return next;
+    });
+    // Mark as accepted when edited
+    handleAcceptChunk(chunkIndex);
+  };
+
+  const handleApplyChanges = () => {
+    if (!optimizationResult) return;
+
+    // Build final content from accepted/edited chunks
+    const finalChunks = optimizationResult.optimizedChunks.map((chunk, idx) => {
+      if (rejectedChunks.has(idx)) {
+        return chunk.original_text;
+      }
+      if (editedChunks.has(idx)) {
+        return editedChunks.get(idx)!;
+      }
+      return (chunk.heading ? `## ${chunk.heading}\n\n` : '') + chunk.optimized_text;
+    });
+
+    const finalContent = finalChunks.join('\n\n');
+    onApplyOptimization(finalContent);
+    setViewState('report');
+  };
+
+  const handleExport = () => {
+    if (!optimizationResult) return;
+
+    const report = {
+      exportedAt: new Date().toISOString(),
+      queryAssignments: queryAssignments.chunkAssignments.map(ca => ({
+        chunkIndex: ca.chunkIndex,
+        queries: ca.assignedQueries.map(q => q.query),
+      })),
+      originalContent: optimizationResult.originalContent,
+      optimizedContent,
+      chunks: optimizationResult.optimizedChunks.map((chunk, idx) => ({
+        chunkNumber: chunk.chunk_number,
+        heading: chunk.heading,
+        status: rejectedChunks.has(idx) ? 'rejected' : editedChunks.has(idx) ? 'edited' : 'accepted',
+        originalText: chunk.original_text,
+        optimizedText: editedChunks.get(idx) || chunk.optimized_text,
+        changes: chunk.changes_applied,
+        scores: chunk.scores,
+      })),
+      explanations: optimizationResult.explanations,
+    };
+
+    const blob = new Blob([JSON.stringify(report, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `optimization-report-${new Date().toISOString().slice(0, 10)}.json`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+    toast.success('Exported optimization report');
+  };
+
+  const handleReset = () => {
+    reset();
+    setOptimizationResult(null);
+    setOptimizedContent('');
+    setAcceptedChunks(new Set());
+    setRejectedChunks(new Set());
+    setEditedChunks(new Map());
+    setViewState('assignment');
+  };
+
+  const getStepLabel = () => {
+    switch (step) {
+      case 'analyzing': return 'Analyzing content structure...';
+      case 'optimizing': return 'Generating focused optimizations...';
+      case 'scoring': return 'Calculating Passage Scores...';
+      case 'explaining': return 'Generating change explanations...';
+      default: return 'Processing...';
+    }
+  };
+
+  // Optimizing view
+  if (viewState === 'optimizing') {
+    return (
+      <div className="flex-1 flex items-center justify-center">
+        <div className="max-w-md w-full p-8 space-y-6 text-center">
+          <Loader2 className="h-12 w-12 animate-spin text-accent mx-auto" />
+          <div>
+            <h3 className="text-lg font-semibold mb-2">{getStepLabel()}</h3>
+            <p className="text-sm text-muted-foreground">
+              Optimizing each chunk for its assigned queries
+            </p>
+          </div>
+          <Progress value={progress} className="w-full" />
+          {error && (
+            <div className="text-sm text-destructive bg-destructive/10 p-3 rounded-md">
+              {error}
+              <Button variant="ghost" size="sm" onClick={handleReset} className="ml-2">
+                Try Again
+              </Button>
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  // Review view
+  if (viewState === 'review' && optimizationResult) {
+    return (
+      <div className="flex-1 flex flex-col overflow-hidden">
+        <div className="h-14 px-6 border-b border-border flex items-center justify-between bg-surface shrink-0">
+          <div className="flex items-center gap-3">
+            <button onClick={handleReset} className="icon-button" title="Back to assignments">
+              <ArrowLeft className="h-4 w-4" />
+            </button>
+            <h3 className="text-sm font-medium text-foreground flex items-center gap-2">
+              <Sparkles className="h-4 w-4 text-accent" />
+              Review Optimizations
+            </h3>
+          </div>
+        </div>
+        
+        <div className="flex-1 overflow-hidden p-6">
+          <ChunkReviewPanel
+            chunks={optimizationResult.optimizedChunks}
+            explanations={optimizationResult.explanations}
+            originalContent={optimizationResult.originalContent}
+            queryAssignments={queryAssignments}
+            onAccept={handleAcceptChunk}
+            onReject={handleRejectChunk}
+            onEdit={handleEditChunk}
+            onApplyAll={handleApplyChanges}
+            onExport={handleExport}
+            acceptedChunks={acceptedChunks}
+            rejectedChunks={rejectedChunks}
+            editedChunks={editedChunks}
+          />
+        </div>
+      </div>
+    );
+  }
+
+  // Report view (after applying)
+  if (viewState === 'report' && optimizationResult) {
+    return (
+      <ReportView
+        optimizedContent={optimizedContent}
+        result={optimizationResult}
+        originalContent={content}
+        onEditContent={(newContent) => {
+          setOptimizedContent(newContent);
+          onApplyOptimization(newContent);
+        }}
+        onBack={handleReset}
+        onReanalyze={onReanalyze}
+      />
+    );
+  }
+
+  // Assignment view (default)
+  return (
+    <div className="flex-1 overflow-auto">
+      <ScrollArea className="h-full">
+        <div className="p-6 max-w-5xl mx-auto">
+          <div className="panel">
+            <div className="panel-header">
+              <h3 className="flex items-center gap-2">
+                <Target className="h-5 w-5 text-accent" />
+                Query-to-Chunk Assignment
+              </h3>
+              <p className="text-sm text-muted-foreground mt-1">
+                Each query will optimize its best-matching chunk. Review assignments before running optimization.
+              </p>
+            </div>
+
+            <DismissableTip tipId="optimize-assignment-intro">
+              <strong>Focused Optimization:</strong> Instead of trying to stuff all keywords everywhere, 
+              each chunk will only be optimized for its assigned queries. This creates natural, focused content 
+              that scores higher on Passage Score.
+            </DismissableTip>
+
+            {queryAssignments.assignments.length === 0 ? (
+              <div className="text-center py-12 text-muted-foreground">
+                <Target className="h-12 w-12 mx-auto mb-3 opacity-30" />
+                <p>No query assignments could be computed.</p>
+                <p className="text-sm mt-2">
+                  This usually means the analysis hasn't been run yet or no queries were provided.
+                </p>
+                <Button variant="secondary" className="mt-4" onClick={onGoToAnalyze}>
+                  Go to Analyze
+                </Button>
+              </div>
+            ) : (
+              <QueryAssignmentPreview
+                assignmentMap={queryAssignments}
+                chunkScores={chunkScores}
+                onAssignmentChange={handleAssignmentChange}
+                onConfirm={handleStartOptimization}
+                isOptimizing={step !== 'idle' && step !== 'complete' && step !== 'error'}
+              />
+            )}
+          </div>
+        </div>
+      </ScrollArea>
+    </div>
+  );
+}
+
+// Report View Component (moved inside the file for simplicity)
 interface ReportViewProps {
   optimizedContent: string;
   result: FullOptimizationResult;
@@ -109,24 +481,10 @@ function ReportView({
   };
 
   // Calculate aggregate improvements
-  const calculateAggregateScores = () => {
+  const stats = useMemo(() => {
     const chunks = result.optimizedChunks;
     if (!chunks.length) return null;
 
-    let totalOriginal = 0;
-    let totalNew = 0;
-    let changesWithScores = 0;
-
-    chunks.forEach(chunk => {
-      chunk.changes_applied.forEach(change => {
-        if (change.actual_scores) {
-          totalNew += change.actual_scores.new_score;
-          changesWithScores++;
-        }
-      });
-    });
-
-    // Calculate average scores from chunk scores if available
     const avgScores: Record<string, { avg: number; count: number }> = {};
     chunks.forEach(chunk => {
       if (chunk.scores) {
@@ -147,9 +505,7 @@ function ReportView({
         Object.entries(avgScores).map(([key, val]) => [key, val.avg / val.count])
       ),
     };
-  };
-
-  const stats = calculateAggregateScores();
+  }, [result]);
 
   return (
     <div className="flex-1 flex flex-col overflow-hidden">
@@ -342,100 +698,6 @@ function ReportView({
           </ScrollArea>
         </TabsContent>
       </Tabs>
-    </div>
-  );
-}
-
-export function OptimizeTab({
-  hasResults,
-  content,
-  keywords,
-  currentScores,
-  onApplyOptimization,
-  onGoToAnalyze,
-  onReanalyze,
-  onSaveProject,
-}: OptimizeTabProps) {
-  const [optimizationResult, setOptimizationResult] = useState<FullOptimizationResult | null>(null);
-  const [optimizedContent, setOptimizedContent] = useState<string>('');
-  const [showReport, setShowReport] = useState(false);
-
-  if (!hasResults) {
-    return (
-      <div className="flex-1 flex items-center justify-center">
-        <div className="empty-state">
-          <Sparkles size={48} strokeWidth={1} />
-          <h3>Run analysis first</h3>
-          <p>Analyze your content to enable AI-powered optimization</p>
-          <button className="btn-secondary" onClick={onGoToAnalyze}>
-            Go to Analyze
-          </button>
-        </div>
-      </div>
-    );
-  }
-
-  const handleOptimizationComplete = (result: FullOptimizationResult, finalContent: string) => {
-    setOptimizationResult(result);
-    setOptimizedContent(finalContent);
-    setShowReport(true);
-  };
-
-  const handleApplyFromReport = (newContent: string) => {
-    setOptimizedContent(newContent);
-    onApplyOptimization(newContent);
-  };
-
-  const handleBackToOptimizer = () => {
-    setShowReport(false);
-  };
-
-  if (showReport && optimizationResult) {
-    return (
-      <ReportView
-        optimizedContent={optimizedContent}
-        result={optimizationResult}
-        originalContent={content}
-        onEditContent={handleApplyFromReport}
-        onBack={handleBackToOptimizer}
-        onReanalyze={onReanalyze}
-      />
-    );
-  }
-
-  return (
-    <div className="flex-1 overflow-auto">
-      <ScrollArea className="h-full">
-        <div className="p-6 max-w-5xl mx-auto">
-          <div className="panel">
-            <div className="panel-header">
-              <h3 className="flex items-center gap-2">
-                <Sparkles className="h-5 w-5 text-accent" />
-                Auto-Optimize Content
-              </h3>
-              <p className="text-sm text-muted-foreground mt-1">
-                AI-powered content optimization to improve chunk relevance for your queries
-              </p>
-            </div>
-
-            <DismissableTip tipId="optimize-intro">
-              AI will rewrite low-scoring chunks to improve your Passage Score and increase the chance of being cited in AI search results.
-            </DismissableTip>
-
-            <OptimizationEngine
-              content={content}
-              keywords={keywords}
-              currentScores={currentScores?.flatMap(cs => cs.keywordScores)}
-              onApplyOptimization={(optimizedContent) => {
-                // This is for backward compatibility - direct apply
-                onApplyOptimization(optimizedContent);
-              }}
-              onOptimizationComplete={handleOptimizationComplete}
-              onSaveProject={onSaveProject}
-            />
-          </div>
-        </div>
-      </ScrollArea>
     </div>
   );
 }
