@@ -287,6 +287,27 @@ Suggest keywords that:
       toolChoice = { type: "function", function: { name: "suggest_keywords" } };
     }
 
+    const responseTools = (tools ?? []).map((t: any) => {
+      if (t?.type === 'function' && t.function) {
+        return {
+          type: 'function',
+          name: t.function.name,
+          description: t.function.description,
+          parameters: t.function.parameters,
+        };
+      }
+      return t;
+    });
+
+    const requiredToolName = toolChoice?.type === 'function' ? toolChoice.function?.name : undefined;
+    const responseToolChoice = requiredToolName
+      ? {
+          type: 'allowed_tools',
+          mode: 'required',
+          tools: [{ type: 'function', name: requiredToolName }],
+        }
+      : undefined;
+
     const response = await fetch('https://api.openai.com/v1/responses', {
       method: 'POST',
       headers: {
@@ -297,10 +318,10 @@ Suggest keywords that:
         model: 'gpt-5.2',
         input: [
           { role: 'developer', content: systemPrompt },
-          { role: 'user', content: userPrompt }
+          { role: 'user', content: userPrompt },
         ],
-        tools,
-        tool_choice: toolChoice,
+        tools: responseTools,
+        tool_choice: responseToolChoice,
         max_output_tokens: 4096,
         reasoning: { effort: 'none' },
       }),
