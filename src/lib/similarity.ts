@@ -133,7 +133,7 @@ export interface SimilarityScores {
   manhattan: number;
   dotProduct: number;
   chamfer: number;
-  daddyScore: number;
+  passageScore: number;
 }
 
 /**
@@ -149,15 +149,15 @@ export function calculateAllMetrics(vecA: number[], vecB: number[]): SimilarityS
     manhattan: manhattanDistance(vecA, vecB),
     dotProduct: dotProduct(vecA, vecB),
     chamfer: 0,
-    daddyScore: calculateDaddyScore(cosine, 0),
+    passageScore: calculatePassageScore(cosine, 0),
   };
 }
 
 /**
- * Calculate Daddy Score - composite retrieval probability metric
+ * Calculate Passage Score - composite retrieval probability metric
  * 
  * Combines cosine similarity (70%) and chamfer similarity (30%) to predict
- * how likely a chunk is to be retrieved by RAG systems.
+ * how likely a passage is to be retrieved by RAG systems.
  * 
  * Score interpretation:
  * - 90-100: Excellent retrieval probability (top 5 results)
@@ -168,9 +168,9 @@ export function calculateAllMetrics(vecA: number[], vecB: number[]): SimilarityS
  * 
  * @param cosine - Cosine similarity score (0-1)
  * @param chamfer - Chamfer similarity score (0-1)
- * @returns Daddy Score (0-100)
+ * @returns Passage Score (0-100)
  */
-export function calculateDaddyScore(cosine: number, chamfer: number): number {
+export function calculatePassageScore(cosine: number, chamfer: number): number {
   // Normalize both to 0-1 range (they already are, but being explicit)
   const normalizedCosine = Math.max(0, Math.min(1, cosine));
   const normalizedChamfer = Math.max(0, Math.min(1, chamfer));
@@ -182,12 +182,15 @@ export function calculateDaddyScore(cosine: number, chamfer: number): number {
   return Math.round(weighted * 100);
 }
 
-/**
- * Get Daddy Score quality tier
- */
-export type DaddyScoreTier = 'excellent' | 'good' | 'moderate' | 'weak' | 'poor';
+// Keep old name as alias for backward compatibility
+export const calculateDaddyScore = calculatePassageScore;
 
-export function getDaddyScoreTier(score: number): DaddyScoreTier {
+/**
+ * Get Passage Score quality tier
+ */
+export type PassageScoreTier = 'excellent' | 'good' | 'moderate' | 'weak' | 'poor';
+
+export function getPassageScoreTier(score: number): PassageScoreTier {
   if (score >= 90) return 'excellent';
   if (score >= 75) return 'good';
   if (score >= 60) return 'moderate';
@@ -195,13 +198,16 @@ export function getDaddyScoreTier(score: number): DaddyScoreTier {
   return 'poor';
 }
 
+// Alias for backward compatibility
+export const getDaddyScoreTier = getPassageScoreTier;
+
 /**
- * Get interpretation text for Daddy Score
+ * Get interpretation text for Passage Score
  */
-export function getDaddyScoreInterpretation(score: number): string {
-  const tier = getDaddyScoreTier(score);
+export function getPassageScoreInterpretation(score: number): string {
+  const tier = getPassageScoreTier(score);
   
-  const interpretations: Record<DaddyScoreTier, string> = {
+  const interpretations: Record<PassageScoreTier, string> = {
     excellent: 'High retrieval probability. Very likely to make top 5 results in RAG systems.',
     good: 'Good retrieval probability. Strong candidate for top 10 results.',
     moderate: 'Moderate retrieval probability. Competitive but depends on other content.',
@@ -212,58 +218,67 @@ export function getDaddyScoreInterpretation(score: number): string {
   return interpretations[tier];
 }
 
+// Alias for backward compatibility  
+export const getDaddyScoreInterpretation = getPassageScoreInterpretation;
+
 /**
- * Get action recommendation based on Daddy Score
+ * Get action recommendation based on Passage Score
  */
-export function getDaddyScoreRecommendation(score: number): string {
-  const tier = getDaddyScoreTier(score);
+export function getPassageScoreRecommendation(score: number): string {
+  const tier = getPassageScoreTier(score);
   
-  const recommendations: Record<DaddyScoreTier, string> = {
+  const recommendations: Record<PassageScoreTier, string> = {
     excellent: 'Content is well-optimized. Monitor for changes and maintain quality.',
     good: 'Content performs well. Consider minor improvements to reach excellent tier.',
-    moderate: 'Optimize chunk boundaries, add context, or improve semantic relevance.',
-    weak: 'Significant restructuring needed. Review heading hierarchy and chunk atomicity.',
+    moderate: 'Optimize passage boundaries, add context, or improve semantic relevance.',
+    weak: 'Significant restructuring needed. Review heading hierarchy and passage atomicity.',
     poor: 'Major optimization required. Content may not be relevant to query or poorly structured.'
   };
   
   return recommendations[tier];
 }
 
+// Alias for backward compatibility
+export const getDaddyScoreRecommendation = getPassageScoreRecommendation;
+
 /**
- * Get tier color classes for Daddy Score display
+ * Get tier color classes for Passage Score display - using muted colors
  */
-export function getDaddyScoreTierColorClass(tier: DaddyScoreTier): string {
-  const colors: Record<DaddyScoreTier, string> = {
-    excellent: 'text-green-500',
-    good: 'text-green-400',
-    moderate: 'text-yellow-500',
-    weak: 'text-orange-400',
-    poor: 'text-red-500'
+export function getPassageScoreTierColorClass(tier: PassageScoreTier): string {
+  const colors: Record<PassageScoreTier, string> = {
+    excellent: 'text-primary',
+    good: 'text-primary/80',
+    moderate: 'text-muted-foreground',
+    weak: 'text-muted-foreground/80',
+    poor: 'text-muted-foreground/60'
   };
   return colors[tier];
 }
 
-export function getDaddyScoreTierBgClass(tier: DaddyScoreTier): string {
-  const colors: Record<DaddyScoreTier, string> = {
-    excellent: 'bg-green-500/15 text-green-500',
-    good: 'bg-green-500/10 text-green-400',
-    moderate: 'bg-yellow-500/15 text-yellow-500',
-    weak: 'bg-orange-500/15 text-orange-400',
-    poor: 'bg-red-500/15 text-red-500'
+// Alias for backward compatibility
+export const getDaddyScoreTierColorClass = getPassageScoreTierColorClass;
+
+export function getPassageScoreTierBgClass(tier: PassageScoreTier): string {
+  const colors: Record<PassageScoreTier, string> = {
+    excellent: 'bg-primary/15 text-primary',
+    good: 'bg-primary/10 text-primary/80',
+    moderate: 'bg-muted text-muted-foreground',
+    weak: 'bg-muted/80 text-muted-foreground/80',
+    poor: 'bg-muted/60 text-muted-foreground/60'
   };
   return colors[tier];
 }
 
-export function getDaddyScoreBorderClass(tier: DaddyScoreTier): string {
-  const colors: Record<DaddyScoreTier, string> = {
-    excellent: 'border-green-500',
-    good: 'border-green-400',
-    moderate: 'border-yellow-500',
-    weak: 'border-orange-400',
-    poor: 'border-red-500'
-  };
-  return colors[tier];
+// Alias for backward compatibility
+export const getDaddyScoreTierBgClass = getPassageScoreTierBgClass;
+
+export function getPassageScoreBorderClass(_tier: PassageScoreTier): string {
+  // Always return neutral border for design system compliance
+  return 'border-border';
 }
+
+// Alias for backward compatibility
+export const getDaddyScoreBorderClass = getPassageScoreBorderClass;
 
 /**
  * Calculate improvement percentage between two scores

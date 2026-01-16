@@ -9,11 +9,19 @@ export interface ScoreMetadata {
 }
 
 export const SCORE_METADATA: Record<string, ScoreMetadata> = {
-  daddyScore: {
-    label: 'Daddy Score',
+  passageScore: {
+    label: 'Passage Score',
     range: '0 to 100',
     direction: 'higher',
-    explanation: 'Composite retrieval probability metric. Combines cosine (70%) and chamfer (30%) similarity to predict how likely this chunk is to be retrieved by RAG systems.',
+    explanation: 'Composite retrieval probability metric. Combines cosine (70%) and chamfer (30%) similarity to predict how likely this passage is to be retrieved by RAG systems.',
+    hasQuality: true
+  },
+  // Keep old key for backward compatibility
+  daddyScore: {
+    label: 'Passage Score',
+    range: '0 to 100',
+    direction: 'higher',
+    explanation: 'Composite retrieval probability metric. Combines cosine (70%) and chamfer (30%) similarity to predict how likely this passage is to be retrieved by RAG systems.',
     hasQuality: true
   },
   cosine: {
@@ -73,7 +81,7 @@ export function getScoreQuality(metricKey: string, value: number): ScoreQuality 
     return 'poor';
   }
 
-  if (metricKey === 'daddyScore') {
+  if (metricKey === 'passageScore' || metricKey === 'daddyScore') {
     if (value >= 90) return 'excellent';
     if (value >= 75) return 'good';
     if (value >= 60) return 'fair';
@@ -86,16 +94,17 @@ export function getScoreQuality(metricKey: string, value: number): ScoreQuality 
 }
 
 export function getQualityColorClass(quality: ScoreQuality): string {
+  // Using muted, design-system-compliant colors
   switch (quality) {
     case 'excellent':
-      return 'bg-green-500/15 text-green-500';
+      return 'bg-primary/15 text-primary';
     case 'good':
-      return 'bg-green-500/10 text-green-400';
+      return 'bg-primary/10 text-primary/80';
     case 'fair':
-      return 'bg-yellow-500/15 text-yellow-500';
+      return 'bg-muted text-muted-foreground';
     case 'weak':
-      return 'bg-orange-500/15 text-orange-400';
+      return 'bg-muted/80 text-muted-foreground/80';
     case 'poor':
-      return 'bg-red-500/15 text-red-500';
+      return 'bg-muted/60 text-muted-foreground/60';
   }
 }
