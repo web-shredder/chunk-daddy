@@ -136,9 +136,9 @@ export interface SimilarityScores {
 }
 
 /**
- * Calculate all similarity metrics between two vectors
- * NOTE: chamfer now requires multi-aspect embeddings (number[][])
- * so it's excluded from this single-vector comparison
+ * Calculate all similarity metrics between two vectors.
+ * Note: Chamfer distance requires multi-aspect embeddings (number[][]),
+ * so it returns 0 here. Use chamferSimilarity() directly for set comparisons.
  */
 export function calculateAllMetrics(vecA: number[], vecB: number[]): SimilarityScores {
   return {
@@ -146,7 +146,7 @@ export function calculateAllMetrics(vecA: number[], vecB: number[]): SimilarityS
     euclidean: euclideanDistance(vecA, vecB),
     manhattan: manhattanDistance(vecA, vecB),
     dotProduct: dotProduct(vecA, vecB),
-    chamfer: 0, // Chamfer requires multi-aspect embeddings, use chamferSimilarity() directly
+    chamfer: 0,
   };
 }
 
