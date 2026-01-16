@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -39,6 +39,27 @@ const Index = () => {
   const [parsedElements, setParsedElements] = useState<DocumentElement[]>([]);
   const [layoutChunks, setLayoutChunks] = useState<LayoutAwareChunk[]>([]);
   const [selectedChunk, setSelectedChunk] = useState<LayoutAwareChunk | null>(null);
+
+  // Redirect to auth if not logged in
+  useEffect(() => {
+    if (!authLoading && !user) {
+      navigate('/auth');
+    }
+  }, [user, authLoading, navigate]);
+
+  // Show loading spinner while checking auth
+  if (authLoading) {
+    return (
+      <div className="min-h-screen bg-background flex items-center justify-center">
+        <Loader2 className="h-8 w-8 animate-spin text-primary" />
+      </div>
+    );
+  }
+
+  // If no user after loading, don't render (redirect will happen)
+  if (!user) {
+    return null;
+  }
 
   const handleAnalyze = () => {
     // Parse and chunk content
