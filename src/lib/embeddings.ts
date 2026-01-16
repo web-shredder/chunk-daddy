@@ -1,122 +1,46 @@
-// OpenAI Embeddings API wrapper for Chunk Daddy
-
-const OPENAI_API_URL = 'https://api.openai.com/v1/embeddings';
-const MODEL = 'text-embedding-3-large';
+// OpenAI Embeddings via Edge Function for Chunk Daddy
+import { supabase } from '@/integrations/supabase/client';
 
 export interface EmbeddingResult {
   text: string;
   embedding: number[];
 }
 
-export interface EmbeddingError {
-  message: string;
-  code?: string;
-}
-
 /**
- * Generate embedding for a single text input
+ * Generate embeddings for multiple texts via edge function
  */
-export async function generateEmbedding(
-  text: string,
-  apiKey: string
-): Promise<number[]> {
-  const response = await fetch(OPENAI_API_URL, {
-    method: 'POST',
-    headers: {
-      'Authorization': `Bearer ${apiKey}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      input: text,
-      model: MODEL,
-    }),
+export async function generateEmbeddings(texts: string[]): Promise<EmbeddingResult[]> {
+  const { data, error } = await supabase.functions.invoke('generate-embeddings', {
+    body: { texts },
   });
 
-  if (!response.ok) {
-    const errorData = await response.json().catch(() => ({}));
-    throw new Error(
-      errorData.error?.message || `API request failed with status ${response.status}`
-    );
+  if (error) {
+    throw new Error(error.message || 'Failed to generate embeddings');
   }
 
-  const data = await response.json();
-  return data.data[0].embedding;
-}
-
-/**
- * Generate embeddings for multiple texts in parallel
- */
-export async function generateEmbeddings(
-  texts: string[],
-  apiKey: string
-): Promise<EmbeddingResult[]> {
-  // OpenAI supports batch embedding in a single request
-  const response = await fetch(OPENAI_API_URL, {
-    method: 'POST',
-    headers: {
-      'Authorization': `Bearer ${apiKey}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      input: texts,
-      model: MODEL,
-    }),
-  });
-
-  if (!response.ok) {
-    const errorData = await response.json().catch(() => ({}));
-    throw new Error(
-      errorData.error?.message || `API request failed with status ${response.status}`
-    );
+  if (data.error) {
+    throw new Error(data.error);
   }
 
-  const data = await response.json();
-  
-  // Sort by index to maintain order
-  const sortedData = data.data.sort((a: any, b: any) => a.index - b.index);
-  
-  return sortedData.map((item: any, index: number) => ({
-    text: texts[index],
-    embedding: item.embedding,
-  }));
+  return data.embeddings;
 }
 
 /**
- * Validate API key format (basic check)
+ * Generate embedding for a single text
  */
-export function isValidApiKeyFormat(apiKey: string): boolean {
-  return apiKey.startsWith('sk-') && apiKey.length > 20;
+export async function generateEmbedding(text: string): Promise<number[]> {
+  const results = await generateEmbeddings([text]);
+  return results[0].embedding;
 }
 
 /**
- * Test API key by making a minimal embedding request
+ * Check if the embedding service is available
  */
-export async function testApiKey(apiKey: string): Promise<boolean> {
+export async function checkApiStatus(): Promise<boolean> {
   try {
-    await generateEmbedding('test', apiKey);
+    await generateEmbedding('test');
     return true;
-  } catch (error) {
+  } catch {
     return false;
   }
-}
-
-/**
- * Get stored API key from localStorage
- */
-export function getStoredApiKey(): string | null {
-  return localStorage.getItem('chunk_daddy_openai_key');
-}
-
-/**
- * Store API key in localStorage
- */
-export function storeApiKey(apiKey: string): void {
-  localStorage.setItem('chunk_daddy_openai_key', apiKey);
-}
-
-/**
- * Remove API key from localStorage
- */
-export function removeStoredApiKey(): void {
-  localStorage.removeItem('chunk_daddy_openai_key');
 }
