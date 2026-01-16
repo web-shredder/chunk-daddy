@@ -362,7 +362,42 @@ Suggest keywords that:
       );
     }
 
-    const result = JSON.parse(toolCall.arguments);
+    // Parse tool arguments with error handling for truncated JSON
+    let result;
+    try {
+      result = JSON.parse(toolCall.arguments);
+    } catch (parseError) {
+      console.error('JSON parse error - arguments may be truncated:', parseError);
+      console.error('Raw arguments (first 500 chars):', toolCall.arguments?.substring(0, 500));
+      console.error('Raw arguments (last 500 chars):', toolCall.arguments?.substring(toolCall.arguments.length - 500));
+      
+      // Try to salvage partial data by attempting to fix common truncation issues
+      let fixedJson = toolCall.arguments;
+      
+      // Try adding closing brackets if truncated
+      const openBraces = (fixedJson.match(/\{/g) || []).length;
+      const closeBraces = (fixedJson.match(/\}/g) || []).length;
+      const openBrackets = (fixedJson.match(/\[/g) || []).length;
+      const closeBrackets = (fixedJson.match(/\]/g) || []).length;
+      
+      // Add missing closing characters
+      fixedJson += '}]}}'.repeat(Math.max(0, openBraces - closeBraces));
+      fixedJson = fixedJson.replace(/}+$/, '}]}'.repeat(Math.max(0, openBrackets - closeBrackets)) + '}');
+      
+      try {
+        result = JSON.parse(fixedJson);
+        console.log('Successfully recovered partial JSON');
+      } catch {
+        return new Response(
+          JSON.stringify({ 
+            error: 'AI response was truncated. Please try again with shorter content or fewer queries.',
+            details: 'The AI generated a response that exceeded output limits.'
+          }),
+          { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        );
+      }
+    }
+    
     console.log(`${type} completed successfully`);
 
     return new Response(
