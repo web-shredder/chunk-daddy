@@ -224,8 +224,44 @@ const Index = () => {
           <div className="mt-8 space-y-6">
             <Separator />
             
+            <Tabs defaultValue="results" className="space-y-4">
+              <TabsList className="grid w-full grid-cols-2 max-w-md">
+                <TabsTrigger value="results">
+                  Scores
+                </TabsTrigger>
+                <TabsTrigger value="optimize" className="flex items-center gap-1.5">
+                  <Sparkles className="h-3.5 w-3.5" />
+                  Auto-Optimize
+                </TabsTrigger>
+              </TabsList>
+              
+              <TabsContent value="results">
+                <Card>
+                  <CardContent className="pt-6">
+                    <ResultsDisplay result={result} />
+                  </CardContent>
+                </Card>
+              </TabsContent>
+              
+              <TabsContent value="optimize">
+                <Card>
+                  <CardContent className="pt-6">
+                    <OptimizationEngine
+                      content={content}
+                      keywords={keywords.filter(k => k.trim())}
+                      currentScores={result.originalScores?.keywordScores}
+                      onApplyOptimization={(optimized) => {
+                        setContent(optimized);
+                      }}
+                    />
+                  </CardContent>
+                </Card>
+              </TabsContent>
+            </Tabs>
+            
+            {/* Structure & Cascade Section */}
             <Tabs defaultValue="structure" className="space-y-4">
-              <TabsList className="grid w-full grid-cols-4 max-w-2xl">
+              <TabsList className="grid w-full grid-cols-2 max-w-md">
                 <TabsTrigger value="structure" className="flex items-center gap-1.5">
                   <Layers className="h-3.5 w-3.5" />
                   Structure
@@ -233,13 +269,6 @@ const Index = () => {
                 <TabsTrigger value="comparison" className="flex items-center gap-1.5">
                   <GitCompare className="h-3.5 w-3.5" />
                   Cascade Impact
-                </TabsTrigger>
-                <TabsTrigger value="results">
-                  Scores
-                </TabsTrigger>
-                <TabsTrigger value="optimize" className="flex items-center gap-1.5">
-                  <Sparkles className="h-3.5 w-3.5" />
-                  Auto-Optimize
                 </TabsTrigger>
               </TabsList>
               
@@ -271,29 +300,6 @@ const Index = () => {
                   scoresWithoutCascade={result.noCascadeScores || []}
                   keywords={keywords.filter(k => k.trim())}
                 />
-              </TabsContent>
-              
-              <TabsContent value="results">
-                <Card>
-                  <CardContent className="pt-6">
-                    <ResultsDisplay result={result} />
-                  </CardContent>
-                </Card>
-              </TabsContent>
-              
-              <TabsContent value="optimize">
-                <Card>
-                  <CardContent className="pt-6">
-                    <OptimizationEngine
-                      content={content}
-                      keywords={keywords.filter(k => k.trim())}
-                      currentScores={result.originalScores?.keywordScores}
-                      onApplyOptimization={(optimized) => {
-                        setContent(optimized);
-                      }}
-                    />
-                  </CardContent>
-                </Card>
               </TabsContent>
             </Tabs>
           </div>
