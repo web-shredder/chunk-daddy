@@ -8,7 +8,7 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigge
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
-import { formatScore, getScoreColorClass, getImprovementColorClass, formatImprovement, calculatePassageScore } from '@/lib/similarity';
+import { formatScore, getScoreColorClass, getImprovementColorClass, formatImprovement, calculatePassageScore, getPassageScoreTier, getPassageScoreTierColorClass } from '@/lib/similarity';
 import { PassageScoreHero } from './PassageScoreHero';
 import { downloadCSV } from '@/lib/csv-export';
 import type { LayoutAwareChunk, DocumentElement } from '@/lib/layout-chunker';
@@ -134,7 +134,10 @@ function HeadingNodeView({
           chunk,
           score
         }) => {
-          const avgScore = score ? score.keywordScores.reduce((sum, ks) => sum + ks.scores.cosine, 0) / score.keywordScores.length : 0;
+          const avgCosine = score ? score.keywordScores.reduce((sum, ks) => sum + ks.scores.cosine, 0) / score.keywordScores.length : 0;
+          const avgChamfer = score ? score.keywordScores.reduce((sum, ks) => sum + ks.scores.chamfer, 0) / score.keywordScores.length : 0;
+          const passageScore = calculatePassageScore(avgCosine, avgChamfer);
+          const tier = getPassageScoreTier(passageScore);
           const isSelected = selectedChunkId === chunk.id;
           const chunkNum = parseInt(chunk.id.replace('chunk-', ''));
           return <button key={chunk.id} onClick={() => onSelectChunk(chunkNum)} className={cn("flex items-center gap-2 w-full text-left py-1.5 px-2 ml-5 rounded-md", "hover:bg-muted/50 transition-colors text-xs", isSelected && "bg-accent/20 border-l-2 border-accent")}>
@@ -142,8 +145,8 @@ function HeadingNodeView({
                 <span className="text-muted-foreground truncate flex-1">
                   {chunk.textWithoutCascade.slice(0, 50)}...
                 </span>
-                {score && <Badge variant="secondary" className={cn("text-[10px] px-1.5 py-0 h-4 shrink-0 font-mono", getScoreColorClass(avgScore))}>
-                    {avgScore.toFixed(2)}
+                {score && <Badge variant="secondary" className={cn("text-[10px] px-1.5 py-0 h-4 shrink-0 font-mono", getPassageScoreTierColorClass(tier))}>
+                    {passageScore}
                   </Badge>}
               </button>;
         })}
@@ -303,14 +306,17 @@ export function ResultsTab({
             {viewMode === 'list' ? <div className="p-2 space-y-0.5">
                 {filteredChunks.map((chunk, idx) => {
               const score = chunkScores[chunks.indexOf(chunk)];
-              const avgScore = score ? score.keywordScores.reduce((sum, ks) => sum + ks.scores.cosine, 0) / score.keywordScores.length : 0;
+              const avgCosine = score ? score.keywordScores.reduce((sum, ks) => sum + ks.scores.cosine, 0) / score.keywordScores.length : 0;
+              const avgChamfer = score ? score.keywordScores.reduce((sum, ks) => sum + ks.scores.chamfer, 0) / score.keywordScores.length : 0;
+              const passageScore = calculatePassageScore(avgCosine, avgChamfer);
+              const tier = getPassageScoreTier(passageScore);
               const isActive = chunks.indexOf(chunk) === selectedIndex;
               return <button key={chunk.id} onClick={() => setSelectedIndex(chunks.indexOf(chunk))} className={cn('tree-item w-full text-left', isActive && 'active')}>
                       <span className="truncate flex-1">
                         {chunk.headingPath.length > 0 ? chunk.headingPath[chunk.headingPath.length - 1] : `Chunk ${chunk.id.replace('chunk-', '')}`}
                       </span>
-                      <Badge variant="secondary" className={cn('text-[10px] px-1.5 py-0 h-4 shrink-0 font-mono', getScoreColorClass(avgScore))}>
-                        {avgScore.toFixed(2)}
+                      <Badge variant="secondary" className={cn('text-[10px] px-1.5 py-0 h-4 shrink-0 font-mono', getPassageScoreTierColorClass(tier))}>
+                        {passageScore}
                       </Badge>
                     </button>;
             })}
