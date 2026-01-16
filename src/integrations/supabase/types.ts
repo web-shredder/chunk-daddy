@@ -19,6 +19,8 @@ export type Database = {
           content: string
           created_at: string
           id: string
+          optimization_result: Json | null
+          optimized_content: string | null
           project_name: string
           queries: Json
           results: Json | null
@@ -30,6 +32,8 @@ export type Database = {
           content: string
           created_at?: string
           id?: string
+          optimization_result?: Json | null
+          optimized_content?: string | null
           project_name: string
           queries?: Json
           results?: Json | null
@@ -41,6 +45,8 @@ export type Database = {
           content?: string
           created_at?: string
           id?: string
+          optimization_result?: Json | null
+          optimized_content?: string | null
           project_name?: string
           queries?: Json
           results?: Json | null
