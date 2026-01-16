@@ -277,7 +277,7 @@ export function ResultsTab({
 
       <div className="flex-1 flex overflow-hidden">
         {/* Left: Tree/List Structure */}
-        <div className="w-80 border-r border-border flex flex-col bg-surface shrink-0">
+        <div className="w-1/2 border-r border-border flex flex-col bg-surface shrink-0">
           {/* Header with view toggle */}
           <div className="p-3 border-b border-border space-y-2">
             <div className="flex items-center gap-2">
