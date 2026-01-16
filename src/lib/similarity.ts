@@ -133,6 +133,7 @@ export interface SimilarityScores {
   manhattan: number;
   dotProduct: number;
   chamfer: number;
+  daddyScore: number;
 }
 
 /**
@@ -141,13 +142,127 @@ export interface SimilarityScores {
  * so it returns 0 here. Use chamferSimilarity() directly for set comparisons.
  */
 export function calculateAllMetrics(vecA: number[], vecB: number[]): SimilarityScores {
+  const cosine = cosineSimilarity(vecA, vecB);
   return {
-    cosine: cosineSimilarity(vecA, vecB),
+    cosine,
     euclidean: euclideanDistance(vecA, vecB),
     manhattan: manhattanDistance(vecA, vecB),
     dotProduct: dotProduct(vecA, vecB),
     chamfer: 0,
+    daddyScore: calculateDaddyScore(cosine, 0),
   };
+}
+
+/**
+ * Calculate Daddy Score - composite retrieval probability metric
+ * 
+ * Combines cosine similarity (70%) and chamfer similarity (30%) to predict
+ * how likely a chunk is to be retrieved by RAG systems.
+ * 
+ * Score interpretation:
+ * - 90-100: Excellent retrieval probability (top 5 results)
+ * - 75-89: Good retrieval probability (top 10 results)
+ * - 60-74: Moderate retrieval probability (competitive)
+ * - 40-59: Weak retrieval probability (depends on competition)
+ * - 0-39: Poor retrieval probability (likely filtered out)
+ * 
+ * @param cosine - Cosine similarity score (0-1)
+ * @param chamfer - Chamfer similarity score (0-1)
+ * @returns Daddy Score (0-100)
+ */
+export function calculateDaddyScore(cosine: number, chamfer: number): number {
+  // Normalize both to 0-1 range (they already are, but being explicit)
+  const normalizedCosine = Math.max(0, Math.min(1, cosine));
+  const normalizedChamfer = Math.max(0, Math.min(1, chamfer));
+  
+  // Weight: 70% cosine (primary semantic relevance), 30% chamfer (multi-aspect coverage)
+  const weighted = (normalizedCosine * 0.7) + (normalizedChamfer * 0.3);
+  
+  // Scale to 0-100
+  return Math.round(weighted * 100);
+}
+
+/**
+ * Get Daddy Score quality tier
+ */
+export type DaddyScoreTier = 'excellent' | 'good' | 'moderate' | 'weak' | 'poor';
+
+export function getDaddyScoreTier(score: number): DaddyScoreTier {
+  if (score >= 90) return 'excellent';
+  if (score >= 75) return 'good';
+  if (score >= 60) return 'moderate';
+  if (score >= 40) return 'weak';
+  return 'poor';
+}
+
+/**
+ * Get interpretation text for Daddy Score
+ */
+export function getDaddyScoreInterpretation(score: number): string {
+  const tier = getDaddyScoreTier(score);
+  
+  const interpretations: Record<DaddyScoreTier, string> = {
+    excellent: 'High retrieval probability. Very likely to make top 5 results in RAG systems.',
+    good: 'Good retrieval probability. Strong candidate for top 10 results.',
+    moderate: 'Moderate retrieval probability. Competitive but depends on other content.',
+    weak: 'Weak retrieval probability. May be retrieved if competition is low.',
+    poor: 'Poor retrieval probability. Likely filtered out during initial retrieval.'
+  };
+  
+  return interpretations[tier];
+}
+
+/**
+ * Get action recommendation based on Daddy Score
+ */
+export function getDaddyScoreRecommendation(score: number): string {
+  const tier = getDaddyScoreTier(score);
+  
+  const recommendations: Record<DaddyScoreTier, string> = {
+    excellent: 'Content is well-optimized. Monitor for changes and maintain quality.',
+    good: 'Content performs well. Consider minor improvements to reach excellent tier.',
+    moderate: 'Optimize chunk boundaries, add context, or improve semantic relevance.',
+    weak: 'Significant restructuring needed. Review heading hierarchy and chunk atomicity.',
+    poor: 'Major optimization required. Content may not be relevant to query or poorly structured.'
+  };
+  
+  return recommendations[tier];
+}
+
+/**
+ * Get tier color classes for Daddy Score display
+ */
+export function getDaddyScoreTierColorClass(tier: DaddyScoreTier): string {
+  const colors: Record<DaddyScoreTier, string> = {
+    excellent: 'text-green-500',
+    good: 'text-green-400',
+    moderate: 'text-yellow-500',
+    weak: 'text-orange-400',
+    poor: 'text-red-500'
+  };
+  return colors[tier];
+}
+
+export function getDaddyScoreTierBgClass(tier: DaddyScoreTier): string {
+  const colors: Record<DaddyScoreTier, string> = {
+    excellent: 'bg-green-500/15 text-green-500',
+    good: 'bg-green-500/10 text-green-400',
+    moderate: 'bg-yellow-500/15 text-yellow-500',
+    weak: 'bg-orange-500/15 text-orange-400',
+    poor: 'bg-red-500/15 text-red-500'
+  };
+  return colors[tier];
+}
+
+export function getDaddyScoreBorderClass(tier: DaddyScoreTier): string {
+  const colors: Record<DaddyScoreTier, string> = {
+    excellent: 'border-green-500',
+    good: 'border-green-400',
+    moderate: 'border-yellow-500',
+    weak: 'border-orange-400',
+    poor: 'border-red-500'
+  };
+  return colors[tier];
 }
 
 /**
