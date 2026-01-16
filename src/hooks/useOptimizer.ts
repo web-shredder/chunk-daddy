@@ -1,7 +1,7 @@
 import { useState, useCallback } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { generateEmbeddings } from '@/lib/embeddings';
-import { calculateAllMetrics, calculateImprovement, type SimilarityScores } from '@/lib/similarity';
+import { calculateAllMetrics, calculateImprovement, calculatePassageScore, getPassageScoreTier, type SimilarityScores } from '@/lib/similarity';
 import type {
   ContentAnalysis,
   OptimizationResult,
@@ -101,12 +101,14 @@ export function useOptimizer() {
       setState(prev => ({ ...prev, progress: 70 }));
 
       // Calculate scores and improvements + capture for summary
-      const originalScoresMap: Record<number, Record<string, number>> = {};
-      const optimizedScoresMap: Record<number, Record<string, number>> = {};
+      const originalScoresMap: Record<number, Record<string, { cosine: number; chamfer: number; passageScore: number }>> = {};
+      const optimizedScoresMap: Record<number, Record<string, { cosine: number; chamfer: number; passageScore: number }>> = {};
       
       const validatedChunks: ValidatedChunk[] = optimization.optimized_chunks.map((chunk, chunkIdx) => {
         const chunkScores: Record<string, number> = {};
         const originalScores: Record<string, number> = {};
+        const chunkFullScores: Record<string, { cosine: number; chamfer: number; passageScore: number }> = {};
+        const originalFullScores: Record<string, { cosine: number; chamfer: number; passageScore: number }> = {};
 
         queries.forEach((query, queryIdx) => {
           const chunkEmb = chunkEmbeddings[chunkIdx]?.embedding;
@@ -118,18 +120,39 @@ export function useOptimizer() {
             console.warn(`Missing embedding for chunk ${chunkIdx} or query "${query}"`);
             chunkScores[query] = 0;
             originalScores[query] = 0;
+            chunkFullScores[query] = { cosine: 0, chamfer: 0, passageScore: 0 };
+            originalFullScores[query] = { cosine: 0, chamfer: 0, passageScore: 0 };
             return;
           }
 
           const optimizedMetrics = calculateAllMetrics(chunkEmb, queryEmb);
           const originalMetrics = calculateAllMetrics(origEmb, queryEmb);
+          
+          // For single vectors, chamfer = cosine (single-point sets)
+          const optimizedChamfer = optimizedMetrics.cosine;
+          const originalChamfer = originalMetrics.cosine;
+          
+          const optimizedPassageScore = calculatePassageScore(optimizedMetrics.cosine, optimizedChamfer);
+          const originalPassageScore = calculatePassageScore(originalMetrics.cosine, originalChamfer);
+          
           chunkScores[query] = optimizedMetrics.cosine;
           originalScores[query] = originalMetrics.cosine;
+          
+          chunkFullScores[query] = { 
+            cosine: optimizedMetrics.cosine, 
+            chamfer: optimizedChamfer, 
+            passageScore: optimizedPassageScore 
+          };
+          originalFullScores[query] = { 
+            cosine: originalMetrics.cosine, 
+            chamfer: originalChamfer, 
+            passageScore: originalPassageScore 
+          };
         });
 
-        // Store for summary generation
-        originalScoresMap[chunkIdx] = originalScores;
-        optimizedScoresMap[chunkIdx] = chunkScores;
+        // Store for summary generation (with full metrics)
+        originalScoresMap[chunkIdx] = originalFullScores;
+        optimizedScoresMap[chunkIdx] = chunkFullScores;
 
         // Calculate actual improvements for each change
         const validatedChanges = chunk.changes_applied.map(change => {
@@ -159,19 +182,30 @@ export function useOptimizer() {
 
       setState(prev => ({ ...prev, step: 'explaining', progress: 80 }));
 
-      // Prepare chunk score data for summary generation
+      // Prepare chunk score data for summary generation (with Passage Score)
       const chunkScoreData = validatedChunks.map((chunk, idx) => ({
         chunk_number: chunk.chunk_number,
         heading: chunk.heading,
-        scores: queries.map(query => ({
-          query,
-          original: originalScoresMap[idx]?.[query] || 0,
-          optimized: optimizedScoresMap[idx]?.[query] || 0,
-          percent_change: calculateImprovement(
-            originalScoresMap[idx]?.[query] || 0,
-            optimizedScoresMap[idx]?.[query] || 0
-          ),
-        })),
+        scores: queries.map(query => {
+          const origScores = originalScoresMap[idx]?.[query] || { cosine: 0, chamfer: 0, passageScore: 0 };
+          const optScores = optimizedScoresMap[idx]?.[query] || { cosine: 0, chamfer: 0, passageScore: 0 };
+          
+          return {
+            query,
+            // Legacy cosine values for backward compatibility
+            original: origScores.cosine,
+            optimized: optScores.cosine,
+            percent_change: calculateImprovement(origScores.cosine, optScores.cosine),
+            // Full Passage Score data for AI
+            originalPassageScore: origScores.passageScore,
+            optimizedPassageScore: optScores.passageScore,
+            passageScoreChange: optScores.passageScore - origScores.passageScore,
+            originalTier: getPassageScoreTier(origScores.passageScore),
+            optimizedTier: getPassageScoreTier(optScores.passageScore),
+            originalChamfer: origScores.chamfer,
+            optimizedChamfer: optScores.chamfer,
+          };
+        }),
       }));
 
       // Step 4: Generate explanations
@@ -215,6 +249,15 @@ export function useOptimizer() {
 
       console.log('Summary complete');
 
+      // Convert full scores back to cosine-only for backward compatibility
+      const originalScoresCosineOnly: Record<number, Record<string, number>> = {};
+      Object.entries(originalScoresMap).forEach(([chunkIdx, queryScores]) => {
+        originalScoresCosineOnly[Number(chunkIdx)] = {};
+        Object.entries(queryScores).forEach(([query, scores]) => {
+          originalScoresCosineOnly[Number(chunkIdx)][query] = scores.cosine;
+        });
+      });
+
       const fullResult: FullOptimizationResult = {
         analysis,
         optimizedChunks: validatedChunks,
@@ -222,7 +265,7 @@ export function useOptimizer() {
         originalContent: content,
         timestamp: new Date(),
         summary,
-        originalScores: originalScoresMap,
+        originalScores: originalScoresCosineOnly,
       };
 
       setState({
@@ -366,16 +409,16 @@ function buildFallbackSummary(
   };
 }
 
-// Generate default RAG explanation based on percent change
+// Generate default RAG explanation based on Passage Score change
 function getDefaultRagExplanation(percentChange: number): string {
   if (percentChange > 10) {
-    return 'Significant improvement in semantic alignment. This chunk will rank much closer in vector search results for this query.';
+    return 'Significant Passage Score improvement. This chunk now has stronger semantic match and better multi-aspect coverage, making it more likely to be retrieved.';
   } else if (percentChange > 0) {
-    return 'Moderate improvement in cosine similarity. The optimized text better matches the query\'s semantic intent.';
+    return 'Moderate Passage Score improvement. The optimized text better balances semantic relevance and query facet coverage.';
   } else if (percentChange < -10) {
-    return 'Score decreased significantly. Review the changes to ensure key terms weren\'t removed.';
+    return 'Passage Score decreased significantly. Review the changes to ensure key terms and context weren\'t removed.';
   } else if (percentChange < 0) {
-    return 'Slight decrease in similarity. This may be acceptable if other queries improved.';
+    return 'Slight Passage Score decrease. This may be acceptable if other queries improved or tier position is maintained.';
   }
-  return 'Similarity remained stable. The content was already well-aligned with this query.';
+  return 'Passage Score remained stable. The content was already well-optimized for this query.';
 }

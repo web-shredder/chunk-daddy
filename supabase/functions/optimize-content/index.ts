@@ -25,6 +25,31 @@ const maxTokensByType: Record<OptimizationRequest['type'], number> = {
   'summarize': 8192        // RAG explanations, suggestions, trade-offs
 };
 
+// Passage Score context to educate AI about the scoring system
+const PASSAGE_SCORE_CONTEXT = `
+PASSAGE SCORE SYSTEM:
+Passage Score (0-100) predicts RAG retrieval probability by combining two metrics:
+- Cosine Similarity (70% weight): Direct semantic relevance between chunk and query
+- Chamfer Similarity (30% weight): Multi-aspect coverage - how well the chunk addresses ALL facets of the query
+
+FORMULA: Passage Score = (cosine × 0.7 + chamfer × 0.3) × 100
+
+QUALITY TIERS:
+- Excellent (90-100): High retrieval probability, likely top 5 results
+- Good (75-89): Strong candidate for top 10 results  
+- Moderate (60-74): Competitive but depends on other content
+- Weak (40-59): May be retrieved if competition is low
+- Poor (0-39): Likely filtered out during retrieval
+
+WHY CHAMFER MATTERS:
+Chamfer similarity measures bidirectional coverage:
+- Does the chunk cover ALL aspects the user might be searching for?
+- A chunk that only matches one keyword strongly (high cosine) but misses related concepts (low chamfer) scores lower
+- Adding context, related terms, and self-contained explanations improves chamfer
+
+OPTIMIZATION GOAL: Maximize Passage Score, not just cosine similarity.
+`;
+
 serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response(null, { headers: corsHeaders });
@@ -52,16 +77,18 @@ serve(async (req) => {
     if (type === 'analyze') {
       systemPrompt = `You are a content optimization expert for RAG retrieval systems.
 
-Analyze content to identify optimization opportunities:
-1. Topic boundaries where splits would improve focus
-2. Pronouns/references that create cross-chunk dependencies  
-3. Missing context that would improve self-containment
-4. Heading opportunities that would boost semantic matching
-5. Entity references that should be more explicit
+${PASSAGE_SCORE_CONTEXT}
 
-Consider current similarity scores to prioritize high-impact changes.`;
+Analyze content to identify optimization opportunities that improve Passage Score:
+1. Topic boundaries where splits would improve focus (helps cosine)
+2. Missing context that would improve multi-aspect coverage (helps chamfer)
+3. Pronouns/references that create cross-chunk dependencies (hurts both)
+4. Heading opportunities that add semantic signals (helps cosine)
+5. Missing related concepts that queries might include (helps chamfer)
 
-      userPrompt = `Analyze this content for retrieval optimization:
+Prioritize changes that improve BOTH cosine and chamfer simultaneously.`;
+
+      userPrompt = `Analyze this content for Passage Score optimization:
 
 Content:
 """
@@ -120,19 +147,29 @@ Identify optimization opportunities and rank by expected impact.`;
       toolChoice = { type: "function", function: { name: "analyze_content" } };
 
     } else if (type === 'optimize') {
-      systemPrompt = `You rewrite content to improve RAG retrieval while maintaining:
-- Natural, readable prose
-- Original meaning and facts
-- Professional tone
-- Minimal repetition
+      systemPrompt = `You rewrite content to maximize Passage Score for RAG retrieval.
 
-Apply optimizations based on analysis. Each chunk should:
-1. Focus on one main topic
-2. Be self-contained (no external dependencies)
-3. Front-load key entities
-4. Include relevant semantic signals
+${PASSAGE_SCORE_CONTEXT}
 
-Show specific changes and explain retrieval impact.`;
+OPTIMIZATION STRATEGIES:
+For Cosine Similarity (semantic relevance):
+- Front-load key entities and topic keywords
+- Use exact query terminology where natural
+- Add clear, descriptive headings
+
+For Chamfer Similarity (multi-aspect coverage):
+- Ensure chunks are self-contained (no external dependencies)
+- Include related concepts and context
+- Add explanatory phrases that cover query facets
+- Avoid thin chunks that only match one keyword
+
+CONSTRAINTS:
+- Maintain natural, readable prose
+- Preserve original meaning and facts
+- Keep professional tone
+- Minimize repetition
+
+Show specific changes and predict Passage Score impact.`;
 
       userPrompt = `Original Content:
 """
@@ -142,14 +179,14 @@ ${content}
 Analysis:
 ${JSON.stringify(analysis, null, 2)}
 
-${currentScores ? `Current Scores:\n${JSON.stringify(currentScores, null, 2)}` : ''}
+${currentScores ? `Current Passage Scores:\n${JSON.stringify(currentScores, null, 2)}` : ''}
 
 Target Queries: ${queries?.join(', ') || 'None'}
 
 Rewrite the content applying the identified optimizations. For each change:
 1. Show exact before/after text
-2. Explain why it improves retrieval
-3. Predict score impact
+2. Explain impact on BOTH cosine (semantic match) and chamfer (multi-aspect coverage)
+3. Predict Passage Score improvement
 
 Maintain readability - don't make it robotic.`;
 
@@ -197,15 +234,17 @@ Maintain readability - don't make it robotic.`;
       toolChoice = { type: "function", function: { name: "generate_optimizations" } };
 
     } else if (type === 'explain') {
-      systemPrompt = `You explain content optimization changes clearly and concisely.
+      systemPrompt = `You explain content optimization changes in terms of Passage Score impact.
+
+${PASSAGE_SCORE_CONTEXT}
 
 For each change:
-1. What specifically changed (concrete)
-2. Why it improves retrieval (semantic reason)
-3. Actual quantitative impact (scores)
-4. Any trade-offs
+1. What specifically changed (concrete before/after)
+2. How it affects cosine similarity (semantic match)
+3. How it affects chamfer similarity (multi-aspect coverage)
+4. Net Passage Score impact with actual numbers
 
-Keep explanations to 2-3 sentences. Use specific numbers.`;
+Keep explanations to 2-3 sentences. Use Passage Score tier names (Excellent, Good, Moderate, Weak, Poor) when relevant.`;
 
       userPrompt = `Generate user-facing explanations for these validated changes:
 
@@ -213,7 +252,7 @@ ${JSON.stringify(validatedChanges, null, 2)}
 
 Queries: ${queries?.join(', ') || 'None'}
 
-Make explanations clear for content creators who may not know RAG internals.`;
+Explain each change in terms of Passage Score improvement. Make explanations clear for content creators who may not know RAG internals.`;
 
       tools = [{
         type: "function",
@@ -300,19 +339,24 @@ Suggest keywords that:
       toolChoice = { type: "function", function: { name: "suggest_keywords" } };
     
     } else if (type === 'summarize') {
-      systemPrompt = `You are a RAG retrieval optimization expert. Analyze cosine similarity score changes and provide:
+      systemPrompt = `You are a RAG retrieval optimization expert. Analyze Passage Score changes and provide insights.
 
-1. RAG Impact Explanations: For each query's score change, explain in 1-2 sentences WHY the change matters for RAG retrieval. Be specific about vector search implications.
+${PASSAGE_SCORE_CONTEXT}
 
-2. Further Optimization Suggestions: Suggest 2-4 additional actions that could further improve cosine similarity. Be honest - if improvements are unlikely, say so.
+For the optimization results:
+1. RAG Impact Explanations: For each score change, explain why the Passage Score changed. Reference both cosine (semantic match) and chamfer (multi-aspect coverage) components.
 
-3. Trade-Off Considerations: List 2-4 potential concerns users should consider before applying changes (brand voice, UX, readability, etc.).
+2. Tier Movement: Note when chunks move between tiers (e.g., "Moderate → Good")
 
-Be specific and actionable. Use the actual score numbers provided.`;
+3. Further Optimization Suggestions: Suggest 2-4 actions that could further improve Passage Score. Be honest if improvements are unlikely.
 
-      userPrompt = `Analyze these cosine similarity score changes from content optimization:
+4. Trade-Off Considerations: List 2-4 concerns about brand voice, UX, readability, SEO.
 
-Score Data by Chunk:
+Use the actual Passage Score numbers provided, not just cosine.`;
+
+      userPrompt = `Analyze these Passage Score changes from content optimization:
+
+Score Data by Chunk (includes Passage Score, cosine, and chamfer):
 ${JSON.stringify(chunkScoreData, null, 2)}
 
 Queries: ${queries?.join(', ') || 'None'}
@@ -324,7 +368,7 @@ ${JSON.stringify(validatedChanges?.map((c: any) => ({
   changes: c.changes_applied?.map((ch: any) => ch.change_type + ': ' + ch.reason)
 })), null, 2)}
 
-For each query score change, explain the RAG retrieval impact. Then provide further suggestions and trade-off considerations.`;
+For each Passage Score change, explain the impact on RAG retrieval. Note tier transitions (e.g., Weak→Moderate). Then provide further suggestions and trade-off considerations.`;
 
       tools = [{
         type: "function",
