@@ -2,3 +2,6 @@ project_id = "ghegifxvmegfoqixbozt"
 
 [functions.generate-embeddings]
 verify_jwt = false
+
+[functions.optimize-content]
+verify_jwt = false

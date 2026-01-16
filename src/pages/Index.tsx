@@ -5,12 +5,14 @@ import { Separator } from "@/components/ui/separator";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
 import { Progress } from "@/components/ui/progress";
-import { AlertCircle, Zap, Check, Loader2 } from "lucide-react";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { AlertCircle, Zap, Check, Loader2, Sparkles } from "lucide-react";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { ContentEditor } from "@/components/ContentEditor";
 import { KeywordInput } from "@/components/KeywordInput";
 import { ChunkingStrategySelect } from "@/components/ChunkingStrategySelect";
 import { ResultsDisplay } from "@/components/ResultsDisplay";
+import { OptimizationEngine } from "@/components/optimizer";
 import { useApiKey } from "@/hooks/useApiKey";
 import { useAnalysis } from "@/hooks/useAnalysis";
 import type { ChunkingStrategy } from "@/lib/chunking";
@@ -182,7 +184,29 @@ Enter another paragraph here by adding a blank line above..."
             {result && (
               <Card>
                 <CardContent className="pt-6">
-                  <ResultsDisplay result={result} />
+                  <Tabs defaultValue="results" className="space-y-4">
+                    <TabsList className="grid w-full grid-cols-2">
+                      <TabsTrigger value="results">Analysis Results</TabsTrigger>
+                      <TabsTrigger value="optimize" className="flex items-center gap-1.5">
+                        <Sparkles className="h-3.5 w-3.5" />
+                        Auto-Optimize
+                      </TabsTrigger>
+                    </TabsList>
+                    <TabsContent value="results">
+                      <ResultsDisplay result={result} />
+                    </TabsContent>
+                    <TabsContent value="optimize">
+                      <OptimizationEngine
+                        content={content}
+                        keywords={keywords.filter(k => k.trim())}
+                        currentScores={result.originalScores?.keywordScores}
+                        onApplyOptimization={(optimized) => {
+                          setOptimizedContent(optimized);
+                          setShowOptimized(true);
+                        }}
+                      />
+                    </TabsContent>
+                  </Tabs>
                 </CardContent>
               </Card>
             )}
