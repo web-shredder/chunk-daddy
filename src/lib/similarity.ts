@@ -143,13 +143,15 @@ export interface SimilarityScores {
  */
 export function calculateAllMetrics(vecA: number[], vecB: number[]): SimilarityScores {
   const cosine = cosineSimilarity(vecA, vecB);
+  const chamfer = chamferSimilarity([vecA], [vecB]);
+  
   return {
     cosine,
     euclidean: euclideanDistance(vecA, vecB),
     manhattan: manhattanDistance(vecA, vecB),
     dotProduct: dotProduct(vecA, vecB),
-    chamfer: 0,
-    passageScore: calculatePassageScore(cosine, 0),
+    chamfer,
+    passageScore: calculatePassageScore(cosine, chamfer),
   };
 }
 
