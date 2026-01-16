@@ -92,16 +92,6 @@ export function TopBar({
   return (
     <>
       <header className="h-14 bg-surface border-b border-border flex items-center px-6 gap-6 shrink-0">
-        {/* Logo */}
-        <div className="flex items-center gap-2">
-          <img
-            alt="Chunk Daddy"
-            className="w-20 h-12 rounded object-contain"
-            src="/lovable-uploads/c8eed07c-8b59-45e6-acf5-5605cf3054c6.png"
-          />
-          <span className="text-base font-semibold text-foreground"></span>
-        </div>
-
         {/* Project Switcher */}
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
@@ -167,8 +157,14 @@ export function TopBar({
           </DropdownMenuContent>
         </DropdownMenu>
 
-        {/* Spacer */}
-        <div className="flex-1" />
+        {/* Centered Logo */}
+        <div className="flex-1 flex justify-center">
+          <img
+            alt="Chunk Daddy"
+            className="h-10 object-contain"
+            src="/lovable-uploads/c8eed07c-8b59-45e6-acf5-5605cf3054c6.png"
+          />
+        </div>
 
         {/* User email */}
         {userEmail && (
