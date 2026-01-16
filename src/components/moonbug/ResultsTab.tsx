@@ -1,5 +1,5 @@
-import { useState } from 'react';
-import { BarChart3, ChevronLeft, ChevronRight, ChevronDown, ChevronUp, Copy, Download, Search, AlertCircle, FileJson, FileText, TreeDeciduous, List, Table } from 'lucide-react';
+import { useState, useMemo } from 'react';
+import { BarChart3, ChevronLeft, ChevronRight, ChevronDown, ChevronUp, Copy, Download, Search, AlertCircle, FileJson, FileText, TreeDeciduous, List, Table, Target, Star } from 'lucide-react';
 import { DismissableTip } from '@/components/DismissableTip';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
@@ -12,8 +12,16 @@ import { cn } from '@/lib/utils';
 import { formatScore, getScoreColorClass, getImprovementColorClass, formatImprovement, calculatePassageScore, getPassageScoreTier, getPassageScoreTierColorClass } from '@/lib/similarity';
 import { PassageScoreHero } from './PassageScoreHero';
 import { downloadCSV } from '@/lib/csv-export';
+import { 
+  computeQueryAssignments, 
+  formatScorePercent,
+  getScoreColorClass as getAssignmentScoreColorClass,
+  type QueryAssignmentMap,
+  type ChunkScoreData,
+} from '@/lib/query-assignment';
 import type { LayoutAwareChunk, DocumentElement } from '@/lib/layout-chunker';
 import type { ChunkScore, AnalysisResult } from '@/hooks/useAnalysis';
+
 interface ResultsTabProps {
   hasResults: boolean;
   chunks: LayoutAwareChunk[];
@@ -172,7 +180,31 @@ export function ResultsTab({
 }: ResultsTabProps) {
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedIndex, setSelectedIndex] = useState(0);
-  const [viewMode, setViewMode] = useState<'list' | 'structure'>('structure');
+  const [viewMode, setViewMode] = useState<'list' | 'structure' | 'assignments'>('structure');
+
+  // Compute query assignments for the assignments view
+  const queryAssignments = useMemo(() => {
+    if (!chunkScores || chunkScores.length === 0 || keywords.length === 0) {
+      return { assignments: [], chunkAssignments: [], unassignedQueries: [] } as QueryAssignmentMap;
+    }
+
+    const scoreData: ChunkScoreData[] = chunkScores.map((cs, idx) => {
+      const scores: Record<string, number> = {};
+      cs.keywordScores.forEach(ks => {
+        const passageScore = calculatePassageScore(ks.scores.cosine, ks.scores.chamfer);
+        scores[ks.keyword] = passageScore / 100;
+      });
+      return {
+        chunkIndex: idx,
+        heading: chunks[idx]?.headingPath[chunks[idx]?.headingPath.length - 1],
+        text: cs.text || '',
+        scores,
+      };
+    });
+
+    return computeQueryAssignments(scoreData, keywords, 0.3);
+  }, [chunkScores, keywords, chunks]);
+
   if (!hasResults) {
     return <div className="flex-1 flex items-center justify-center">
         <div className="empty-state">
@@ -285,14 +317,18 @@ export function ResultsTab({
         <div className="w-1/2 border-r border-border flex flex-col bg-surface shrink-0">
           {/* Header with view toggle */}
           <div className="p-3 border-b border-border space-y-2">
-            <div className="flex items-center gap-2">
-              <button onClick={() => setViewMode('list')} className={cn("flex-1 flex items-center justify-center gap-1.5 py-1.5 px-2 rounded-md text-xs transition-colors", viewMode === 'list' ? "bg-accent/20 text-accent" : "text-muted-foreground hover:text-foreground hover:bg-muted/50")}>
+            <div className="flex items-center gap-1">
+              <button onClick={() => setViewMode('list')} className={cn("flex-1 flex items-center justify-center gap-1 py-1.5 px-2 rounded-md text-xs transition-colors", viewMode === 'list' ? "bg-accent/20 text-accent" : "text-muted-foreground hover:text-foreground hover:bg-muted/50")}>
                 <List className="h-3.5 w-3.5" />
                 List
               </button>
-              <button onClick={() => setViewMode('structure')} className={cn("flex-1 flex items-center justify-center gap-1.5 py-1.5 px-2 rounded-md text-xs transition-colors", viewMode === 'structure' ? "bg-accent/20 text-accent" : "text-muted-foreground hover:text-foreground hover:bg-muted/50")}>
+              <button onClick={() => setViewMode('structure')} className={cn("flex-1 flex items-center justify-center gap-1 py-1.5 px-2 rounded-md text-xs transition-colors", viewMode === 'structure' ? "bg-accent/20 text-accent" : "text-muted-foreground hover:text-foreground hover:bg-muted/50")}>
                 <TreeDeciduous className="h-3.5 w-3.5" />
-                Structure
+                Tree
+              </button>
+              <button onClick={() => setViewMode('assignments')} className={cn("flex-1 flex items-center justify-center gap-1 py-1.5 px-2 rounded-md text-xs transition-colors", viewMode === 'assignments' ? "bg-accent/20 text-accent" : "text-muted-foreground hover:text-foreground hover:bg-muted/50")}>
+                <Target className="h-3.5 w-3.5" />
+                Queries
               </button>
             </div>
             
@@ -321,8 +357,71 @@ export function ResultsTab({
                       </Badge>
                     </button>;
             })}
-              </div> : <div className="p-2 space-y-0.5">
+              </div> : viewMode === 'structure' ? <div className="p-2 space-y-0.5">
                 {tree.map((node, idx) => <HeadingNodeView key={idx} node={node} keywords={keywords} onSelectChunk={chunkNum => setSelectedIndex(chunkNum)} selectedChunkId={selectedChunk?.id} allChunks={chunks} />)}
+              </div> : <div className="p-2 space-y-2">
+                {/* Query Assignments View */}
+                <DismissableTip tipId="results-query-assignments">
+                  This shows which chunk best matches each query. The Optimize tab uses these assignments to focus rewrites.
+                </DismissableTip>
+                
+                {queryAssignments.chunkAssignments.length === 0 ? (
+                  <div className="text-center py-8 text-muted-foreground text-sm">
+                    <Target className="h-8 w-8 mx-auto mb-2 opacity-30" />
+                    No query assignments computed yet.
+                  </div>
+                ) : (
+                  queryAssignments.chunkAssignments.map((ca) => (
+                    <div 
+                      key={ca.chunkIndex} 
+                      className={cn(
+                        "p-3 rounded-lg border transition-colors cursor-pointer",
+                        selectedIndex === ca.chunkIndex 
+                          ? "bg-accent/10 border-accent/30" 
+                          : "bg-muted/30 border-border hover:bg-muted/50"
+                      )}
+                      onClick={() => setSelectedIndex(ca.chunkIndex)}
+                    >
+                      <div className="flex items-center justify-between mb-2">
+                        <span className="text-sm font-medium">
+                          Chunk {ca.chunkIndex + 1}
+                          {ca.chunkHeading && <span className="text-muted-foreground ml-1">— {ca.chunkHeading}</span>}
+                        </span>
+                        <Badge variant="outline" className="text-[10px]">
+                          {ca.assignedQueries.length} queries
+                        </Badge>
+                      </div>
+                      <div className="space-y-1">
+                        {ca.assignedQueries.map((qa) => (
+                          <div key={qa.query} className="flex items-center justify-between text-xs py-1 px-2 bg-background/50 rounded">
+                            <span className="flex items-center gap-1.5 truncate">
+                              {qa.isPrimary && <Star className="h-3 w-3 text-yellow-500 shrink-0" />}
+                              {qa.query}
+                            </span>
+                            <span className={cn("font-mono", getAssignmentScoreColorClass(qa.score))}>
+                              {formatScorePercent(qa.score)}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  ))
+                )}
+
+                {queryAssignments.unassignedQueries.length > 0 && (
+                  <div className="p-3 rounded-lg border border-yellow-500/30 bg-yellow-500/10">
+                    <div className="text-xs text-yellow-600 font-medium mb-2">
+                      Unassigned Queries ({queryAssignments.unassignedQueries.length})
+                    </div>
+                    <div className="space-y-1">
+                      {queryAssignments.unassignedQueries.map((q) => (
+                        <div key={q} className="text-xs text-muted-foreground py-1 px-2 bg-background/50 rounded">
+                          {q}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
               </div>}
           </ScrollArea>
         </div>
