@@ -12,6 +12,7 @@ import type {
   ChunkScoreSummary,
   QueryScoreDetail,
 } from '@/lib/optimizer-types';
+import type { QueryAssignmentMap, ChunkAssignment } from '@/lib/query-assignment';
 
 export type OptimizationStep = 'idle' | 'analyzing' | 'optimizing' | 'scoring' | 'explaining' | 'complete' | 'error';
 
@@ -22,6 +23,15 @@ export interface UseOptimizerState {
   result: FullOptimizationResult | null;
 }
 
+export interface OptimizeOptions {
+  content: string;
+  queries: string[];
+  currentScores?: Record<string, number>;
+  queryAssignments?: QueryAssignmentMap;
+  chunks?: string[];
+  useFocusedOptimization?: boolean;
+}
+
 export function useOptimizer() {
   const [state, setState] = useState<UseOptimizerState>({
     step: 'idle',
@@ -30,7 +40,9 @@ export function useOptimizer() {
     result: null,
   });
 
-  const optimize = useCallback(async (content: string, queries: string[], currentScores?: Record<string, number>) => {
+  const optimize = useCallback(async (options: OptimizeOptions) => {
+    const { content, queries, currentScores, queryAssignments, chunks, useFocusedOptimization } = options;
+    
     setState({ step: 'analyzing', progress: 10, error: null, result: null });
 
     try {
@@ -50,17 +62,49 @@ export function useOptimizer() {
       setState(prev => ({ ...prev, step: 'optimizing', progress: 30 }));
 
       // Step 2: Generate optimized content
-      console.log('Step 2: Generating optimizations...');
-      const { data: optimizeData, error: optimizeError } = await supabase.functions.invoke('optimize-content', {
-        body: { type: 'optimize', content, queries, currentScores, analysis },
-      });
+      // Use focused optimization if query assignments are provided
+      let optimization: OptimizationResult;
+      
+      if (useFocusedOptimization && queryAssignments && chunks && chunks.length > 0) {
+        console.log('Step 2: Generating FOCUSED optimizations per chunk...');
+        
+        // Convert query assignments to the format expected by the edge function
+        const assignmentData = queryAssignments.chunkAssignments.map(ca => ({
+          chunkIndex: ca.chunkIndex,
+          queries: ca.assignedQueries.map(q => q.query),
+        }));
+        
+        const { data: optimizeData, error: optimizeError } = await supabase.functions.invoke('optimize-content', {
+          body: { 
+            type: 'optimize_focused', 
+            content, 
+            queries, 
+            currentScores, 
+            analysis,
+            queryAssignments: assignmentData,
+            chunks,
+          },
+        });
 
-      if (optimizeError || optimizeData?.error) {
-        throw new Error(optimizeData?.error || optimizeError?.message || 'Optimization failed');
+        if (optimizeError || optimizeData?.error) {
+          throw new Error(optimizeData?.error || optimizeError?.message || 'Focused optimization failed');
+        }
+
+        optimization = optimizeData.result;
+        console.log('Focused optimization complete:', optimization.optimized_chunks.length, 'chunks generated');
+      } else {
+        console.log('Step 2: Generating standard optimizations...');
+        const { data: optimizeData, error: optimizeError } = await supabase.functions.invoke('optimize-content', {
+          body: { type: 'optimize', content, queries, currentScores, analysis },
+        });
+
+        if (optimizeError || optimizeData?.error) {
+          throw new Error(optimizeData?.error || optimizeError?.message || 'Optimization failed');
+        }
+
+        optimization = optimizeData.result;
+        console.log('Optimization complete:', optimization.optimized_chunks.length, 'chunks generated');
       }
-
-      const optimization: OptimizationResult = optimizeData.result;
-      console.log('Optimization complete:', optimization.optimized_chunks.length, 'chunks generated');
 
       setState(prev => ({ ...prev, step: 'scoring', progress: 50 }));
 
