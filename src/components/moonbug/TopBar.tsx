@@ -1,18 +1,14 @@
 import { useState } from 'react';
 import { Settings, ChevronDown, FolderOpen, LogOut, Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu';
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import chunkDaddyMascot from '@/assets/chunk-daddy.png';
-
 interface TopBarProps {
   projectName: string;
-  projects: Array<{ id: string; project_name: string }>;
+  projects: Array<{
+    id: string;
+    project_name: string;
+  }>;
   currentProjectId?: string;
   isLoading?: boolean;
   userEmail?: string;
@@ -20,7 +16,6 @@ interface TopBarProps {
   onNewProject: () => void;
   onSignOut: () => void;
 }
-
 export function TopBar({
   projectName,
   projects,
@@ -29,17 +24,12 @@ export function TopBar({
   userEmail,
   onSelectProject,
   onNewProject,
-  onSignOut,
+  onSignOut
 }: TopBarProps) {
-  return (
-    <header className="h-14 bg-surface border-b border-border flex items-center px-6 gap-6 shrink-0">
+  return <header className="h-14 bg-surface border-b border-border flex items-center px-6 gap-6 shrink-0">
       {/* Logo */}
       <div className="flex items-center gap-2">
-        <img 
-          src={chunkDaddyMascot} 
-          alt="Chunk Daddy" 
-          className="w-7 h-7 rounded object-contain"
-        />
+        <img alt="Chunk Daddy" className="w-12 h-12 rounded object-contain" src="/lovable-uploads/a730b7d9-aaaa-431f-9b8c-3d7debe190f4.png" />
         <span className="text-base font-semibold text-foreground">
           Chunk Daddy
         </span>
@@ -55,28 +45,18 @@ export function TopBar({
           </button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="start" className="w-64 bg-elevated">
-          {isLoading ? (
-            <div className="flex items-center justify-center py-4">
+          {isLoading ? <div className="flex items-center justify-center py-4">
               <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
-            </div>
-          ) : (
-            <>
-              {projects.map((project) => (
-                <DropdownMenuItem
-                  key={project.id}
-                  onClick={() => onSelectProject(project.id)}
-                  className={project.id === currentProjectId ? 'bg-accent-muted' : ''}
-                >
+            </div> : <>
+              {projects.map(project => <DropdownMenuItem key={project.id} onClick={() => onSelectProject(project.id)} className={project.id === currentProjectId ? 'bg-accent-muted' : ''}>
                   <FolderOpen className="h-4 w-4 mr-2 text-muted-foreground" />
                   <span className="truncate">{project.project_name}</span>
-                </DropdownMenuItem>
-              ))}
+                </DropdownMenuItem>)}
               {projects.length > 0 && <DropdownMenuSeparator />}
               <DropdownMenuItem onClick={onNewProject}>
                 <span className="text-primary">+ New Project</span>
               </DropdownMenuItem>
-            </>
-          )}
+            </>}
         </DropdownMenuContent>
       </DropdownMenu>
 
@@ -84,11 +64,9 @@ export function TopBar({
       <div className="flex-1" />
 
       {/* User email */}
-      {userEmail && (
-        <span className="text-xs text-muted-foreground hidden md:block">
+      {userEmail && <span className="text-xs text-muted-foreground hidden md:block">
           {userEmail}
-        </span>
-      )}
+        </span>}
 
       {/* Settings */}
       <button className="icon-button" title="Settings">
@@ -96,14 +74,8 @@ export function TopBar({
       </button>
 
       {/* Logout */}
-      <Button 
-        variant="ghost" 
-        size="sm" 
-        onClick={onSignOut}
-        className="text-muted-foreground hover:text-foreground"
-      >
+      <Button variant="ghost" size="sm" onClick={onSignOut} className="text-muted-foreground hover:text-foreground">
         <LogOut className="h-4 w-4" />
       </Button>
-    </header>
-  );
+    </header>;
 }

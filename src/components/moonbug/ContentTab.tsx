@@ -18,8 +18,8 @@ export function ContentTab({
 }: ContentTabProps) {
   const hasContent = content.trim().length > 0;
   if (!hasContent) {
-    return <div className="flex-1 flex flex-col items-center justify-center">
-        <div className="empty-state">
+    return <div className="flex-1 my-0 flex-col mb-0 py-0 flex items-center justify-start pb-0 pt-[75px]">
+        <div className="empty-state my-0 h-0">
           
           <h3>Start with your content</h3>
           <p>
