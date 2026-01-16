@@ -7,9 +7,9 @@ const corsHeaders = {
 };
 
 interface OptimizationRequest {
-  type: 'analyze' | 'optimize' | 'explain';
+  type: 'analyze' | 'optimize' | 'explain' | 'suggest_keywords';
   content: string;
-  queries: string[];
+  queries?: string[];
   currentScores?: Record<string, number>;
   analysis?: any;
   validatedChanges?: any;
@@ -59,7 +59,7 @@ ${content}
 """
 
 Target Queries:
-${queries.map((q, i) => `${i + 1}. "${q}"`).join('\n')}
+${queries?.map((q, i) => `${i + 1}. "${q}"`).join('\n') || 'None provided'}
 
 ${currentScores ? `Current Scores:\n${JSON.stringify(currentScores, null, 2)}` : ''}
 
@@ -134,7 +134,7 @@ ${JSON.stringify(analysis, null, 2)}
 
 ${currentScores ? `Current Scores:\n${JSON.stringify(currentScores, null, 2)}` : ''}
 
-Target Queries: ${queries.join(', ')}
+Target Queries: ${queries?.join(', ') || 'None'}
 
 Rewrite the content applying the identified optimizations. For each change:
 1. Show exact before/after text
@@ -201,7 +201,7 @@ Keep explanations to 2-3 sentences. Use specific numbers.`;
 
 ${JSON.stringify(validatedChanges, null, 2)}
 
-Queries: ${queries.join(', ')}
+Queries: ${queries?.join(', ') || 'None'}
 
 Make explanations clear for content creators who may not know RAG internals.`;
 
@@ -233,6 +233,58 @@ Make explanations clear for content creators who may not know RAG internals.`;
         }
       }];
       toolChoice = { type: "function", function: { name: "generate_explanations" } };
+
+    } else if (type === 'suggest_keywords') {
+      systemPrompt = `You are an SEO and content retrieval expert. Analyze content to identify the most valuable target SEO keywords that users would likely search for to find this content.
+
+Focus on:
+1. Primary topics and entities mentioned
+2. User intent - what questions would lead someone to this content
+3. Long-tail keywords with good specificity
+4. Keywords that would have high retrieval relevance
+5. Mix of head terms and specific phrases
+
+Prioritize keywords by search intent alignment and retrieval potential.`;
+
+      userPrompt = `Analyze this content and suggest 5-7 target SEO keywords that would be most valuable for retrieval optimization:
+
+Content:
+"""
+${content}
+"""
+
+Suggest keywords that:
+- Represent the main topics users would search for
+- Have high semantic alignment with the content
+- Would be useful for embedding-based retrieval testing`;
+
+      tools = [{
+        type: "function",
+        function: {
+          name: "suggest_keywords",
+          description: "Suggest SEO keywords for the content",
+          parameters: {
+            type: "object",
+            properties: {
+              keywords: {
+                type: "array",
+                description: "Suggested SEO keywords ranked by relevance",
+                items: {
+                  type: "object",
+                  properties: {
+                    keyword: { type: "string", description: "The suggested keyword or phrase" },
+                    reason: { type: "string", description: "Why this keyword is valuable for retrieval" },
+                    intent: { type: "string", enum: ["informational", "navigational", "transactional", "commercial"], description: "Search intent type" }
+                  },
+                  required: ["keyword", "reason", "intent"]
+                }
+              }
+            },
+            required: ["keywords"]
+          }
+        }
+      }];
+      toolChoice = { type: "function", function: { name: "suggest_keywords" } };
     }
 
     const response = await fetch('https://api.openai.com/v1/chat/completions', {
