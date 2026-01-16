@@ -264,9 +264,23 @@ export function useAnalysis() {
     setProgress(0);
   }, []);
 
+  const setResultFromProject = useCallback((savedResult: AnalysisResult | null) => {
+    if (savedResult) {
+      // Restore the timestamp as a Date object if it was serialized
+      const restoredResult = {
+        ...savedResult,
+        timestamp: savedResult.timestamp instanceof Date 
+          ? savedResult.timestamp 
+          : new Date(savedResult.timestamp),
+      };
+      setResult(restoredResult);
+    }
+  }, []);
+
   return {
     analyze,
     reset,
+    setResultFromProject,
     isAnalyzing,
     error,
     result,
