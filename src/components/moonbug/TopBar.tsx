@@ -161,7 +161,7 @@ export function TopBar({
         <div className="flex-1 flex justify-center">
           <img
             alt="Chunk Daddy"
-            className="h-10 object-contain"
+            className="h-20 object-contain"
             src="/lovable-uploads/c8eed07c-8b59-45e6-acf5-5605cf3054c6.png"
           />
         </div>
