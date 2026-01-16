@@ -280,7 +280,7 @@ export function DocumentStructureView({
           </Badge>
         </div>
         
-        <ScrollArea className="max-h-[500px]">
+        <ScrollArea className="h-[500px]">
           <div className="p-3 space-y-1">
             {tree.map((node, idx) => (
               <HeadingNodeView
