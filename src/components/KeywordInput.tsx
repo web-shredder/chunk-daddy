@@ -3,24 +3,13 @@ import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Checkbox } from '@/components/ui/checkbox';
-import { X, Plus, Sparkles, Loader2, Wand2, ChevronDown, ChevronUp } from 'lucide-react';
+import { X, Sparkles, Loader2, Wand2, RotateCcw } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
-import {
-  Collapsible,
-  CollapsibleContent,
-  CollapsibleTrigger,
-} from '@/components/ui/collapsible';
 
-interface KeywordSuggestion {
-  keyword: string;
-  reason: string;
-  intent: string;
-}
-
-interface ExpandedQuery {
-  keyword: string;
-  isOriginal: boolean;
+interface GeneratedQuery {
+  query: string;
+  type: 'primary' | 'synonym' | 'subtopic' | 'related' | 'alternative';
   selected: boolean;
 }
 
@@ -34,340 +23,278 @@ interface KeywordInputProps {
 export function KeywordInput({
   keywords,
   onChange,
-  maxKeywords = 10,
+  maxKeywords = 15,
   content = '',
 }: KeywordInputProps) {
-  const [inputValue, setInputValue] = useState('');
-  const [isSuggesting, setIsSuggesting] = useState(false);
-  const [suggestions, setSuggestions] = useState<KeywordSuggestion[]>([]);
-  const [isExpanding, setIsExpanding] = useState(false);
-  const [expandedQueries, setExpandedQueries] = useState<ExpandedQuery[]>([]);
-  const [expandOpen, setExpandOpen] = useState(true);
+  const [primaryQuery, setPrimaryQuery] = useState('');
+  const [isGenerating, setIsGenerating] = useState(false);
+  const [generatedQueries, setGeneratedQueries] = useState<GeneratedQuery[]>([]);
+  const [hasGenerated, setHasGenerated] = useState(false);
 
-  const handleAdd = () => {
-    const trimmed = inputValue.trim();
-    if (trimmed && !keywords.includes(trimmed) && keywords.length < maxKeywords) {
-      onChange([...keywords, trimmed]);
-      setInputValue('');
-    }
-  };
-
-  const handleRemove = (keyword: string) => {
-    onChange(keywords.filter(k => k !== keyword));
-  };
-
-  const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === 'Enter') {
-      e.preventDefault();
-      handleAdd();
-    }
-  };
-
-  const handleSuggestKeywords = async () => {
-    if (!content.trim()) {
-      toast.error('Enter some content first to get keyword suggestions');
-      return;
-    }
-
-    setIsSuggesting(true);
-    setSuggestions([]);
-
-    try {
-      const { data, error } = await supabase.functions.invoke('optimize-content', {
-        body: { type: 'suggest_keywords', content },
-      });
-
-      if (error || data?.error) {
-        throw new Error(data?.error || error?.message || 'Failed to suggest keywords');
-      }
-
-      // Filter to only keywords with 2-5 words
-      const allKeywords: KeywordSuggestion[] = data.result.keywords;
-      const validKeywords = allKeywords.filter(k => {
-        const wordCount = k.keyword.trim().split(/\s+/).length;
-        return wordCount >= 2 && wordCount <= 5;
-      });
-      
-      setSuggestions(validKeywords);
-      toast.success(`Found ${validKeywords.length} keyword suggestions`);
-    } catch (err) {
-      console.error('Keyword suggestion error:', err);
-      toast.error(err instanceof Error ? err.message : 'Failed to suggest keywords');
-    } finally {
-      setIsSuggesting(false);
-    }
-  };
-
-  const handleAddSuggestion = (keyword: string) => {
-    if (!keywords.includes(keyword) && keywords.length < maxKeywords) {
-      onChange([...keywords, keyword]);
-      setSuggestions(suggestions.filter(s => s.keyword !== keyword));
-    }
-  };
-
-  const handleAddAllSuggestions = () => {
-    const available = maxKeywords - keywords.length;
-    const toAdd = suggestions
-      .slice(0, available)
-      .map(s => s.keyword)
-      .filter(k => !keywords.includes(k));
-    onChange([...keywords, ...toAdd]);
-    setSuggestions([]);
-  };
-
-  // Query fan-out: expand a keyword into related queries
-  const handleExpandQuery = async (primaryQuery: string) => {
+  const handleGenerateFanout = async () => {
     if (!primaryQuery.trim()) {
-      toast.error('Select a keyword to expand');
+      toast.error('Enter a primary query first');
       return;
     }
 
-    setIsExpanding(true);
-    setExpandedQueries([]);
+    setIsGenerating(true);
+    setGeneratedQueries([]);
 
     try {
       const { data, error } = await supabase.functions.invoke('optimize-content', {
         body: {
           type: 'suggest_keywords',
-          content: `Generate semantically related search queries for: "${primaryQuery}"
-          
-Context: This is for testing RAG retrieval. Generate 4 related queries:
-1. Direct synonym or alternative phrasing
-2. More specific sub-topic
-3. Related concept
-4. Common alternative term
+          content: `You are generating semantic query fan-outs for RAG retrieval testing.
 
-Keep queries concise (2-4 words each).`,
+Primary query: "${primaryQuery.trim()}"
+
+Generate 6-8 related search queries that a user might use to find the same content. These should represent different ways of searching for the same topic.
+
+Include:
+1. Direct synonyms or rephrased versions
+2. More specific sub-topics within this area
+3. Related concepts that would appear in the same content
+4. Common alternative terminology (technical vs casual, abbreviations, etc.)
+5. Question-form queries if applicable
+
+IMPORTANT: 
+- Queries can be any natural length (short phrases, questions, or descriptive searches)
+- Focus on semantic diversity, not word count
+- Each query should represent a distinct search intent or angle
+- Think about how real users would actually search`,
         },
       });
 
       if (error || data?.error) {
-        throw new Error(data?.error || error?.message || 'Failed to expand query');
+        throw new Error(data?.error || error?.message || 'Failed to generate queries');
       }
 
       const suggestions = data.result.keywords || [];
-      const expanded: ExpandedQuery[] = [
-        { keyword: primaryQuery, isOriginal: true, selected: true },
-        ...suggestions.slice(0, 4).map((s: { keyword: string }) => ({
-          keyword: s.keyword,
-          isOriginal: false,
+      const typeMap: Record<number, GeneratedQuery['type']> = {
+        0: 'synonym',
+        1: 'synonym', 
+        2: 'subtopic',
+        3: 'subtopic',
+        4: 'related',
+        5: 'related',
+        6: 'alternative',
+        7: 'alternative',
+      };
+
+      const generated: GeneratedQuery[] = [
+        { query: primaryQuery.trim(), type: 'primary', selected: true },
+        ...suggestions.map((s: { keyword: string }, idx: number) => ({
+          query: s.keyword,
+          type: typeMap[idx] || 'related',
           selected: true,
         })),
       ];
 
-      setExpandedQueries(expanded);
-      toast.success(`Generated ${expanded.length - 1} related queries`);
+      setGeneratedQueries(generated);
+      setHasGenerated(true);
+      toast.success(`Generated ${generated.length - 1} related queries`);
     } catch (err) {
-      console.error('Query expansion error:', err);
-      toast.error(err instanceof Error ? err.message : 'Failed to expand query');
+      console.error('Query fanout error:', err);
+      toast.error(err instanceof Error ? err.message : 'Failed to generate queries');
     } finally {
-      setIsExpanding(false);
+      setIsGenerating(false);
     }
   };
 
-  const toggleExpandedQuery = (keyword: string) => {
-    setExpandedQueries(prev =>
+  const toggleQuery = (query: string) => {
+    setGeneratedQueries(prev =>
       prev.map(q =>
-        q.keyword === keyword ? { ...q, selected: !q.selected } : q
+        q.query === query ? { ...q, selected: !q.selected } : q
       )
     );
   };
 
-  const handleApplyExpanded = () => {
-    const selectedQueries = expandedQueries
+  const handleApplyQueries = () => {
+    const selected = generatedQueries
       .filter(q => q.selected)
-      .map(q => q.keyword)
-      .filter(k => !keywords.includes(k));
+      .map(q => q.query);
     
-    const available = maxKeywords - keywords.length;
-    const toAdd = selectedQueries.slice(0, available);
-    
-    if (toAdd.length > 0) {
-      onChange([...keywords, ...toAdd]);
-      toast.success(`Added ${toAdd.length} queries`);
+    if (selected.length === 0) {
+      toast.error('Select at least one query');
+      return;
     }
-    setExpandedQueries([]);
+
+    onChange(selected.slice(0, maxKeywords));
+    toast.success(`Applied ${Math.min(selected.length, maxKeywords)} queries`);
   };
 
-  const handleClearExpanded = () => {
-    setExpandedQueries([]);
+  const handleReset = () => {
+    setPrimaryQuery('');
+    setGeneratedQueries([]);
+    setHasGenerated(false);
+    onChange([]);
   };
 
-  return (
-    <div className="space-y-3">
-      <div className="flex gap-2">
-        <Input
-          value={inputValue}
-          onChange={(e) => setInputValue(e.target.value)}
-          onKeyDown={handleKeyDown}
-          placeholder="Enter target keyword..."
-          className="flex-1"
-          disabled={keywords.length >= maxKeywords}
-        />
-        <Button
-          type="button"
-          variant="outline"
-          size="icon"
-          onClick={handleAdd}
-          disabled={!inputValue.trim() || keywords.length >= maxKeywords}
-        >
-          <Plus className="h-4 w-4" />
-        </Button>
-        <Button
-          type="button"
-          variant="secondary"
-          size="sm"
-          onClick={handleSuggestKeywords}
-          disabled={isSuggesting || !content.trim()}
-          className="gap-1.5"
-        >
-          {isSuggesting ? (
-            <Loader2 className="h-4 w-4 animate-spin" />
-          ) : (
-            <Sparkles className="h-4 w-4" />
-          )}
-          Suggest
-        </Button>
-      </div>
-      
-      {keywords.length > 0 && (
+  const handleRemoveKeyword = (keyword: string) => {
+    onChange(keywords.filter(k => k !== keyword));
+  };
+
+  const selectAll = () => {
+    setGeneratedQueries(prev => prev.map(q => ({ ...q, selected: true })));
+  };
+
+  const selectNone = () => {
+    setGeneratedQueries(prev => prev.map(q => ({ ...q, selected: false })));
+  };
+
+  const typeLabels: Record<GeneratedQuery['type'], { label: string; color: string }> = {
+    primary: { label: 'Primary', color: 'bg-primary text-primary-foreground' },
+    synonym: { label: 'Synonym', color: 'bg-blue-100 text-blue-700' },
+    subtopic: { label: 'Subtopic', color: 'bg-green-100 text-green-700' },
+    related: { label: 'Related', color: 'bg-purple-100 text-purple-700' },
+    alternative: { label: 'Alt Term', color: 'bg-orange-100 text-orange-700' },
+  };
+
+  // If keywords are already set (loaded from project), show them with option to regenerate
+  if (keywords.length > 0 && !hasGenerated) {
+    return (
+      <div className="space-y-4">
         <div className="flex flex-wrap gap-2">
           {keywords.map((keyword) => (
             <Badge
               key={keyword}
               variant="secondary"
-              className="px-3 py-1 text-sm group"
+              className="px-3 py-1.5 text-sm"
             >
               {keyword}
               <button
                 type="button"
-                onClick={() => handleExpandQuery(keyword)}
-                disabled={isExpanding}
-                className="ml-1.5 opacity-50 hover:opacity-100 transition-opacity"
-                title="Expand to related queries"
-              >
-                <Wand2 className="h-3 w-3" />
-              </button>
-              <button
-                type="button"
-                onClick={() => handleRemove(keyword)}
-                className="ml-1 hover:text-destructive"
+                onClick={() => handleRemoveKeyword(keyword)}
+                className="ml-2 hover:text-destructive"
               >
                 <X className="h-3 w-3" />
               </button>
             </Badge>
           ))}
         </div>
-      )}
+        
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={handleReset}
+          className="gap-1.5"
+        >
+          <RotateCcw className="h-4 w-4" />
+          Start Fresh with New Query
+        </Button>
+        
+        <p className="text-xs text-muted-foreground">
+          {keywords.length} queries selected for analysis
+        </p>
+      </div>
+    );
+  }
 
-      {/* Expanded queries panel */}
-      {expandedQueries.length > 0 && (
-        <Collapsible open={expandOpen} onOpenChange={setExpandOpen}>
-          <div className="border rounded-lg p-3 bg-primary/5 space-y-3">
-            <CollapsibleTrigger asChild>
-              <button className="flex items-center justify-between w-full text-sm font-medium">
-                <span className="flex items-center gap-2">
-                  <Wand2 className="h-4 w-4 text-primary" />
-                  Related Queries ({expandedQueries.filter(q => q.selected).length} selected)
-                </span>
-                {expandOpen ? (
-                  <ChevronUp className="h-4 w-4" />
-                ) : (
-                  <ChevronDown className="h-4 w-4" />
-                )}
-              </button>
-            </CollapsibleTrigger>
-
-            <CollapsibleContent className="space-y-3">
-              <div className="space-y-2">
-                {expandedQueries.map((query) => (
-                  <label
-                    key={query.keyword}
-                    className="flex items-center gap-2 cursor-pointer"
-                  >
-                    <Checkbox
-                      checked={query.selected}
-                      onCheckedChange={() => toggleExpandedQuery(query.keyword)}
-                    />
-                    <span className="text-sm">{query.keyword}</span>
-                    {query.isOriginal && (
-                      <Badge variant="outline" className="text-xs">
-                        primary
-                      </Badge>
-                    )}
-                  </label>
-                ))}
-              </div>
-
-              <div className="flex items-center gap-2">
-                <Button size="sm" onClick={handleApplyExpanded} className="flex-1">
-                  Add Selected
-                </Button>
-                <Button
-                  size="sm"
-                  variant="outline"
-                  onClick={handleClearExpanded}
-                >
-                  <X className="h-4 w-4" />
-                </Button>
-              </div>
-            </CollapsibleContent>
-          </div>
-        </Collapsible>
-      )}
-
-      {isExpanding && (
-        <div className="flex items-center gap-2 text-sm text-muted-foreground">
-          <Loader2 className="h-4 w-4 animate-spin" />
-          Generating related queries...
-        </div>
-      )}
-
-      {/* Suggestions */}
-      {suggestions.length > 0 && (
-        <div className="space-y-2 p-3 bg-muted/50 rounded-lg border">
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-medium text-muted-foreground">
-              AI Suggestions
-            </span>
+  return (
+    <div className="space-y-4">
+      {/* Step 1: Enter Primary Query */}
+      {!hasGenerated && (
+        <div className="space-y-3">
+          <div className="flex gap-2">
+            <Input
+              value={primaryQuery}
+              onChange={(e) => setPrimaryQuery(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && primaryQuery.trim()) {
+                  e.preventDefault();
+                  handleGenerateFanout();
+                }
+              }}
+              placeholder="Enter your primary search query..."
+              className="flex-1"
+            />
             <Button
-              type="button"
-              variant="ghost"
-              size="sm"
-              onClick={handleAddAllSuggestions}
-              className="h-6 text-xs"
+              onClick={handleGenerateFanout}
+              disabled={isGenerating || !primaryQuery.trim()}
+              className="gap-1.5"
             >
-              Add all
+              {isGenerating ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <Wand2 className="h-4 w-4" />
+              )}
+              Generate Variations
             </Button>
           </div>
-          <div className="flex flex-wrap gap-2">
-            {suggestions.map((suggestion) => (
-              <button
-                key={suggestion.keyword}
-                type="button"
-                onClick={() => handleAddSuggestion(suggestion.keyword)}
-                disabled={keywords.includes(suggestion.keyword) || keywords.length >= maxKeywords}
-                className="group relative"
-              >
-                <Badge
-                  variant="outline"
-                  className="px-3 py-1 text-sm cursor-pointer hover:bg-primary hover:text-primary-foreground transition-colors disabled:opacity-50"
-                >
-                  <Plus className="h-3 w-3 mr-1 opacity-50 group-hover:opacity-100" />
-                  {suggestion.keyword}
-                </Badge>
-                <span className="absolute -bottom-5 left-0 text-[10px] text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap">
-                  {suggestion.intent}
-                </span>
-              </button>
-            ))}
+          
+          <p className="text-xs text-muted-foreground">
+            Enter the main query you want to optimize for. We'll generate semantic variations to test comprehensive retrieval.
+          </p>
+        </div>
+      )}
+
+      {/* Loading State */}
+      {isGenerating && (
+        <div className="flex items-center gap-3 p-4 bg-muted/50 rounded-lg">
+          <Loader2 className="h-5 w-5 animate-spin text-primary" />
+          <div>
+            <p className="text-sm font-medium">Generating query variations...</p>
+            <p className="text-xs text-muted-foreground">Creating semantic fanouts for "{primaryQuery}"</p>
           </div>
         </div>
       )}
-      
-      <p className="text-xs text-muted-foreground">
-        {keywords.length}/{maxKeywords} keywords • Press Enter to add • Click <Wand2 className="h-3 w-3 inline" /> to expand
-      </p>
+
+      {/* Step 2: Review & Select Generated Queries */}
+      {hasGenerated && generatedQueries.length > 0 && (
+        <div className="space-y-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <h4 className="text-sm font-medium">Query Variations</h4>
+              <p className="text-xs text-muted-foreground">
+                Select which queries to use for analysis ({generatedQueries.filter(q => q.selected).length} selected)
+              </p>
+            </div>
+            <div className="flex items-center gap-2">
+              <Button variant="ghost" size="sm" onClick={selectAll} className="h-7 text-xs">
+                All
+              </Button>
+              <Button variant="ghost" size="sm" onClick={selectNone} className="h-7 text-xs">
+                None
+              </Button>
+            </div>
+          </div>
+
+          <div className="space-y-2 max-h-[300px] overflow-y-auto pr-1">
+            {generatedQueries.map((gq) => (
+              <label
+                key={gq.query}
+                className={`flex items-start gap-3 p-3 rounded-lg border cursor-pointer transition-all ${
+                  gq.selected 
+                    ? 'border-primary bg-primary/5' 
+                    : 'border-border hover:border-muted-foreground/50'
+                }`}
+              >
+                <Checkbox
+                  checked={gq.selected}
+                  onCheckedChange={() => toggleQuery(gq.query)}
+                  className="mt-0.5"
+                />
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-medium">{gq.query}</p>
+                </div>
+                <span className={`text-xs px-2 py-0.5 rounded-full shrink-0 ${typeLabels[gq.type].color}`}>
+                  {typeLabels[gq.type].label}
+                </span>
+              </label>
+            ))}
+          </div>
+
+          <div className="flex gap-2">
+            <Button onClick={handleApplyQueries} className="flex-1 gap-1.5">
+              <Sparkles className="h-4 w-4" />
+              Use Selected Queries ({generatedQueries.filter(q => q.selected).length})
+            </Button>
+            <Button variant="outline" onClick={handleReset}>
+              <RotateCcw className="h-4 w-4" />
+            </Button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
