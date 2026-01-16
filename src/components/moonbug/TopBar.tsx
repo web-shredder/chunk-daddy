@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Settings, ChevronDown, FolderOpen, LogOut, Loader2, Pencil } from 'lucide-react';
+import { Settings, ChevronDown, FolderOpen, LogOut, Loader2, Pencil, Trash2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import {
@@ -15,7 +15,18 @@ import {
   DialogHeader,
   DialogTitle,
   DialogFooter,
+  DialogDescription,
 } from '@/components/ui/dialog';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
 
 interface TopBarProps {
   projectName: string;
@@ -30,6 +41,7 @@ interface TopBarProps {
   onNewProject: () => void;
   onSignOut: () => void;
   onRenameProject?: (projectId: string, newName: string) => void;
+  onDeleteProject?: (projectId: string) => void;
 }
 
 export function TopBar({
@@ -42,8 +54,10 @@ export function TopBar({
   onNewProject,
   onSignOut,
   onRenameProject,
+  onDeleteProject,
 }: TopBarProps) {
   const [isRenameOpen, setIsRenameOpen] = useState(false);
+  const [isDeleteOpen, setIsDeleteOpen] = useState(false);
   const [newName, setNewName] = useState('');
 
   const handleOpenRename = () => {
@@ -55,6 +69,13 @@ export function TopBar({
     if (newName.trim() && currentProjectId && onRenameProject) {
       onRenameProject(currentProjectId, newName.trim());
       setIsRenameOpen(false);
+    }
+  };
+
+  const handleDelete = () => {
+    if (currentProjectId && onDeleteProject) {
+      onDeleteProject(currentProjectId);
+      setIsDeleteOpen(false);
     }
   };
 
@@ -89,13 +110,25 @@ export function TopBar({
               <>
                 {/* Rename current project */}
                 {currentProjectId && onRenameProject && (
-                  <>
-                    <DropdownMenuItem onClick={handleOpenRename}>
-                      <Pencil className="h-4 w-4 mr-2 text-muted-foreground" />
-                      <span>Rename Project</span>
-                    </DropdownMenuItem>
-                    <DropdownMenuSeparator />
-                  </>
+                  <DropdownMenuItem onClick={handleOpenRename}>
+                    <Pencil className="h-4 w-4 mr-2 text-muted-foreground" />
+                    <span>Rename Project</span>
+                  </DropdownMenuItem>
+                )}
+                
+                {/* Delete current project */}
+                {currentProjectId && onDeleteProject && (
+                  <DropdownMenuItem 
+                    onClick={() => setIsDeleteOpen(true)}
+                    className="text-destructive focus:text-destructive"
+                  >
+                    <Trash2 className="h-4 w-4 mr-2" />
+                    <span>Delete Project</span>
+                  </DropdownMenuItem>
+                )}
+                
+                {currentProjectId && (onRenameProject || onDeleteProject) && (
+                  <DropdownMenuSeparator />
                 )}
 
                 {projects.map((project) => (
@@ -148,6 +181,9 @@ export function TopBar({
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
             <DialogTitle>Rename Project</DialogTitle>
+            <DialogDescription>
+              Enter a new name for your project.
+            </DialogDescription>
           </DialogHeader>
           <div className="py-4">
             <Input
@@ -174,6 +210,27 @@ export function TopBar({
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Delete Confirmation Dialog */}
+      <AlertDialog open={isDeleteOpen} onOpenChange={setIsDeleteOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete Project</AlertDialogTitle>
+            <AlertDialogDescription>
+              Are you sure you want to delete "{projectName}"? This action cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction 
+              onClick={handleDelete}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </>
   );
 }

@@ -26,6 +26,7 @@ const Index = () => {
     newProject,
     markUnsaved,
     renameProject,
+    deleteProject,
   } = useProjects();
 
   const [activeTab, setActiveTab] = useState<TabId>('content');
@@ -183,6 +184,12 @@ const Index = () => {
     renameProject(projectId, newName);
   };
 
+  const handleDeleteProject = async (projectId: string) => {
+    await deleteProject(projectId);
+    // Reset to new project state after deletion
+    handleNewProject();
+  };
+
   const handleApplyOptimization = useCallback((newOptimizedContent: string) => {
     setOptimizedContent(newOptimizedContent);
     setContent(newOptimizedContent);
@@ -227,6 +234,7 @@ const Index = () => {
         onNewProject={handleNewProject}
         onSignOut={signOut}
         onRenameProject={handleRenameProject}
+        onDeleteProject={handleDeleteProject}
       />
       
       <TabBar
