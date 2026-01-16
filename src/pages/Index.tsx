@@ -1,10 +1,11 @@
 import { useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
 import { Progress } from "@/components/ui/progress";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { AlertCircle, Zap, Check, Loader2, Sparkles, Layers, GitCompare } from "lucide-react";
+import { AlertCircle, Zap, Check, Loader2, Sparkles, Layers, GitCompare, LogIn, LogOut } from "lucide-react";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { MarkdownEditor } from "@/components/MarkdownEditor";
 import { KeywordInput } from "@/components/KeywordInput";
@@ -16,11 +17,15 @@ import { ResultsDisplay } from "@/components/ResultsDisplay";
 import { OptimizationEngine } from "@/components/optimizer";
 import { useApiKey } from "@/hooks/useApiKey";
 import { useAnalysis } from "@/hooks/useAnalysis";
+import { useAuth } from "@/hooks/useAuth";
 import { parseMarkdown, createLayoutAwareChunks, type LayoutAwareChunk, type ChunkerOptions, type DocumentElement } from "@/lib/layout-chunker";
+import chunkDaddyMascot from "@/assets/chunk-daddy.png";
 
 const Index = () => {
+  const navigate = useNavigate();
   const { isValidating, isValid, error: apiKeyError, recheckStatus } = useApiKey();
   const { analyze, reset, isAnalyzing, error: analysisError, result, progress } = useAnalysis();
+  const { user, loading: authLoading, signOut } = useAuth();
 
   const [content, setContent] = useState("");
   const [keywords, setKeywords] = useState<string[]>([]);
@@ -63,13 +68,18 @@ const Index = () => {
         <div className="container max-w-7xl mx-auto px-4 py-4">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-3">
-              <img src="/favicon.png" alt="Chunk Daddy" className="w-10 h-10 rounded-lg" />
+              <img src={chunkDaddyMascot} alt="Chunk Daddy" className="w-10 h-10 rounded-lg object-contain" />
               <div>
                 <h1 className="text-xl font-bold">Chunk Daddy</h1>
                 <p className="text-xs text-muted-foreground">Layout-Aware Content Chunking for RAG Systems</p>
               </div>
             </div>
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-3">
+              {user && (
+                <span className="text-xs text-muted-foreground hidden sm:block">
+                  {user.email}
+                </span>
+              )}
               {isValidating ? (
                 <span className="text-xs bg-muted text-muted-foreground px-2 py-1 rounded-full font-medium flex items-center gap-1">
                   <Loader2 className="h-3 w-3 animate-spin" />
@@ -83,6 +93,19 @@ const Index = () => {
               ) : (
                 <Button variant="outline" size="sm" onClick={recheckStatus}>
                   Retry API Check
+                </Button>
+              )}
+              {authLoading ? (
+                <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+              ) : user ? (
+                <Button variant="outline" size="sm" onClick={() => signOut()}>
+                  <LogOut className="h-4 w-4 mr-1" />
+                  Logout
+                </Button>
+              ) : (
+                <Button variant="outline" size="sm" onClick={() => navigate('/auth')}>
+                  <LogIn className="h-4 w-4 mr-1" />
+                  Login
                 </Button>
               )}
             </div>
