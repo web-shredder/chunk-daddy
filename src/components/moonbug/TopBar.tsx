@@ -91,7 +91,7 @@ export function TopBar({
 
   return (
     <>
-      <header className="h-14 bg-surface border-b border-border flex items-center px-6 gap-6 shrink-0">
+      <header className="h-24 bg-surface border-b border-border flex items-center px-6 gap-6 shrink-0">
         {/* Project Switcher */}
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
