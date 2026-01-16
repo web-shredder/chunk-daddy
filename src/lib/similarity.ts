@@ -21,6 +21,15 @@ export function cosineSimilarity(vecA: number[], vecB: number[]): number {
 }
 
 /**
+ * Calculate cosine distance between two vectors (1 - cosine similarity)
+ * Used as the distance metric within Chamfer distance
+ */
+export function cosineDistance(vecA: number[], vecB: number[]): number {
+  const similarity = cosineSimilarity(vecA, vecB);
+  return 1 - similarity;
+}
+
+/**
  * Calculate Euclidean distance (L2) between two vectors
  * Lower = more similar
  */
@@ -56,30 +65,32 @@ export function dotProduct(vecA: number[], vecB: number[]): number {
 }
 
 /**
- * Calculate cosine distance between two vectors (1 - cosine similarity)
- * Used as the distance metric within Chamfer distance
- */
-export function cosineDistance(vecA: number[], vecB: number[]): number {
-  const similarity = cosineSimilarity(vecA, vecB);
-  return 1 - similarity;
-}
-
-/**
  * Calculate Chamfer distance between two SETS of embedding vectors
  * Used for multi-aspect embeddings (like Google's MUVERA)
  *
+ * Measures bidirectional coverage:
+ * - For each vector in setA, find nearest vector in setB
+ * - For each vector in setB, find nearest vector in setA
+ * - Average both directions
+ *
  * @param setA - Array of vectors (e.g., chunk aspect embeddings)
  * @param setB - Array of vectors (e.g., query aspect embeddings)
- * @returns Chamfer distance (lower = more similar)
+ * @returns Chamfer distance (lower = more similar, ranges 0-4)
  *
  * Example:
- * const chunkAspects = [[0.1, 0.2, ...], [0.3, 0.4, ...]] // 2 aspects
- * const queryAspects = [[0.5, 0.6, ...]] // 1 aspect
+ * const chunkAspects = [[0.1, 0.2, ...], [0.3, 0.4, ...]]
+ * const queryAspects = [[0.5, 0.6, ...]]
  * const distance = chamferDistance(chunkAspects, queryAspects)
  */
 export function chamferDistance(setA: number[][], setB: number[][]): number {
   if (setA.length === 0 || setB.length === 0) {
     throw new Error("Both sets must contain at least one vector");
+  }
+
+  // Validate all vectors have same dimensionality
+  const dim = setA[0].length;
+  if (!setA.every((v) => v.length === dim) || !setB.every((v) => v.length === dim)) {
+    throw new Error("All vectors must have the same dimensionality");
   }
 
   // Direction 1: For each vector in A, find nearest vector in B
@@ -104,6 +115,10 @@ export function chamferDistance(setA: number[][], setB: number[][]): number {
 /**
  * Convert Chamfer distance to similarity score (0-1 range)
  * Higher = more similar
+ *
+ * @param setA - Array of vectors
+ * @param setB - Array of vectors
+ * @returns Similarity score between 0 and 1
  */
 export function chamferSimilarity(setA: number[][], setB: number[][]): number {
   const distance = chamferDistance(setA, setB);
@@ -122,6 +137,8 @@ export interface SimilarityScores {
 
 /**
  * Calculate all similarity metrics between two vectors
+ * NOTE: chamfer now requires multi-aspect embeddings (number[][])
+ * so it's excluded from this single-vector comparison
  */
 export function calculateAllMetrics(vecA: number[], vecB: number[]): SimilarityScores {
   return {
@@ -129,7 +146,7 @@ export function calculateAllMetrics(vecA: number[], vecB: number[]): SimilarityS
     euclidean: euclideanDistance(vecA, vecB),
     manhattan: manhattanDistance(vecA, vecB),
     dotProduct: dotProduct(vecA, vecB),
-    chamfer: chamferSimilarity(vecA, vecB),
+    chamfer: 0, // Chamfer requires multi-aspect embeddings, use chamferSimilarity() directly
   };
 }
 
