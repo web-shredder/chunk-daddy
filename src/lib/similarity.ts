@@ -248,11 +248,11 @@ export const getDaddyScoreRecommendation = getPassageScoreRecommendation;
  */
 export function getPassageScoreTierColorClass(tier: PassageScoreTier): string {
   const colors: Record<PassageScoreTier, string> = {
-    excellent: 'text-primary',
-    good: 'text-primary/80',
-    moderate: 'text-muted-foreground',
-    weak: 'text-muted-foreground/80',
-    poor: 'text-muted-foreground/60'
+    excellent: 'text-emerald-500',
+    good: 'text-emerald-400',
+    moderate: 'text-amber-500',
+    weak: 'text-orange-500',
+    poor: 'text-rose-400'
   };
   return colors[tier];
 }
@@ -262,11 +262,11 @@ export const getDaddyScoreTierColorClass = getPassageScoreTierColorClass;
 
 export function getPassageScoreTierBgClass(tier: PassageScoreTier): string {
   const colors: Record<PassageScoreTier, string> = {
-    excellent: 'bg-primary/15 text-primary',
-    good: 'bg-primary/10 text-primary/80',
-    moderate: 'bg-muted text-muted-foreground',
-    weak: 'bg-muted/80 text-muted-foreground/80',
-    poor: 'bg-muted/60 text-muted-foreground/60'
+    excellent: 'bg-emerald-500/15 text-emerald-500',
+    good: 'bg-emerald-400/15 text-emerald-400',
+    moderate: 'bg-amber-500/15 text-amber-500',
+    weak: 'bg-orange-500/15 text-orange-500',
+    poor: 'bg-rose-400/15 text-rose-400'
   };
   return colors[tier];
 }
