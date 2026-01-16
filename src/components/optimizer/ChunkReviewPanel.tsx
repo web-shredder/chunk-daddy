@@ -1,17 +1,18 @@
-import React, { useState, useMemo } from 'react';
+import { useState, useMemo } from 'react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Textarea } from '@/components/ui/textarea';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { 
   Check, 
   X, 
   Edit3, 
-  RotateCcw, 
   ChevronLeft, 
   ChevronRight,
+  ChevronDown,
   Copy,
   Download,
   Star,
@@ -19,9 +20,11 @@ import {
   ArrowDown,
   Minus
 } from 'lucide-react';
-import { ValidatedChunk, ChangeExplanation } from '@/lib/optimizer-types';
+import { ValidatedChunk, ChangeExplanation, FullScoreMetrics } from '@/lib/optimizer-types';
 import { QueryAssignmentMap, formatScorePercent, getScoreColorClass } from '@/lib/query-assignment';
+import { getPassageScoreTier, getPassageScoreTierColorClass } from '@/lib/similarity';
 import { toast } from 'sonner';
+import { cn } from '@/lib/utils';
 
 interface ChunkReviewPanelProps {
   chunks: ValidatedChunk[];
@@ -36,6 +39,8 @@ interface ChunkReviewPanelProps {
   acceptedChunks: Set<number>;
   rejectedChunks: Set<number>;
   editedChunks: Map<number, string>;
+  originalFullScores?: Record<number, Record<string, FullScoreMetrics>>;
+  optimizedFullScores?: Record<number, Record<string, FullScoreMetrics>>;
 }
 
 export function ChunkReviewPanel({
@@ -51,6 +56,8 @@ export function ChunkReviewPanel({
   acceptedChunks,
   rejectedChunks,
   editedChunks,
+  originalFullScores,
+  optimizedFullScores,
 }: ChunkReviewPanelProps) {
   const [selectedChunkIndex, setSelectedChunkIndex] = useState(0);
   const [isEditing, setIsEditing] = useState(false);
@@ -299,26 +306,14 @@ export function ChunkReviewPanel({
             </div>
           </div>
 
-          {/* Assigned queries */}
+          {/* Query Scores Panel */}
           {chunkAssignment && (
-            <div className="mb-4 p-3 bg-muted/30 rounded-lg">
-              <div className="text-xs text-muted-foreground mb-2">Optimized for:</div>
-              <div className="flex flex-wrap gap-2">
-                {chunkAssignment.assignedQueries.map((qa) => (
-                  <Badge 
-                    key={qa.query} 
-                    variant="secondary"
-                    className={`${qa.isPrimary ? 'bg-yellow-500/20 text-yellow-600 border-yellow-500/30' : ''}`}
-                  >
-                    {qa.isPrimary && <Star className="h-3 w-3 mr-1" />}
-                    {qa.query}
-                    <span className={`ml-2 ${getScoreColorClass(qa.score)}`}>
-                      {formatScorePercent(qa.score)}
-                    </span>
-                  </Badge>
-                ))}
-              </div>
-            </div>
+            <ScoresPanel
+              chunkIndex={selectedChunkIndex}
+              assignedQueries={chunkAssignment.assignedQueries}
+              originalFullScores={originalFullScores}
+              optimizedFullScores={optimizedFullScores}
+            />
           )}
 
           {/* Content area */}
@@ -477,5 +472,200 @@ function ImprovementBadge({ pct }: { pct: number }) {
       <Minus className="h-3 w-3" />
       0%
     </Badge>
+  );
+}
+
+// ScoresPanel component for showing before/after metrics
+interface ScoresPanelProps {
+  chunkIndex: number;
+  assignedQueries: { query: string; score: number; isPrimary: boolean }[];
+  originalFullScores?: Record<number, Record<string, FullScoreMetrics>>;
+  optimizedFullScores?: Record<number, Record<string, FullScoreMetrics>>;
+}
+
+function ScoresPanel({
+  chunkIndex,
+  assignedQueries,
+  originalFullScores,
+  optimizedFullScores,
+}: ScoresPanelProps) {
+  const [expandedQuery, setExpandedQuery] = useState<string | null>(null);
+
+  if (!originalFullScores || !optimizedFullScores) {
+    // Fallback to simple display if full scores not available
+    return (
+      <div className="mb-4 p-3 bg-muted/30 rounded-lg">
+        <div className="text-xs text-muted-foreground mb-2">Optimized for:</div>
+        <div className="flex flex-wrap gap-2">
+          {assignedQueries.map((qa) => (
+            <Badge 
+              key={qa.query} 
+              variant="secondary"
+              className={cn(qa.isPrimary && 'bg-yellow-500/20 text-yellow-600 border-yellow-500/30')}
+            >
+              {qa.isPrimary && <Star className="h-3 w-3 mr-1" />}
+              {qa.query}
+              <span className={cn('ml-2', getScoreColorClass(qa.score))}>
+                {formatScorePercent(qa.score)}
+              </span>
+            </Badge>
+          ))}
+        </div>
+      </div>
+    );
+  }
+
+  const chunkOriginal = originalFullScores[chunkIndex] || {};
+  const chunkOptimized = optimizedFullScores[chunkIndex] || {};
+
+  return (
+    <div className="mb-4 p-4 bg-muted/30 rounded-lg space-y-3">
+      <div className="flex items-center justify-between">
+        <span className="text-xs font-medium text-muted-foreground">Query Scores</span>
+        <span className="text-xs text-muted-foreground">Before → After</span>
+      </div>
+      
+      <div className="space-y-2">
+        {assignedQueries.map((qa) => {
+          const original = chunkOriginal[qa.query] || { cosine: 0, chamfer: 0, passageScore: 0 };
+          const optimized = chunkOptimized[qa.query] || { cosine: 0, chamfer: 0, passageScore: 0 };
+          
+          const passageChange = optimized.passageScore - original.passageScore;
+          const passageChangePct = original.passageScore > 0 
+            ? ((optimized.passageScore - original.passageScore) / original.passageScore) * 100 
+            : 0;
+          
+          const isExpanded = expandedQuery === qa.query;
+          const originalTier = getPassageScoreTier(original.passageScore);
+          const optimizedTier = getPassageScoreTier(optimized.passageScore);
+          
+          return (
+            <Collapsible
+              key={qa.query}
+              open={isExpanded}
+              onOpenChange={(open) => setExpandedQuery(open ? qa.query : null)}
+            >
+              <div className={cn(
+                'rounded-md border transition-colors',
+                qa.isPrimary ? 'border-yellow-500/30 bg-yellow-500/5' : 'border-border/50 bg-background/50'
+              )}>
+                {/* Main row - always visible */}
+                <CollapsibleTrigger className="w-full">
+                  <div className="flex items-center justify-between p-2.5 hover:bg-muted/30 rounded-md transition-colors">
+                    <div className="flex items-center gap-2 min-w-0 flex-1">
+                      {qa.isPrimary && <Star className="h-3 w-3 text-yellow-500 shrink-0" />}
+                      <span className="text-sm font-medium truncate">{qa.query}</span>
+                      <ChevronDown className={cn(
+                        'h-3.5 w-3.5 text-muted-foreground transition-transform shrink-0',
+                        isExpanded && 'rotate-180'
+                      )} />
+                    </div>
+                    
+                    <div className="flex items-center gap-3 shrink-0">
+                      {/* Passage Score - hero metric */}
+                      <div className="flex items-center gap-2 text-sm">
+                        <span className="text-muted-foreground">{Math.round(original.passageScore)}</span>
+                        <span className="text-muted-foreground">→</span>
+                        <span className={cn('font-semibold', getPassageScoreTierColorClass(optimizedTier))}>
+                          {Math.round(optimized.passageScore)}
+                        </span>
+                      </div>
+                      
+                      {/* Change indicator */}
+                      <div className={cn(
+                        'flex items-center gap-0.5 text-xs font-medium px-1.5 py-0.5 rounded',
+                        passageChange > 0 && 'text-green-500 bg-green-500/10',
+                        passageChange < 0 && 'text-red-500 bg-red-500/10',
+                        passageChange === 0 && 'text-muted-foreground'
+                      )}>
+                        {passageChange > 0 && <ArrowUp className="h-3 w-3" />}
+                        {passageChange < 0 && <ArrowDown className="h-3 w-3" />}
+                        {passageChange === 0 && <Minus className="h-3 w-3" />}
+                        <span>{passageChange > 0 ? '+' : ''}{passageChange.toFixed(0)}</span>
+                      </div>
+                    </div>
+                  </div>
+                </CollapsibleTrigger>
+                
+                {/* Expanded details */}
+                <CollapsibleContent>
+                  <div className="px-2.5 pb-2.5 pt-0 border-t border-border/30">
+                    <div className="grid grid-cols-3 gap-3 pt-2.5 text-xs">
+                      {/* Passage Score detail */}
+                      <div className="space-y-1">
+                        <div className="text-muted-foreground font-medium">Passage Score</div>
+                        <ScoreRow
+                          before={original.passageScore}
+                          after={optimized.passageScore}
+                          format="integer"
+                        />
+                      </div>
+                      
+                      {/* Cosine detail */}
+                      <div className="space-y-1">
+                        <div className="text-muted-foreground font-medium">Cosine</div>
+                        <ScoreRow
+                          before={original.cosine}
+                          after={optimized.cosine}
+                          format="decimal"
+                        />
+                      </div>
+                      
+                      {/* Chamfer detail */}
+                      <div className="space-y-1">
+                        <div className="text-muted-foreground font-medium">Chamfer</div>
+                        <ScoreRow
+                          before={original.chamfer}
+                          after={optimized.chamfer}
+                          format="decimal"
+                        />
+                      </div>
+                    </div>
+                  </div>
+                </CollapsibleContent>
+              </div>
+            </Collapsible>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+// Helper for individual score rows in expanded view
+function ScoreRow({ 
+  before, 
+  after, 
+  format 
+}: { 
+  before: number; 
+  after: number; 
+  format: 'decimal' | 'integer' | 'percent';
+}) {
+  const change = after - before;
+  const changePct = before > 0 ? ((after - before) / before) * 100 : 0;
+  const improved = change > 0;
+  const declined = change < 0;
+
+  const formatValue = (val: number) => {
+    if (format === 'integer') return Math.round(val).toString();
+    if (format === 'percent') return `${(val * 100).toFixed(1)}%`;
+    return val.toFixed(3);
+  };
+
+  return (
+    <div className="flex items-center gap-1.5">
+      <span className="text-muted-foreground">{formatValue(before)}</span>
+      <span className="text-muted-foreground/50">→</span>
+      <span className="font-medium">{formatValue(after)}</span>
+      <span className={cn(
+        'text-[10px]',
+        improved && 'text-green-500',
+        declined && 'text-red-500',
+        !improved && !declined && 'text-muted-foreground'
+      )}>
+        {improved ? '+' : ''}{changePct.toFixed(1)}%
+      </span>
+    </div>
   );
 }
