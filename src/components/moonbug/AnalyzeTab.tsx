@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { Plus, X, Play, Loader2, Microscope, Sparkles, Check } from 'lucide-react';
+import { DismissableTip } from '@/components/DismissableTip';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Slider } from '@/components/ui/slider';
@@ -175,6 +176,10 @@ Return exactly 24 diverse related queries. Do not limit word count - queries can
           <div className="panel-header">
             <h3>Queries</h3>
           </div>
+
+          <DismissableTip tipId="analyze-queries" className="mb-2">
+            Enter the exact search queries your audience will ask Google. Use "Run Fanout" to generate related questions.
+          </DismissableTip>
 
           {/* Add Query Input */}
           <div className="flex gap-2">
