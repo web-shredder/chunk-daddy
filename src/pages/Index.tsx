@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -15,9 +15,12 @@ import { ChunkInspector } from "@/components/ChunkInspector";
 import { CascadeComparisonView } from "@/components/CascadeComparisonView";
 import { ResultsDisplay } from "@/components/ResultsDisplay";
 import { OptimizationEngine } from "@/components/optimizer";
+import { ProjectManager } from "@/components/ProjectManager";
+import { ProjectStatusBar } from "@/components/ProjectStatusBar";
 import { useApiKey } from "@/hooks/useApiKey";
 import { useAnalysis } from "@/hooks/useAnalysis";
 import { useAuth } from "@/hooks/useAuth";
+import { useProjects } from "@/hooks/useProjects";
 import { parseMarkdown, createLayoutAwareChunks, type LayoutAwareChunk, type ChunkerOptions, type DocumentElement } from "@/lib/layout-chunker";
 import chunkDaddyMascot from "@/assets/chunk-daddy.png";
 
@@ -26,6 +29,22 @@ const Index = () => {
   const { isValidating, isValid, error: apiKeyError, recheckStatus } = useApiKey();
   const { analyze, reset, isAnalyzing, error: analysisError, result, progress } = useAnalysis();
   const { user, loading: authLoading, signOut } = useAuth();
+  
+  // Project management
+  const {
+    currentProject,
+    projects,
+    isLoading: projectsLoading,
+    isSaving,
+    hasUnsavedChanges,
+    lastSavedAt,
+    saveProject,
+    loadProject,
+    renameProject,
+    deleteProject,
+    newProject,
+    markUnsaved,
+  } = useProjects();
 
   const [content, setContent] = useState("");
   const [keywords, setKeywords] = useState<string[]>([]);
@@ -46,6 +65,82 @@ const Index = () => {
       navigate('/auth');
     }
   }, [user, authLoading, navigate]);
+
+  // Load project data when current project changes
+  useEffect(() => {
+    if (currentProject) {
+      setContent(currentProject.content || "");
+      setKeywords(currentProject.queries || []);
+      if (currentProject.settings) {
+        setChunkerOptions(currentProject.settings);
+      }
+      // If project has cached results, we could restore them here
+      // For now, user needs to re-analyze
+    }
+  }, [currentProject]);
+
+  // Mark as unsaved when content changes
+  const handleContentChange = useCallback((newContent: string) => {
+    setContent(newContent);
+    markUnsaved(newContent, keywords, chunkerOptions, result);
+  }, [keywords, chunkerOptions, result, markUnsaved]);
+
+  const handleKeywordsChange = useCallback((newKeywords: string[]) => {
+    setKeywords(newKeywords);
+    markUnsaved(content, newKeywords, chunkerOptions, result);
+  }, [content, chunkerOptions, result, markUnsaved]);
+
+  const handleSettingsChange = useCallback((newOptions: ChunkerOptions) => {
+    setChunkerOptions(newOptions);
+    markUnsaved(content, keywords, newOptions, result);
+  }, [content, keywords, result, markUnsaved]);
+
+  // Handle project load
+  const handleLoadProject = async (projectId: string) => {
+    const project = await loadProject(projectId);
+    if (project) {
+      // Clear previous analysis results
+      reset();
+      setParsedElements([]);
+      setLayoutChunks([]);
+      setSelectedChunk(null);
+    }
+  };
+
+  // Handle project rename
+  const handleRenameProject = async (newName: string) => {
+    if (currentProject) {
+      await renameProject(currentProject.id, newName);
+    }
+  };
+
+  // Handle manual save
+  const handleSave = async () => {
+    await saveProject(
+      currentProject?.project_name || 'Untitled Project',
+      content,
+      keywords,
+      chunkerOptions,
+      result,
+      currentProject?.id
+    );
+  };
+
+  // Handle new project
+  const handleNewProject = () => {
+    newProject();
+    setContent("");
+    setKeywords([]);
+    setChunkerOptions({
+      maxChunkSize: 512,
+      chunkOverlap: 50,
+      cascadeHeadings: true,
+    });
+    reset();
+    setParsedElements([]);
+    setLayoutChunks([]);
+    setSelectedChunk(null);
+  };
 
   // Show loading spinner while checking auth
   if (authLoading) {
@@ -116,6 +211,17 @@ const Index = () => {
                   Retry API Check
                 </Button>
               )}
+              
+              <ProjectManager
+                projects={projects}
+                isLoading={projectsLoading}
+                currentProjectId={currentProject?.id}
+                onLoadProject={handleLoadProject}
+                onRenameProject={(id, name) => renameProject(id, name)}
+                onDeleteProject={(id) => deleteProject(id)}
+                onNewProject={handleNewProject}
+              />
+              
               {authLoading ? (
                 <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
               ) : user ? (
@@ -136,6 +242,18 @@ const Index = () => {
 
       {/* Main Content */}
       <main className="container max-w-7xl mx-auto px-4 py-6">
+        {/* Project Status Bar */}
+        <div className="mb-6">
+          <ProjectStatusBar
+            projectName={currentProject?.project_name || 'Untitled Project'}
+            onRename={handleRenameProject}
+            onSave={handleSave}
+            isSaving={isSaving}
+            hasUnsavedChanges={hasUnsavedChanges}
+            lastSavedAt={lastSavedAt}
+          />
+        </div>
+        
         {apiKeyError && (
           <Alert variant="destructive" className="mb-6">
             <AlertCircle className="h-4 w-4" />
@@ -161,7 +279,7 @@ const Index = () => {
               <CardContent>
                 <MarkdownEditor
                   value={content}
-                  onChange={setContent}
+                  onChange={handleContentChange}
                   placeholder="Start typing or paste your content here..."
                   minHeight="300px"
                   maxHeight="500px"
@@ -184,7 +302,7 @@ const Index = () => {
                 </CardDescription>
               </CardHeader>
               <CardContent>
-                <KeywordInput keywords={keywords} onChange={setKeywords} content={content} />
+                <KeywordInput keywords={keywords} onChange={handleKeywordsChange} content={content} />
               </CardContent>
             </Card>
             
@@ -203,7 +321,7 @@ const Index = () => {
                 <ChunkingSettings
                   content={content}
                   options={chunkerOptions}
-                  onChange={setChunkerOptions}
+                  onChange={handleSettingsChange}
                   hideCard
                 />
               </CardContent>
@@ -295,7 +413,7 @@ const Index = () => {
                       keywords={keywords.filter(k => k.trim())}
                       currentScores={result.originalScores?.keywordScores}
                       onApplyOptimization={(optimized) => {
-                        setContent(optimized);
+                        handleContentChange(optimized);
                       }}
                     />
                   </CardContent>
