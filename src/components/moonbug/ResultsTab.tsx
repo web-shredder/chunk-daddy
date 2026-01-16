@@ -168,7 +168,7 @@ export function ResultsTab({
 }: ResultsTabProps) {
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedIndex, setSelectedIndex] = useState(0);
-  const [viewMode, setViewMode] = useState<'list' | 'structure'>('list');
+  const [viewMode, setViewMode] = useState<'list' | 'structure'>('structure');
   if (!hasResults) {
     return <div className="flex-1 flex items-center justify-center">
         <div className="empty-state">
