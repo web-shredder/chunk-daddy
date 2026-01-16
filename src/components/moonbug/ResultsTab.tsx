@@ -8,7 +8,8 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigge
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
-import { formatScore, getScoreColorClass, getImprovementColorClass, formatImprovement } from '@/lib/similarity';
+import { formatScore, getScoreColorClass, getImprovementColorClass, formatImprovement, calculatePassageScore } from '@/lib/similarity';
+import { PassageScoreHero } from './PassageScoreHero';
 import { downloadCSV } from '@/lib/csv-export';
 import type { LayoutAwareChunk, DocumentElement } from '@/lib/layout-chunker';
 import type { ChunkScore, AnalysisResult } from '@/hooks/useAnalysis';
@@ -366,9 +367,23 @@ export function ResultsTab({
           {/* Detail Content */}
           <ScrollArea className="flex-1">
             <div className="p-6 space-y-8">
+              {/* Passage Score Hero */}
+              {selectedScore && (() => {
+                const avgCosine = selectedScore.keywordScores.reduce((sum, ks) => sum + ks.scores.cosine, 0) / selectedScore.keywordScores.length;
+                const avgChamfer = selectedScore.keywordScores.reduce((sum, ks) => sum + ks.scores.chamfer, 0) / selectedScore.keywordScores.length;
+                const passageScore = calculatePassageScore(avgCosine, avgChamfer);
+                return (
+                  <PassageScoreHero 
+                    score={passageScore} 
+                    cosineScore={avgCosine}
+                    chamferScore={avgChamfer}
+                  />
+                );
+              })()}
+
               {/* Heading Context */}
               {selectedChunk?.headingPath.length > 0 && <div>
-                  <h4 className="text-label mb-3">Passage Score (0-100) predicts how retrievable this passage is by RAG systems. It combines semantic relevance (cosine similarity) with multi-aspect coverage (chamfer similarity).</h4>
+                  <h4 className="text-label mb-3">Heading Path</h4>
                   <div className="flex items-center gap-2 text-sm text-muted-foreground flex-wrap">
                     {selectedChunk.headingPath.map((h, i) => <span key={i} className="flex items-center gap-2">
                         {i > 0 && <ChevronRight className="h-3 w-3" />}
