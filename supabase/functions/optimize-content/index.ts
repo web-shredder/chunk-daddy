@@ -242,14 +242,14 @@ Make explanations clear for content creators who may not know RAG internals.`;
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        model: 'gpt-4o',
+        model: 'gpt-5.2',
         messages: [
           { role: 'system', content: systemPrompt },
           { role: 'user', content: userPrompt }
         ],
         tools,
         tool_choice: toolChoice,
-        temperature: 0.4,
+        max_completion_tokens: 4096,
       }),
     });
 
