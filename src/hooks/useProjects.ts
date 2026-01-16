@@ -5,6 +5,7 @@ import { toast } from 'sonner';
 import type { ChunkDaddyProject, ProjectSummary } from '@/lib/project-types';
 import type { ChunkerOptions } from '@/lib/layout-chunker';
 import type { AnalysisResult } from '@/hooks/useAnalysis';
+import type { FullOptimizationResult } from '@/lib/optimizer-types';
 
 interface ProjectState {
   currentProject: ChunkDaddyProject | null;
@@ -38,6 +39,8 @@ export function useProjects(options: UseProjectsOptions = {}) {
     queries: string[];
     settings: ChunkerOptions;
     results: AnalysisResult | null;
+    optimizedContent: string | null;
+    optimizationResult: FullOptimizationResult | null;
   } | null>(null);
 
   // Fetch user's projects
@@ -83,7 +86,9 @@ export function useProjects(options: UseProjectsOptions = {}) {
     queries: string[],
     settings: ChunkerOptions,
     results: AnalysisResult | null,
-    existingId?: string
+    existingId?: string,
+    optimizedContent?: string | null,
+    optimizationResult?: FullOptimizationResult | null
   ) => {
     if (!user) {
       toast.error('Please log in to save projects');
@@ -100,6 +105,8 @@ export function useProjects(options: UseProjectsOptions = {}) {
         queries: queries as unknown as any,
         settings: settings as unknown as any,
         results: results as unknown as any,
+        optimized_content: optimizedContent || null,
+        optimization_result: optimizationResult as unknown as any,
       };
 
       let savedProject: ChunkDaddyProject;
@@ -162,7 +169,9 @@ export function useProjects(options: UseProjectsOptions = {}) {
       data.queries,
       data.settings,
       data.results,
-      project?.id
+      project?.id,
+      data.optimizedContent,
+      data.optimizationResult
     );
   }, [state.currentProject, state.hasUnsavedChanges, saveProject]);
 
@@ -264,9 +273,18 @@ export function useProjects(options: UseProjectsOptions = {}) {
     content: string,
     queries: string[],
     settings: ChunkerOptions,
-    results: AnalysisResult | null
+    results: AnalysisResult | null,
+    optimizedContent?: string | null,
+    optimizationResult?: FullOptimizationResult | null
   ) => {
-    pendingData.current = { content, queries, settings, results };
+    pendingData.current = { 
+      content, 
+      queries, 
+      settings, 
+      results, 
+      optimizedContent: optimizedContent || null,
+      optimizationResult: optimizationResult || null
+    };
     setState(prev => ({ ...prev, hasUnsavedChanges: true }));
   }, []);
 

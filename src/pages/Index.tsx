@@ -68,6 +68,23 @@ const Index = () => {
         setChunkerOptions(currentProject.settings);
       }
       
+      // Restore optimization state if it exists
+      if (currentProject.optimized_content) {
+        setOptimizedContent(currentProject.optimized_content);
+      } else {
+        setOptimizedContent("");
+      }
+      if (currentProject.optimization_result) {
+        // Restore timestamp as Date object
+        const optResult = {
+          ...currentProject.optimization_result,
+          timestamp: new Date(currentProject.optimization_result.timestamp)
+        };
+        setOptimizationResult(optResult);
+      } else {
+        setOptimizationResult(null);
+      }
+      
       // Restore analysis results if they exist
       if (currentProject.results) {
         // Re-parse and re-chunk to get layout chunks
@@ -91,18 +108,18 @@ const Index = () => {
 
   const handleContentChange = useCallback((newContent: string) => {
     setContent(newContent);
-    markUnsaved(newContent, keywords, chunkerOptions, result);
-  }, [keywords, chunkerOptions, result, markUnsaved]);
+    markUnsaved(newContent, keywords, chunkerOptions, result, optimizedContent, optimizationResult);
+  }, [keywords, chunkerOptions, result, optimizedContent, optimizationResult, markUnsaved]);
 
   const handleKeywordsChange = useCallback((newKeywords: string[]) => {
     setKeywords(newKeywords);
-    markUnsaved(content, newKeywords, chunkerOptions, result);
-  }, [content, chunkerOptions, result, markUnsaved]);
+    markUnsaved(content, newKeywords, chunkerOptions, result, optimizedContent, optimizationResult);
+  }, [content, chunkerOptions, result, optimizedContent, optimizationResult, markUnsaved]);
 
   const handleSettingsChange = useCallback((newOptions: ChunkerOptions) => {
     setChunkerOptions(newOptions);
-    markUnsaved(content, keywords, newOptions, result);
-  }, [content, keywords, result, markUnsaved]);
+    markUnsaved(content, keywords, newOptions, result, optimizedContent, optimizationResult);
+  }, [content, keywords, result, optimizedContent, optimizationResult, markUnsaved]);
 
   const handleLoadProject = async (projectId: string) => {
     await loadProject(projectId);
@@ -129,7 +146,9 @@ const Index = () => {
       keywords,
       chunkerOptions,
       result,
-      currentProject?.id
+      currentProject?.id,
+      optimizedContent,
+      optimizationResult
     );
   };
 
@@ -167,16 +186,16 @@ const Index = () => {
   const handleApplyOptimization = useCallback((newOptimizedContent: string) => {
     setOptimizedContent(newOptimizedContent);
     setContent(newOptimizedContent);
-    markUnsaved(newOptimizedContent, keywords, chunkerOptions, result);
+    markUnsaved(newOptimizedContent, keywords, chunkerOptions, result, newOptimizedContent, optimizationResult);
     // Switch to content tab to show the new content
     setActiveTab('content');
-  }, [keywords, chunkerOptions, result, markUnsaved]);
+  }, [keywords, chunkerOptions, result, optimizationResult, markUnsaved]);
   
   const handleOptimizationComplete = useCallback((optResult: FullOptimizationResult, finalContent: string) => {
     setOptimizationResult(optResult);
     setOptimizedContent(finalContent);
-    // Save to project
-    markUnsaved(content, keywords, chunkerOptions, result);
+    // Save to project with optimization data
+    markUnsaved(content, keywords, chunkerOptions, result, finalContent, optResult);
   }, [content, keywords, chunkerOptions, result, markUnsaved]);
 
   const wordCount = content.trim() ? content.trim().split(/\s+/).length : 0;
