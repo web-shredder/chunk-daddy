@@ -113,38 +113,72 @@ export function generateFormalTextReport(input: ReportGeneratorInput): string {
   lines.push('');
 
   chunkImprovements.forEach((item, idx) => {
+    const boxLine = '─'.repeat(77);
+    const boxTop = '┌' + boxLine + '┐';
+    const boxBottom = '└' + boxLine + '┘';
+    
     lines.push(`CHUNK ${item.chunk.chunk_number}: ${item.chunk.heading || '(No heading)'}`);
     lines.push(`  Original Score:  ${item.avgOriginal.toFixed(1)}`);
     lines.push(`  Optimized Score: ${item.avgOptimized.toFixed(1)}`);
     lines.push(`  Improvement:     ${item.improvement >= 0 ? '+' : ''}${item.improvement.toFixed(1)}%`);
     lines.push('');
     
+    // Original Text - Complete
+    lines.push('┌─────────────────────────────────────────────────────────────────────────────');
+    lines.push('│ ORIGINAL TEXT');
+    lines.push('└─────────────────────────────────────────────────────────────────────────────');
+    const originalLines = (item.chunk.original_text || '').split('\n');
+    originalLines.forEach(line => {
+      lines.push('  ' + line);
+    });
+    lines.push('');
+    
+    // Optimized Text - Complete
+    lines.push('┌─────────────────────────────────────────────────────────────────────────────');
+    lines.push('│ OPTIMIZED TEXT');
+    lines.push('└─────────────────────────────────────────────────────────────────────────────');
+    const optimizedLines = (item.chunk.optimized_text || '').split('\n');
+    optimizedLines.forEach(line => {
+      lines.push('  ' + line);
+    });
+    lines.push('');
+    
+    // Changes Applied
     if (item.chunk.changes_applied.length > 0) {
-      lines.push('  Changes Applied:');
+      lines.push('┌─────────────────────────────────────────────────────────────────────────────');
+      lines.push(`│ CHANGES APPLIED (${item.chunk.changes_applied.length})`);
+      lines.push('└─────────────────────────────────────────────────────────────────────────────');
+      
       item.chunk.changes_applied.forEach((change, changeIdx) => {
         const explanation = optimizationResult.explanations.find(
           e => e.change_id === change.change_id
         );
-        lines.push(`    ${changeIdx + 1}. [${change.change_type.replace('_', ' ').toUpperCase()}] ${change.reason}`);
-        if (explanation) {
-          const wrappedImpact = wrapText(explanation.impact_summary, 65);
-          wrappedImpact.forEach((line, i) => {
-            lines.push(`       ${i === 0 ? '→ ' : '  '}${line}`);
-          });
+        
+        lines.push(`  ${changeIdx + 1}. [${change.change_type.replace('_', ' ').toUpperCase()}] ${change.reason}`);
+        lines.push('');
+        lines.push(`     BEFORE: "${change.before}"`);
+        lines.push(`     AFTER:  "${change.after}"`);
+        lines.push('');
+        
+        if (change.expected_improvement) {
+          lines.push(`     Expected: ${change.expected_improvement}`);
         }
+        
+        if (change.actual_scores) {
+          const improvementStr = change.actual_scores.improvement_pct >= 0 
+            ? `+${change.actual_scores.improvement_pct.toFixed(1)}%` 
+            : `${change.actual_scores.improvement_pct.toFixed(1)}%`;
+          lines.push(`     Measured: ${(change.actual_scores.new_score * 100).toFixed(1)} (${improvementStr})`);
+        }
+        
+        if (explanation) {
+          lines.push(`     Impact: ${explanation.impact_summary}`);
+        }
+        lines.push('');
       });
-      lines.push('');
     }
 
-    // Text excerpt
-    const excerpt = item.chunk.optimized_text.slice(0, 200).replace(/\n/g, ' ');
-    lines.push('  [Excerpt of optimized text...]');
-    const wrappedExcerpt = wrapText(excerpt + (item.chunk.optimized_text.length > 200 ? '...' : ''), 70);
-    wrappedExcerpt.forEach(line => {
-      lines.push(`  ${line}`);
-    });
-    lines.push('');
-    lines.push('---');
+    lines.push('─'.repeat(80));
     lines.push('');
   });
 

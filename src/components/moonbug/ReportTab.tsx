@@ -110,19 +110,55 @@ export function ReportTab({
   const handleExportReport = () => {
     const report = {
       exportedAt: new Date().toISOString(),
+      projectName: projectName || 'Untitled',
+      stats: {
+        originalWordCount: stats.originalWordCount,
+        optimizedWordCount: stats.optimizedWordCount,
+        wordCountDiff: stats.wordCountDiff,
+        chunksOptimized: stats.chunksOptimized,
+        totalChanges: stats.totalChanges,
+        overallOriginalAvg: stats.overallOriginalAvg,
+        overallOptimizedAvg: stats.overallOptimizedAvg,
+        overallPercentChange: stats.overallPercentChange,
+      },
       originalContent: optimizationResult.originalContent,
       optimizedContent: editableContent,
       analysis: optimizationResult.analysis,
-      chunks: optimizationResult.optimizedChunks.map(chunk => ({
-        chunkNumber: chunk.chunk_number,
-        heading: chunk.heading,
-        originalText: chunk.original_text,
-        optimizedText: chunk.optimized_text,
-        changes: chunk.changes_applied,
-        scores: chunk.scores,
-      })),
+      chunks: optimizationResult.optimizedChunks.map((chunk, idx) => {
+        const origScores = optimizationResult.originalFullScores?.[idx] || {};
+        const optScores = optimizationResult.optimizedFullScores?.[idx] || {};
+        
+        return {
+          chunkNumber: chunk.chunk_number,
+          heading: chunk.heading,
+          originalText: chunk.original_text,  // COMPLETE text
+          optimizedText: chunk.optimized_text, // COMPLETE text
+          changes: chunk.changes_applied.map(change => ({
+            changeId: change.change_id,
+            changeType: change.change_type,
+            before: change.before,  // Exact text changed
+            after: change.after,    // Exact replacement
+            reason: change.reason,
+            expectedImprovement: change.expected_improvement,
+            actualScores: change.actual_scores ? {
+              newScore: change.actual_scores.new_score,
+              improvementPct: change.actual_scores.improvement_pct,
+            } : null,
+          })),
+          scores: {
+            original: Object.fromEntries(
+              Object.entries(origScores).map(([query, scores]) => [query, scores])
+            ),
+            optimized: Object.fromEntries(
+              Object.entries(optScores).map(([query, scores]) => [query, scores])
+            ),
+            byQuery: chunk.scores,
+          },
+        };
+      }),
       explanations: optimizationResult.explanations,
       summary: optimizationResult.summary,
+      contentBriefs: optimizationResult.contentBriefs,
     };
     const blob = new Blob([JSON.stringify(report, null, 2)], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
@@ -523,6 +559,41 @@ ${brief.gapAnalysis}
                   </CollapsibleTrigger>
                   <CollapsibleContent>
                     <div className="mt-2 ml-4 md:ml-7 p-3 md:p-4 bg-background border border-border rounded-lg space-y-4">
+                      {/* Before/After Comparison */}
+                      <Collapsible defaultOpen={false}>
+                        <CollapsibleTrigger className="flex items-center gap-2 text-xs md:text-sm font-medium text-muted-foreground hover:text-foreground transition-colors">
+                          <ChevronRight className="h-3 w-3 md:h-4 md:w-4" />
+                          View Before / After Comparison
+                        </CollapsibleTrigger>
+                        <CollapsibleContent className="mt-3 space-y-4">
+                          {/* Original Text */}
+                          <div>
+                            <h5 className="text-[10px] md:text-xs uppercase tracking-wider text-muted-foreground mb-2 flex items-center gap-2">
+                              <span className="w-2 h-2 rounded-full bg-destructive/60" />
+                              Original Text
+                            </h5>
+                            <div className="p-3 bg-destructive/5 border border-destructive/20 rounded-md max-h-64 overflow-y-auto">
+                              <pre className="text-xs md:text-sm whitespace-pre-wrap font-sans text-muted-foreground">
+                                {item.chunk.original_text || '(No original text available)'}
+                              </pre>
+                            </div>
+                          </div>
+
+                          {/* Optimized Text */}
+                          <div>
+                            <h5 className="text-[10px] md:text-xs uppercase tracking-wider text-muted-foreground mb-2 flex items-center gap-2">
+                              <span className="w-2 h-2 rounded-full bg-success/60" />
+                              Optimized Text
+                            </h5>
+                            <div className="p-3 bg-success/5 border border-success/20 rounded-md max-h-64 overflow-y-auto">
+                              <pre className="text-xs md:text-sm whitespace-pre-wrap font-sans text-foreground">
+                                {item.chunk.optimized_text || '(No optimized text available)'}
+                              </pre>
+                            </div>
+                          </div>
+                        </CollapsibleContent>
+                      </Collapsible>
+
                       {/* Changes applied */}
                       <div className="space-y-2">
                         <h5 className="text-[10px] md:text-xs uppercase tracking-wider text-muted-foreground">Changes Applied</h5>
@@ -545,7 +616,26 @@ ${brief.gapAnalysis}
                                   </span>
                                 )}
                               </div>
-                              <p className="text-muted-foreground text-xs md:text-sm">{change.reason}</p>
+                              <p className="text-muted-foreground text-xs md:text-sm mb-2">{change.reason}</p>
+                              
+                              {/* Before/After for individual change */}
+                              {(change.before || change.after) && (
+                                <div className="mt-2 pt-2 border-t border-border/50 space-y-1">
+                                  <div className="flex flex-wrap items-start gap-2">
+                                    <span className="text-[10px] md:text-xs font-medium text-destructive/80 shrink-0">Before:</span>
+                                    <span className="text-[10px] md:text-xs line-through text-muted-foreground/70 break-all">
+                                      "{change.before}"
+                                    </span>
+                                  </div>
+                                  <div className="flex flex-wrap items-start gap-2">
+                                    <span className="text-[10px] md:text-xs font-medium text-success/80 shrink-0">After:</span>
+                                    <span className="text-[10px] md:text-xs text-foreground break-all">
+                                      "{change.after}"
+                                    </span>
+                                  </div>
+                                </div>
+                              )}
+                              
                               {explanation && (
                                 <div className="mt-2 pt-2 border-t border-border/50">
                                   <p className="text-primary text-[10px] md:text-xs">{explanation.impact_summary}</p>
@@ -554,15 +644,6 @@ ${brief.gapAnalysis}
                             </div>
                           );
                         })}
-                      </div>
-
-                      {/* Text preview */}
-                      <div className="space-y-2">
-                        <h5 className="text-[10px] md:text-xs uppercase tracking-wider text-muted-foreground">Optimized Text Preview</h5>
-                        <div className="p-2 md:p-3 bg-muted/10 rounded text-xs md:text-sm text-muted-foreground line-clamp-4">
-                          {item.chunk.optimized_text.slice(0, 300)}
-                          {item.chunk.optimized_text.length > 300 && '...'}
-                        </div>
                       </div>
                     </div>
                   </CollapsibleContent>
