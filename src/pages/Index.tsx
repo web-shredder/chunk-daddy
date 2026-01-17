@@ -56,6 +56,12 @@ const Index = () => {
   const [architectureAnalysis, setArchitectureAnalysis] = useState<ArchitectureAnalysis | null>(null);
   const [architectureLoading, setArchitectureLoading] = useState(false);
   
+  // Optimization review state (lifted from OptimizeTab)
+  const [optimizeViewState, setOptimizeViewState] = useState<'assignment' | 'optimizing' | 'review'>('assignment');
+  const [acceptedChunks, setAcceptedChunks] = useState<Set<number>>(new Set());
+  const [rejectedChunks, setRejectedChunks] = useState<Set<number>>(new Set());
+  const [editedChunks, setEditedChunks] = useState<Map<number, string>>(new Map());
+  
   // Local project name
   const [localProjectName, setLocalProjectName] = useState<string>('Untitled Project');
   
@@ -116,8 +122,18 @@ const Index = () => {
             timestamp: new Date(currentProject.optimization_result.timestamp)
           };
           setOptimizationResult(optResult);
+          // Restore review state - auto-accept all chunks if there's a result
+          if (optResult.optimizedChunks) {
+            setAcceptedChunks(new Set(optResult.optimizedChunks.map((_, i) => i)));
+            setOptimizeViewState('review');
+          }
         } else {
           setOptimizationResult(null);
+          // Reset review state
+          setOptimizeViewState('assignment');
+          setAcceptedChunks(new Set());
+          setRejectedChunks(new Set());
+          setEditedChunks(new Map());
         }
         
         // Restore architecture analysis if it exists
@@ -190,6 +206,12 @@ const Index = () => {
     setOptimizedContent("");
     setOptimizationResult(null);
     setArchitectureAnalysis(null);
+    // Reset optimization review state
+    setOptimizeViewState('assignment');
+    setAcceptedChunks(new Set());
+    setRejectedChunks(new Set());
+    setEditedChunks(new Map());
+    
     setLocalProjectName(pendingProjectName.trim());
     setActiveTab('content');
     setShowNewProjectDialog(false);
@@ -390,6 +412,19 @@ const Index = () => {
           onSaveProject={handleSave}
           onOptimizationComplete={handleOptimizationComplete}
           chunks={layoutChunks.map(c => c.text)}
+          // Lifted state props
+          viewState={optimizeViewState}
+          onViewStateChange={setOptimizeViewState}
+          optimizationResult={optimizationResult}
+          onOptimizationResultChange={setOptimizationResult}
+          optimizedContent={optimizedContent}
+          onOptimizedContentChange={setOptimizedContent}
+          acceptedChunks={acceptedChunks}
+          onAcceptedChunksChange={setAcceptedChunks}
+          rejectedChunks={rejectedChunks}
+          onRejectedChunksChange={setRejectedChunks}
+          editedChunks={editedChunks}
+          onEditedChunksChange={setEditedChunks}
         />
       )}
 
