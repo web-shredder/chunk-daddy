@@ -1,4 +1,4 @@
-import type { FullOptimizationResult, ValidatedChunk, ChangeExplanation, FurtherOptimizationSuggestion, TradeOffConsideration } from './optimizer-types';
+import type { FullOptimizationResult, ValidatedChunk, ChangeExplanation, FurtherOptimizationSuggestion, TradeOffConsideration, ArchitectureAnalysis } from './optimizer-types';
 
 interface ReportGeneratorInput {
   projectName?: string;
@@ -25,6 +25,7 @@ interface ReportGeneratorInput {
     improvement: number;
     changeCount: number;
   }>;
+  architectureAnalysis?: ArchitectureAnalysis;
 }
 
 function wrapText(text: string, width: number): string[] {
@@ -181,6 +182,34 @@ export function generateFormalTextReport(input: ReportGeneratorInput): string {
     lines.push('─'.repeat(80));
     lines.push('');
   });
+
+  // Content Architecture Analysis
+  const architectureAnalysis = input.architectureAnalysis;
+  if (architectureAnalysis && architectureAnalysis.issues.length > 0) {
+    lines.push(formatSection('Content Architecture Analysis'));
+    lines.push('');
+    lines.push(`Architecture Score: ${architectureAnalysis.summary.architectureScore}/100`);
+    lines.push('');
+    lines.push(`Top Recommendation: ${architectureAnalysis.summary.topRecommendation}`);
+    lines.push('');
+    lines.push(`ISSUES IDENTIFIED (${architectureAnalysis.summary.totalIssues} total):`);
+    lines.push(`  • High Priority: ${architectureAnalysis.summary.highPriority}`);
+    lines.push(`  • Medium Priority: ${architectureAnalysis.summary.mediumPriority}`);
+    lines.push(`  • Low Priority: ${architectureAnalysis.summary.lowPriority}`);
+    lines.push('');
+    
+    architectureAnalysis.issues.forEach((issue, i) => {
+      lines.push(`${i + 1}. [${issue.severity.toUpperCase()}] ${issue.type.replace(/_/g, ' ')}`);
+      lines.push(`   Chunks: ${issue.chunkIndices.map(c => c + 1).join(', ')}`);
+      lines.push(`   Issue: ${issue.description}`);
+      lines.push(`   Recommendation: ${issue.recommendation}`);
+      lines.push(`   Impact: ${issue.impact}`);
+      if (issue.relatedQueries && issue.relatedQueries.length > 0) {
+        lines.push(`   Related Queries: ${issue.relatedQueries.join(', ')}`);
+      }
+      lines.push('');
+    });
+  }
 
   // Further Recommendations
   const suggestions = optimizationResult.summary?.furtherSuggestions;

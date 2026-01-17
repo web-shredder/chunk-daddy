@@ -149,6 +149,44 @@ export interface FullOptimizationResult {
   allOriginalChunks: OriginalChunkInfo[];
 }
 
+// Architecture analysis types
+export type ArchitectureIssueType = 
+  | 'MISPLACED_CONTENT'
+  | 'REDUNDANCY'
+  | 'BROKEN_ATOMICITY'
+  | 'TOPIC_INCOHERENCE'
+  | 'COVERAGE_GAP'
+  | 'ORPHANED_MENTION';
+
+export interface ArchitectureIssue {
+  id: string;
+  type: ArchitectureIssueType;
+  severity: 'high' | 'medium' | 'low';
+  chunkIndices: number[];
+  description: string;
+  recommendation: string;
+  impact: string;
+  relatedQueries?: string[];
+}
+
+export interface ArchitectureAnalysis {
+  issues: ArchitectureIssue[];
+  summary: {
+    totalIssues: number;
+    highPriority: number;
+    mediumPriority: number;
+    lowPriority: number;
+    architectureScore: number;
+    topRecommendation: string;
+  };
+  chunkTopicMap: Array<{
+    chunkIndex: number;
+    primaryTopic: string;
+    secondaryTopics: string[];
+    isAtomicContent: boolean;
+  }>;
+}
+
 // Types for query fanout tree
 export type FanoutIntentType = 'primary' | 'follow_up' | 'specification' | 'comparison' | 'process' | 'decision' | 'problem';
 
