@@ -27,6 +27,7 @@ const stepLabels: Record<OptimizationStep, string> = {
   idle: 'Ready to optimize',
   analyzing: 'Analyzing content for optimization opportunities...',
   optimizing: 'Generating optimized rewrites...',
+  generating_briefs: 'Generating content briefs for unhoused queries...',
   scoring: 'Calculating similarity improvements...',
   explaining: 'Generating explanations...',
   complete: 'Optimization complete!',
