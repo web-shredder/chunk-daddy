@@ -153,17 +153,57 @@ export function useOptimizer() {
 
       setState(prev => ({ ...prev, step: 'scoring', progress: 50 }));
       
+      // Helper to extract cascade prefix from a chunk's full text
+      // Chunk text format: "# H1\n\n## H2\n\nBody content..."
+      const extractCascade = (fullText: string): { cascade: string; body: string } => {
+        const headingMatch = fullText.match(/^((?:#{1,6}\s+[^\n]+\n+)+)/);
+        if (headingMatch) {
+          return {
+            cascade: headingMatch[1],
+            body: fullText.slice(headingMatch[0].length).trim()
+          };
+        }
+        return { cascade: '', body: fullText.trim() };
+      };
+      
       // Helper to strip any heading lines the AI might have accidentally included
-      const cleanOptimizedText = (text: string): string => {
+      const stripHeadings = (text: string): string => {
         return text.replace(/^(#{1,6}\s+[^\n]+\n+)+/, '').trim();
       };
       
-      const chunkTexts = optimization.optimized_chunks.map(
-        chunk => (chunk.heading ? chunk.heading + '\n\n' : '') + cleanOptimizedText(chunk.optimized_text)
-      );
-      const originalTexts = optimization.optimized_chunks.map(chunk => chunk.original_text);
+      // Build texts with IDENTICAL cascade prefix for both original and optimized
+      // This ensures apples-to-apples scoring comparison
+      const scoringData = optimization.optimized_chunks.map((chunk, idx) => {
+        // Get the original chunk with cascade (from the chunks array we sent to optimizer)
+        const originalFullChunk = chunks?.[idx] || chunk.original_text || '';
+        const { cascade, body: originalBody } = extractCascade(originalFullChunk);
+        
+        // Clean the optimized text (strip any accidental headings from AI output)
+        const optimizedBody = stripHeadings(chunk.optimized_text || '');
+        
+        // If we don't have cascade from chunks, try to reconstruct from heading
+        const finalCascade = cascade || (chunk.heading ? `## ${chunk.heading}\n\n` : '');
+        
+        return {
+          cascade: finalCascade,
+          originalBody,
+          optimizedBody,
+          // Full texts for embedding - both use SAME cascade
+          originalForScoring: finalCascade + originalBody,
+          optimizedForScoring: finalCascade + optimizedBody,
+        };
+      });
+      
+      // Texts for embedding: original (with cascade) + optimized (with SAME cascade) + queries
+      const originalTexts = scoringData.map(d => d.originalForScoring);
+      const optimizedTexts = scoringData.map(d => d.optimizedForScoring);
+      
+      console.log('Scoring with consistent cascade:', {
+        sampleOriginal: originalTexts[0]?.slice(0, 100),
+        sampleOptimized: optimizedTexts[0]?.slice(0, 100),
+      });
 
-      const allTexts = [...chunkTexts, ...originalTexts, ...queries];
+      const allTexts = [...optimizedTexts, ...originalTexts, ...queries];
 
       // Filter out empty texts and track their original indices
       const textsWithIndices = allTexts.map((text, idx) => ({ text, idx }))
@@ -180,14 +220,15 @@ export function useOptimizer() {
       });
 
       // Reconstruct embeddings with proper indices
-      const chunkEmbeddings = chunkTexts.map((_, idx) => ({
+      // optimizedTexts are first, then originalTexts, then queries
+      const optimizedEmbeddings = optimizedTexts.map((_, idx) => ({
         embedding: embeddingMap.get(idx) || []
       }));
       const originalEmbeddings = originalTexts.map((_, idx) => ({
-        embedding: embeddingMap.get(chunkTexts.length + idx) || []
+        embedding: embeddingMap.get(optimizedTexts.length + idx) || []
       }));
       const queryEmbeddings = queries.map((_, idx) => ({
-        embedding: embeddingMap.get(chunkTexts.length + originalTexts.length + idx) || []
+        embedding: embeddingMap.get(optimizedTexts.length + originalTexts.length + idx) || []
       }));
 
       setState(prev => ({ ...prev, progress: 70 }));
@@ -203,12 +244,12 @@ export function useOptimizer() {
         const originalFullScores: Record<string, { cosine: number; chamfer: number; passageScore: number }> = {};
 
         queries.forEach((query, queryIdx) => {
-          const chunkEmb = chunkEmbeddings[chunkIdx]?.embedding;
+          const optimizedEmb = optimizedEmbeddings[chunkIdx]?.embedding;
           const queryEmb = queryEmbeddings[queryIdx]?.embedding;
           const origEmb = originalEmbeddings[chunkIdx]?.embedding;
 
           // Skip if any embedding is missing or empty
-          if (!chunkEmb?.length || !queryEmb?.length || !origEmb?.length) {
+          if (!optimizedEmb?.length || !queryEmb?.length || !origEmb?.length) {
             console.warn(`Missing embedding for chunk ${chunkIdx} or query "${query}"`);
             chunkScores[query] = 0;
             originalScores[query] = 0;
@@ -217,7 +258,7 @@ export function useOptimizer() {
             return;
           }
 
-          const optimizedMetrics = calculateAllMetrics(chunkEmb, queryEmb);
+          const optimizedMetrics = calculateAllMetrics(optimizedEmb, queryEmb);
           const originalMetrics = calculateAllMetrics(origEmb, queryEmb);
           
           // For single vectors, chamfer = cosine (single-point sets)
