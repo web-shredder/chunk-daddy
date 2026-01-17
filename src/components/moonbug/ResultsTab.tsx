@@ -204,7 +204,7 @@ export function ResultsTab({
 }: ResultsTabProps) {
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedIndex, setSelectedIndex] = useState(0);
-  const [viewMode, setViewMode] = useState<'list' | 'structure' | 'assignments'>('structure');
+  const [viewMode, setViewMode] = useState<'list' | 'structure' | 'assignments'>('list');
   const [mobileDetailOpen, setMobileDetailOpen] = useState(false);
   const isMobile = useIsMobile();
 
