@@ -39,16 +39,9 @@ export function QueryFanOut({ primaryQuery, onQueriesGenerated }: QueryFanOutPro
     try {
       const { data, error } = await supabase.functions.invoke('optimize-content', {
         body: {
-          type: 'suggest_keywords',
-          content: `Generate semantically related search queries for: "${primaryQuery}"
-          
-Context: This is for testing RAG retrieval. Generate 4 related queries:
-1. Direct synonym or alternative phrasing
-2. More specific sub-topic
-3. Related concept
-4. Common alternative term
-
-Keep queries concise (2-4 words each).`,
+          type: 'generate_fanout',
+          primaryQuery: primaryQuery.trim(),
+          contentContext: '',
         },
       });
 
@@ -56,18 +49,21 @@ Keep queries concise (2-4 words each).`,
         throw new Error(data?.error || error?.message || 'Failed to expand query');
       }
 
-      const suggestions = data.result.keywords || [];
+      const suggestions = data.suggestions || [];
       const expanded: ExpandedQuery[] = [
         { keyword: primaryQuery, isOriginal: true, selected: true },
-        ...suggestions.slice(0, 4).map((s: { keyword: string }) => ({
-          keyword: s.keyword,
-          isOriginal: false,
-          selected: true,
-        })),
+        ...suggestions
+          .filter((s: any) => s.query && s.query.toLowerCase() !== primaryQuery.trim().toLowerCase())
+          .slice(0, 6)
+          .map((s: any) => ({
+            keyword: typeof s === 'string' ? s : s.query,
+            isOriginal: false,
+            selected: true,
+          })),
       ];
 
       setExpandedQueries(expanded);
-      toast.success(`Generated ${expanded.length - 1} related queries`);
+      toast.success(`Generated ${expanded.length - 1} intent-based queries`);
     } catch (err) {
       console.error('Query expansion error:', err);
       toast.error(err instanceof Error ? err.message : 'Failed to expand query');
