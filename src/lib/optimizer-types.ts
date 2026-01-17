@@ -110,6 +110,19 @@ export interface FullScoreMetrics {
   passageScore: number;
 }
 
+// Content brief for queries without viable chunk matches
+export interface ContentBrief {
+  targetQuery: string;
+  suggestedHeading: string;
+  headingLevel: 'h2' | 'h3' | 'h4';
+  placementDescription: string;
+  placementAfterChunkIndex: number | null;
+  keyPoints: string[];
+  targetWordCount: { min: number; max: number };
+  draftOpening: string;
+  gapAnalysis: string;
+}
+
 export interface FullOptimizationResult {
   analysis: ContentAnalysis;
   optimizedChunks: ValidatedChunk[];
@@ -121,4 +134,6 @@ export interface FullOptimizationResult {
   // Full metrics for before/after display
   originalFullScores?: Record<number, Record<string, FullScoreMetrics>>;
   optimizedFullScores?: Record<number, Record<string, FullScoreMetrics>>;
+  // Content briefs for unassigned queries
+  contentBriefs: ContentBrief[];
 }
