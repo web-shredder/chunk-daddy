@@ -153,16 +153,19 @@ export function useOptimizer() {
 
       setState(prev => ({ ...prev, step: 'scoring', progress: 50 }));
       
-      // Prepare chunk texts for scoring - strip any AI-added headings from optimized_text
-      const chunkTexts = optimization.optimized_chunks.map(chunk => {
-        let bodyText = chunk.optimized_text;
-        // Remove leading markdown headings the AI might have included
-        bodyText = bodyText.replace(/^(#{1,6}\s+[^\n]+\n+)+/, '').trim();
-        return (chunk.heading ? chunk.heading + '\n\n' : '') + bodyText;
+      // Prepare texts for scoring - use body content ONLY for both (no headings)
+      // This ensures fair comparison between original and optimized content
+      const optimizedTexts = optimization.optimized_chunks.map(chunk => {
+        // Remove any leading headings from optimized_text
+        return chunk.optimized_text.replace(/^(#{1,6}\s+[^\n]+\n+)+/, '').trim();
       });
-      const originalTexts = optimization.optimized_chunks.map(chunk => chunk.original_text);
+      
+      const originalTexts = optimization.optimized_chunks.map(chunk => {
+        // Remove any leading headings from original_text for consistent scoring
+        return chunk.original_text.replace(/^(#{1,6}\s+[^\n]+\n+)+/, '').trim();
+      });
 
-      const allTexts = [...chunkTexts, ...originalTexts, ...queries];
+      const allTexts = [...optimizedTexts, ...originalTexts, ...queries];
 
       // Filter out empty texts and track their original indices
       const textsWithIndices = allTexts.map((text, idx) => ({ text, idx }))
@@ -179,14 +182,14 @@ export function useOptimizer() {
       });
 
       // Reconstruct embeddings with proper indices
-      const chunkEmbeddings = chunkTexts.map((_, idx) => ({
+      const chunkEmbeddings = optimizedTexts.map((_, idx) => ({
         embedding: embeddingMap.get(idx) || []
       }));
       const originalEmbeddings = originalTexts.map((_, idx) => ({
-        embedding: embeddingMap.get(chunkTexts.length + idx) || []
+        embedding: embeddingMap.get(optimizedTexts.length + idx) || []
       }));
       const queryEmbeddings = queries.map((_, idx) => ({
-        embedding: embeddingMap.get(chunkTexts.length + originalTexts.length + idx) || []
+        embedding: embeddingMap.get(optimizedTexts.length + originalTexts.length + idx) || []
       }));
 
       setState(prev => ({ ...prev, progress: 70 }));
