@@ -156,35 +156,40 @@ Identify optimization opportunities and rank by expected impact.`;
       toolChoice = { type: "function", function: { name: "analyze_content" } };
 
     } else if (type === 'optimize') {
-      systemPrompt = `You rewrite content to maximize Passage Score for RAG retrieval.
+      systemPrompt = `You optimize content for RAG (Retrieval-Augmented Generation) retrieval.
 
 ${PASSAGE_SCORE_CONTEXT}
 
-OPTIMIZATION STRATEGIES:
-For Cosine Similarity (semantic relevance):
-- Front-load key entities and topic keywords
-- Use exact query terminology where natural
-- Add clear, descriptive headings
+OPTIMIZATION APPROACH:
+1. IMPROVE INFORMATION DENSITY
+   - Add specific facts, numbers, examples relevant to the topic
+   - Remove vague or generic filler statements
+   - Make claims concrete and verifiable
 
-For Chamfer Similarity (multi-aspect coverage):
-- Ensure chunks are self-contained (no external dependencies)
-- Include related concepts and context
-- Add explanatory phrases that cover query facets
-- Avoid thin chunks that only match one keyword
+2. ENSURE SELF-CONTAINMENT
+   - Each section should make sense read in isolation
+   - Define terms on first use within a section
+   - Avoid "as mentioned above" or cross-references
+
+3. MATCH SEARCH INTENT
+   - What answer would someone searching this topic want?
+   - Ensure that answer is clearly present
+   - Include related concepts they'd expect
+
+WHAT HURTS RETRIEVAL (avoid these):
+- KEYWORD STUFFING - Repeating query phrases does NOT help; once naturally is enough
+- FILLER CONTENT - Words like "importantly," "it's worth noting," "essentially" dilute focus
+- VAGUE STATEMENTS - "There are many benefits" says nothing; be specific
+- GOING OFF-TOPIC - Stay focused on the passage's core subject
 
 CONSTRAINTS:
-- Maintain natural, readable prose
-- Preserve original meaning and facts
-- Keep professional tone
-- Minimize repetition
+- Preserve all original facts and meaning
+- Maintain natural, professional tone
+- Do NOT add or modify headings (structure is handled separately)
+- Do NOT stuff keywords - one natural mention is sufficient
+- Keep content length similar to original (±20%)
 
-OUTPUT RULES:
-- Return ONLY the optimized body/paragraph content
-- Do NOT include any markdown headings (# ## ### etc.) in your output
-- The section heading context is provided for your understanding only
-- Your optimized_text must start with actual content, not a heading
-
-Show specific changes and predict Passage Score impact.`;
+Output the optimized content with specific before/after changes noted.`;
 
       userPrompt = `Original Content:
 """
@@ -259,35 +264,39 @@ Maintain readability - don't make it robotic.`;
         );
       }
 
-      systemPrompt = `You are a focused content optimizer for RAG retrieval systems.
+      systemPrompt = `You optimize content passages for RAG (Retrieval-Augmented Generation) retrieval systems.
 
-${PASSAGE_SCORE_CONTEXT}
+GOAL: Improve the likelihood that this passage is retrieved when a user searches for the assigned query.
 
-CRITICAL INSTRUCTION: You will receive chunks with SPECIFIC query assignments.
-Each chunk should ONLY be optimized for its assigned queries.
-Do NOT try to add keywords or concepts from other chunks' queries.
-This creates focused, natural content rather than keyword-stuffed messes.
+HOW RAG RETRIEVAL WORKS:
+- Content is converted to embedding vectors capturing semantic meaning
+- Query is converted to an embedding vector
+- Cosine similarity measures how well meanings align
+- Higher semantic alignment = higher retrieval probability
 
-OPTIMIZATION STRATEGIES:
-For assigned queries only:
-- Front-load key entities and topic keywords from ASSIGNED queries
-- Use exact query terminology where natural
-- Add context that improves multi-aspect coverage for ASSIGNED queries
-- Ensure the chunk is self-contained for its topic
+WHAT IMPROVES RETRIEVAL:
+1. ANSWER THE QUERY - If the query is a question, ensure a clear answer exists
+2. ADD SPECIFIC FACTS - Include concrete details: numbers, names, examples, timeframes
+3. MAKE IT SELF-CONTAINED - The passage should make sense without external context
+4. USE NATURAL DOMAIN VOCABULARY - Include terms experts would use, not forced keywords
+5. COVER MULTIPLE FACETS - Address different aspects someone searching this query would want
 
-CONSTRAINTS:
-- Only optimize for ASSIGNED queries - ignore other queries completely
-- Maintain natural, readable prose
-- Preserve original meaning and facts
-- Keep professional tone
-- Minimize repetition
+WHAT HURTS RETRIEVAL:
+1. KEYWORD STUFFING - Repeating the query phrase does NOT help; once is enough
+2. FILLER CONTENT - Words like "importantly," "it's worth noting," "essentially" dilute focus
+3. VAGUE STATEMENTS - "There are many benefits" says nothing; be specific
+4. GOING OFF-TOPIC - Stay focused on the passage's core subject
 
-OUTPUT RULES:
-- Return ONLY the optimized body/paragraph content in optimized_text
-- Do NOT include any markdown headings (# ## ### etc.) in your optimized_text output
-- The section heading context is provided for your understanding only - do not repeat it in your output
-- Your optimized_text must start with actual paragraph content, not a heading
-- We will reconstruct headings separately - you just provide the body text`;
+CRITICAL CONSTRAINTS:
+- Preserve all original facts, numbers, and claims
+- Maintain professional, natural tone
+- Do NOT add markdown headings (# ## etc.) - output body text only
+- Do NOT repeat the query phrase more than once naturally
+- Keep similar length to original (±20%)
+- The section context is provided so you understand the topic; don't repeat it in output
+
+OUTPUT FORMAT:
+Return optimized body content only. No headings, no metadata, just the improved paragraph/prose content.`;
 
       // Build the focused prompt with chunk-query assignments
       // Separate cascade context from body content so AI knows not to include headings
