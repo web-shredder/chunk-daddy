@@ -637,91 +637,198 @@ ${contentContext ? `Content Context:\n${contentContext.slice(0, 500)}\n\n` : ''}
       // Intent types to rotate through at different levels
       const intentTypes = ['follow_up', 'specification', 'comparison', 'process', 'decision', 'problem'];
       
+      // Qualifier counting for validation
+      function countQualifiers(query: string): number {
+        const qualifierPatterns = [
+          // Industries
+          /\b(healthcare|tech|technology|manufacturing|retail|finance|banking|pharma|legal|hospitality)\b/gi,
+          // Company sizes
+          /\b(startup|startups|smb|mid-market|midmarket|enterprise|small business|large organization)\b/gi,
+          // Timelines
+          /\b(\d+\s*(days?|weeks?|months?)|quickly|rapidly|fast|within)\b/gi,
+          // Tools
+          /\b(workday|greenhouse|lever|ats|hris|salesforce|sap|oracle|icims|taleo)\b/gi,
+          // Geographic
+          /\b(us|usa|europe|european|global|regional|domestic|international|america|uk|asia)\b/gi,
+          // Specific roles
+          /\b(nurses?|engineers?|developers?|executives?|contractors?|clinical|technical)\b/gi,
+          // Compliance
+          /\b(hipaa|gdpr|soc2|eeoc|compliance|regulatory|credentialing)\b/gi,
+          // Scenarios
+          /\b(high-volume|high volume|seasonal|remote|hybrid|rapid scaling|executive search)\b/gi,
+        ];
+        
+        let count = 0;
+        qualifierPatterns.forEach(pattern => {
+          const matches = query.match(pattern);
+          if (matches) count += matches.length;
+        });
+        
+        return count;
+      }
+      
+      function countWords(query: string): number {
+        return query.trim().split(/\s+/).length;
+      }
+      
+      // Temperature by level
+      function getTemperatureForLevel(level: number): number {
+        if (level === 1) return 0.5;  // Very controlled for L1
+        if (level === 2) return 0.65; // Slightly more variety
+        return 0.8; // More variety for deep levels
+      }
+
       // Recursive child generation function
       async function buildChildren(parentNode: any, currentDepth: number): Promise<void> {
         if (currentDepth >= targetDepth) return;
         
         const isFirstLevel = currentDepth === 0;
+        const isSecondLevel = currentDepth === 1;
         const numToGenerate = isFirstLevel ? 6 : branch; // 6 intent types for level 1, then branch factor
+        const actualLevel = currentDepth + 1; // Human-readable level (1-indexed)
         
-        // Level 1: Broader intent variations (chapter titles)
-        // Level 2+: More specific drill-down queries
-        const level1Temperature = 0.7;
-        const deeperLevelTemperature = 0.8;
-        
-        const level1SystemPrompt = `You are an expert in how AI search systems decompose user queries.
+        // Level 1: ZERO qualifiers, 6-12 words
+        const level1SystemPrompt = `Generate 6 broad research angles for a topic.
 
-Generate sub-queries that represent the 6 MAJOR ANGLES someone might use to research this topic.
+LEVEL 1 RULES:
+- ZERO qualifiers allowed (no industry, size, timeline, geography, tools, roles)
+- 6-12 words per query
+- Must be generic enough to apply to ANY reader
 
-CRITICAL: Level 1 queries must be BROAD INTENT VARIATIONS, not narrow sub-topics.
+QUALIFIERS (FORBIDDEN at L1):
+Industries: healthcare, tech, manufacturing, retail, finance, legal, pharma
+Sizes: startup, SMB, mid-market, enterprise, small business, large
+Timelines: days, weeks, months, quickly, rapidly, fast, within
+Geography: US, Europe, global, regional, domestic, international
+Tools: Workday, Greenhouse, ATS, HRIS, Salesforce, specific software
+Roles: nurses, engineers, executives, contractors, clinical, technical
+Scenarios: high-volume, seasonal, remote, hybrid, rapid scaling
+Compliance: HIPAA, GDPR, SOC2, EEOC, regulatory, credentialing
 
-GENERATE THESE 6 QUERY TYPES (one of each):
+GENERATE 6 QUERIES (one each):
 
-1. FOLLOW_UP - What broad question naturally comes AFTER getting the basic answer?
-   Good: "What should I consider after selecting an RPO provider?"
-   Bad: "RPO contract renewal best practices" (too specific for L1)
+1. FOLLOW_UP (what comes next?)
+   ✅ "What should you do after choosing an RPO provider?" (9 words, 0 qualifiers)
+   ❌ "What should healthcare companies do after selecting an RPO?" (has industry)
 
-2. SPECIFICATION - A version targeting a MAJOR audience segment (not a niche)
-   Good: "How do enterprise companies approach RPO provider selection?"
-   Bad: "RPO selection for Series A healthcare startups" (too narrow)
+2. SPECIFICATION (broad audience, no specifics)
+   ✅ "How do large organizations typically use RPO?" (8 words, 0 qualifiers)
+   ❌ "How do enterprise tech companies use RPO?" (has size + industry)
 
-3. COMPARISON - Compare against the PRIMARY alternative, not minor competitors
-   Good: "How does using an RPO compare to building an internal recruiting team?"
-   Bad: "RPO vs recruitment agencies for contract nurses" (too specific)
+3. COMPARISON (main alternative only)
+   ✅ "How does RPO compare to in-house recruiting?" (8 words, 0 qualifiers)
+   ❌ "How does RPO compare to staffing agencies for tech roles?" (has industry)
 
-4. PROCESS - The overall HOW-TO, not a specific sub-step
-   Good: "What's the process for evaluating and selecting an RPO partner?"
-   Bad: "How to negotiate SLAs in RPO contracts" (this is a sub-step)
+4. PROCESS (overall how-to)
+   ✅ "What is the process for implementing RPO?" (8 words, 0 qualifiers)
+   ❌ "How do companies implement RPO within 90 days?" (has timeline)
 
-5. DECISION - The KEY factors for making this decision
-   Good: "What factors matter most when choosing an RPO provider?"
-   Bad: "How to evaluate RPO technology stack compatibility with Workday" (too detailed)
+5. DECISION (key factors)
+   ✅ "What factors matter when choosing an RPO provider?" (8 words, 0 qualifiers)
+   ❌ "What compliance factors matter for healthcare RPO?" (has industry + compliance)
 
-6. PROBLEM - The MAIN pain point this solves, not edge cases
-   Good: "What hiring challenges does working with an RPO provider solve?"
-   Bad: "Can RPO help with compliance issues in federal hiring?" (too specific)
+6. PROBLEM (main pain point)
+   ✅ "What hiring challenges does RPO help solve?" (7 words, 0 qualifiers)
+   ❌ "How does RPO solve high-volume seasonal hiring?" (has scenario)
 
-QUERY FORMAT RULES:
-- Each query MUST be 8-20 words, a complete natural sentence
-- Include question words (How, What, Why, When, Which)
-- Keep context BROAD at this level (save specifics for deeper levels)
+Return JSON:
+{
+  "queries": [
+    { "query": "...", "intentType": "follow_up" },
+    { "query": "...", "intentType": "specification" },
+    { "query": "...", "intentType": "comparison" },
+    { "query": "...", "intentType": "process" },
+    { "query": "...", "intentType": "decision" },
+    { "query": "...", "intentType": "problem" }
+  ]
+}`;
 
-Think of Level 1 as the 6 chapter titles of a comprehensive guide on this topic.
+        // Level 2: 1-2 qualifiers, 8-14 words
+        const level2SystemPrompt = `Generate specific sub-queries by adding 1-2 qualifiers to the parent.
 
-Return JSON: { "queries": [{ "query": "...", "intentType": "follow_up|specification|comparison|process|decision|problem" }] }`;
-
-        const deeperLevelSystemPrompt = `You are an expert in how AI search systems decompose user queries.
-
-Generate ${numToGenerate} MORE SPECIFIC sub-queries that drill deeper into the parent query.
-
+Parent query: "${parentNode.query}"
 Root topic: "${pq}"
-Parent query to expand: "${parentNode.query}"
-Current depth: Level ${currentDepth + 1}
 
-NOW YOU CAN GET SPECIFIC. Drill into:
-- Specific industries (healthcare, tech, manufacturing, retail, finance)
-- Specific company sizes (startup, SMB, mid-market, enterprise)
-- Specific scenarios (rapid scaling, seasonal hiring, executive search, high-volume)
-- Specific concerns (cost breakdown, timeline details, compliance requirements)
-- Specific geographies (if relevant)
-- Specific tools/integrations (ATS systems, HRIS platforms)
+LEVEL 2 RULES:
+- Add 1-2 qualifiers (pick from: industry, company size, scenario, geography)
+- 8-14 words per query
+- Each query adds specificity the parent lacked
 
-QUERY FORMAT RULES:
-- Each query MUST be 8-20 words, a complete natural sentence
-- Include question words and CONTEXT qualifiers
-- Be MORE SPECIFIC than the parent query
-- Do NOT repeat the parent with minor rewording
+QUALIFIER OPTIONS (pick 1-2 per query):
+- Industry: healthcare, tech, manufacturing, retail, finance
+- Size: startup, mid-market, enterprise
+- Scenario: high-volume, seasonal, rapid scaling, executive search
+- Geography: US, Europe, global
 
-Examples of GOOD Level 2+ specificity:
-Parent: "What's the process for evaluating RPO partners?"
-Children:
-- "How long does a typical RPO vendor evaluation process take for mid-sized companies?"
-- "What questions should you ask RPO providers during the RFP process?"
-- "How do you evaluate an RPO provider's technology stack and ATS integrations?"
+EXAMPLES:
+Parent: "What is the process for implementing RPO?"
+Children (1-2 qualifiers each):
+- "How do healthcare organizations implement RPO?" (1: industry)
+- "How do mid-market companies implement RPO?" (1: size)
+- "How do enterprise tech companies implement RPO?" (2: size + industry)
 
-Return JSON: { "queries": [{ "query": "...", "intentType": "specification|process|problem|comparison|follow_up|decision" }] }`;
+DO NOT:
+- Add 3+ qualifiers (save for L3)
+- Add timeline specifics yet (save for L3)
+- Add tool names yet (save for L3)
+- Exceed 14 words
 
-        const systemPrompt = isFirstLevel ? level1SystemPrompt : deeperLevelSystemPrompt;
+Generate ${numToGenerate} queries.
+
+Return JSON:
+{
+  "queries": [
+    { "query": "...", "intentType": "specification|process|comparison|decision|problem|follow_up" }
+  ]
+}`;
+
+        // Level 3+: 2-3 qualifiers, 10-16 words
+        const level3PlusSystemPrompt = `Generate highly specific sub-queries by adding 2-3 qualifiers to the parent.
+
+Parent query: "${parentNode.query}"
+Root topic: "${pq}"
+Current depth: Level ${actualLevel}
+
+LEVEL 3+ RULES:
+- Add 2-3 qualifiers total (building on parent's qualifiers)
+- 10-16 words per query
+- Can now include: timelines, specific tools, compliance, role types
+
+QUALIFIER OPTIONS (pick 2-3 total, including any from parent):
+- Industry: healthcare, tech, manufacturing, retail, finance
+- Size: startup, mid-market, enterprise
+- Scenario: high-volume, seasonal, rapid scaling
+- Geography: US, Europe, global
+- Timeline: 30 days, 90 days, 6 months (NOW ALLOWED)
+- Tools: Workday, Greenhouse, specific ATS (NOW ALLOWED)
+- Compliance: HIPAA, GDPR, SOC2 (NOW ALLOWED)
+- Roles: clinical, technical, executive (NOW ALLOWED)
+
+EXAMPLES:
+Parent (L2): "How do healthcare organizations implement RPO?"
+Children (L3, 2-3 qualifiers):
+- "How do healthcare organizations implement RPO within 90 days?" (industry + timeline)
+- "How do enterprise healthcare systems implement RPO with HIPAA compliance?" (size + industry + compliance)
+- "How do US healthcare companies integrate RPO with Workday?" (geography + industry + tool)
+
+Generate ${numToGenerate} queries.
+
+Return JSON:
+{
+  "queries": [
+    { "query": "...", "intentType": "specification|process|comparison|decision|problem|follow_up" }
+  ]
+}`;
+
+        // Select appropriate prompt based on level
+        let systemPrompt: string;
+        if (isFirstLevel) {
+          systemPrompt = level1SystemPrompt;
+        } else if (isSecondLevel) {
+          systemPrompt = level2SystemPrompt;
+        } else {
+          systemPrompt = level3PlusSystemPrompt;
+        }
         
         const level1UserPrompt = `Primary Query: "${pq}"
 
@@ -729,19 +836,34 @@ Content Context: ${ctx?.slice(0, 500) || 'Not provided'}
 
 Generate 6 broad intent variations (one of each type: follow_up, specification, comparison, process, decision, problem).
 
-Remember: These should be the 6 MAJOR ANGLES for researching this topic, not narrow sub-topics.
+CRITICAL: Each query must have ZERO qualifiers and be 6-12 words.
 
 Respond with JSON.`;
 
-        const deeperUserPrompt = `Primary Query: "${pq}"
+        const level2UserPrompt = `Primary Query: "${pq}"
 Parent query: "${parentNode.query}"
 Parent intent type: ${parentNode.intentType || 'general'}
 
-Generate ${numToGenerate} specific sub-queries that drill deeper into the parent.
-
-These CAN and SHOULD be specific - include industries, company sizes, scenarios, or technical details as appropriate.
+Generate ${numToGenerate} sub-queries with 1-2 qualifiers each, 8-14 words.
 
 Respond with JSON.`;
+
+        const level3PlusUserPrompt = `Primary Query: "${pq}"
+Parent query: "${parentNode.query}"
+Parent intent type: ${parentNode.intentType || 'general'}
+
+Generate ${numToGenerate} highly specific sub-queries with 2-3 qualifiers each, 10-16 words.
+
+Respond with JSON.`;
+
+        let userPrompt: string;
+        if (isFirstLevel) {
+          userPrompt = level1UserPrompt;
+        } else if (isSecondLevel) {
+          userPrompt = level2UserPrompt;
+        } else {
+          userPrompt = level3PlusUserPrompt;
+        }
 
         try {
           const response = await fetch('https://api.openai.com/v1/chat/completions', {
@@ -754,16 +876,16 @@ Respond with JSON.`;
               model: 'gpt-5.2',
               messages: [
                 { role: 'system', content: systemPrompt },
-                { role: 'user', content: isFirstLevel ? level1UserPrompt : deeperUserPrompt }
+                { role: 'user', content: userPrompt }
               ],
               response_format: { type: 'json_object' },
-              temperature: isFirstLevel ? level1Temperature : deeperLevelTemperature,
+              temperature: getTemperatureForLevel(actualLevel),
             }),
           });
           
           if (!response.ok) {
             const errorText = await response.text();
-            console.error(`Level ${currentDepth + 1} fanout error:`, errorText);
+            console.error(`Level ${actualLevel} fanout error:`, errorText);
             return;
           }
           
@@ -771,7 +893,14 @@ Respond with JSON.`;
           const result = JSON.parse(data.choices[0]?.message?.content || '{"queries":[]}');
           const queries = result.queries || [];
           
-          console.log(`Generated ${queries.length} queries at level ${currentDepth + 1} for "${parentNode.query.slice(0, 50)}..."`);
+          // Log with qualifier counts for debugging
+          console.log(`Generated ${queries.length} queries at L${actualLevel} for "${parentNode.query.slice(0, 40)}..."`);
+          queries.forEach((q: any) => {
+            const qText = q.query || q;
+            const qualCount = countQualifiers(qText);
+            const wordCount = countWords(qText);
+            console.log(`  L${actualLevel}: "${qText}" (${wordCount} words, ${qualCount} qualifiers)`);
+          });
           
           // Build child nodes
           const childPromises: Promise<void>[] = [];
@@ -804,7 +933,7 @@ Respond with JSON.`;
           }
           
         } catch (err) {
-          console.warn(`Level ${currentDepth + 1} generation failed for "${parentNode.query}":`, err);
+          console.warn(`Level ${actualLevel} generation failed for "${parentNode.query}":`, err);
         }
       }
       
