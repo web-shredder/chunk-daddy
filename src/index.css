@@ -539,3 +539,65 @@
   content: attr(data-placeholder);
   @apply text-muted-foreground pointer-events-none float-left h-0;
 }
+
+/* Global Overflow Utilities */
+@layer utilities {
+  /* Text overflow with line clamping */
+  .line-clamp-1 {
+    display: -webkit-box;
+    -webkit-line-clamp: 1;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
+
+  .line-clamp-2 {
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
+
+  .line-clamp-3 {
+    display: -webkit-box;
+    -webkit-line-clamp: 3;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
+}
+
+/* Ensure code blocks don't overflow */
+pre {
+  @apply overflow-x-auto max-w-full;
+}
+
+code {
+  @apply break-words max-w-full;
+}
+
+/* Diff view overflow handling */
+.diff-view {
+  @apply overflow-x-auto max-w-full;
+}
+
+.diff-view pre {
+  @apply whitespace-pre-wrap break-words;
+}
+
+/* Long query text */
+.query-text {
+  word-break: break-word;
+  overflow-wrap: break-word;
+  hyphens: auto;
+}
+
+/* Chunk preview text */
+.chunk-preview {
+  @apply text-sm text-muted-foreground;
+  word-break: break-word;
+  overflow-wrap: break-word;
+}
+
+/* Fix for flex children overflow */
+.min-w-0 {
+  min-width: 0;
+}

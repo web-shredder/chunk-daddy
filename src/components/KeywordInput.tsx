@@ -347,18 +347,18 @@ export function KeywordInput({
   if (keywords.length > 0 && !hasGenerated) {
     return (
       <div className="space-y-4">
-        <div className="flex flex-wrap gap-2">
+        <div className="flex flex-wrap gap-2 max-w-full overflow-hidden">
           {keywords.map((keyword) => (
             <Badge
               key={keyword}
               variant="secondary"
-              className="px-3 py-1.5 text-sm"
+              className="px-3 py-1.5 text-sm max-w-full"
             >
-              {keyword}
+              <span className="truncate max-w-[250px]" title={keyword}>{keyword}</span>
               <button
                 type="button"
                 onClick={() => handleRemoveKeyword(keyword)}
-                className="ml-2 hover:text-destructive"
+                className="ml-2 hover:text-destructive shrink-0"
               >
                 <X className="h-3 w-3" />
               </button>
@@ -554,8 +554,8 @@ export function KeywordInput({
                   onCheckedChange={() => toggleQuery(gq.query)}
                   className="mt-0.5"
                 />
-                <div className="flex-1 min-w-0">
-                  <p className="text-sm font-medium">{gq.query}</p>
+                <div className="flex-1 min-w-0 overflow-hidden">
+                  <p className="text-sm font-medium truncate query-text" title={gq.query}>{gq.query}</p>
                 </div>
                 <span className={`text-xs px-2 py-0.5 rounded-full shrink-0 ${typeLabels[gq.type].color}`}>
                   {typeLabels[gq.type].label}

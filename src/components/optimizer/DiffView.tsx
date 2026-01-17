@@ -161,13 +161,13 @@ export function DiffView({ optimizedChunks, acceptedChanges, originalScores }: D
           )}
 
           {/* Before / After Panels */}
-          <div className="grid md:grid-cols-2 divide-y md:divide-y-0 md:divide-x">
+          <div className="grid md:grid-cols-2 divide-y md:divide-y-0 md:divide-x min-w-0">
             {/* Original Panel */}
-            <div className="p-4 space-y-2">
+            <div className="p-4 space-y-2 min-w-0 overflow-hidden">
               <h4 className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
                 Before
               </h4>
-              <div className="text-sm leading-relaxed whitespace-pre-wrap bg-destructive/5 rounded-md p-3">
+              <div className="text-sm leading-relaxed whitespace-pre-wrap break-words bg-destructive/5 rounded-md p-3 overflow-x-auto">
                 {hasChanges ? renderOriginalWithDeletions(chunk) : (
                   <span className="text-muted-foreground italic">No changes needed</span>
                 )}
@@ -175,12 +175,12 @@ export function DiffView({ optimizedChunks, acceptedChanges, originalScores }: D
             </div>
 
             {/* Optimized Panel */}
-            <div className="p-4 space-y-2">
+            <div className="p-4 space-y-2 min-w-0 overflow-hidden">
               <h4 className="text-xs font-medium text-muted-foreground uppercase tracking-wide flex items-center gap-2">
                 After
-                {hasChanges && <ArrowRight className="h-3 w-3" />}
+                {hasChanges && <ArrowRight className="h-3 w-3 shrink-0" />}
               </h4>
-              <div className="text-sm leading-relaxed whitespace-pre-wrap bg-green-500/5 rounded-md p-3">
+              <div className="text-sm leading-relaxed whitespace-pre-wrap break-words bg-green-500/5 rounded-md p-3 overflow-x-auto">
                 {hasChanges ? renderOptimizedWithAdditions(chunk, acceptedChanges) : (
                   <span className="text-muted-foreground italic">Content unchanged</span>
                 )}
