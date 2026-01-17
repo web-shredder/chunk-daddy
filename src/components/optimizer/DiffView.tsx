@@ -1,4 +1,4 @@
-import { cn } from '@/lib/utils';
+import { cn, stripLeadingHeadingCascade } from '@/lib/utils';
 import type { ValidatedChunk } from '@/lib/optimizer-types';
 import { FileText, ArrowRight, Zap } from 'lucide-react';
 import { calculatePassageScore, getPassageScoreTier, getPassageScoreTierBgClass, formatScore, formatImprovement, getImprovementColorClass } from '@/lib/similarity';
@@ -210,7 +210,7 @@ export function DiffView({ optimizedChunks, acceptedChanges, originalScores }: D
 }
 
 function renderOriginalWithDeletions(chunk: ValidatedChunk) {
-  let text = chunk.original_text;
+  let text = stripLeadingHeadingCascade(chunk.original_text);
   const parts: React.ReactNode[] = [];
   let lastIndex = 0;
 

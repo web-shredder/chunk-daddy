@@ -17,6 +17,7 @@ import {
   getScoreColorClass,
   getImprovementColorClass,
 } from '@/lib/similarity';
+import { stripLeadingHeadingCascade } from '@/lib/utils';
 import type { AnalysisResult, ChunkScore, KeywordScore } from '@/hooks/useAnalysis';
 
 interface ResultsDisplayProps {
@@ -237,7 +238,7 @@ function ChunkResult({ chunk, improvements }: {
           </div>
         </div>
         <p className="text-xs text-muted-foreground line-clamp-2 mt-1">
-          {chunk.text}
+          {stripLeadingHeadingCascade(chunk.text)}
         </p>
       </CardHeader>
       <CardContent className="pt-2">
