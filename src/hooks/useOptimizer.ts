@@ -314,6 +314,7 @@ export function useOptimizer() {
         originalScores: originalScoresCosineOnly,
         originalFullScores: originalScoresMap,
         optimizedFullScores: optimizedScoresMap,
+        contentBriefs: [],
       };
 
       setState({
