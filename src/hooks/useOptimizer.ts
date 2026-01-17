@@ -11,10 +11,11 @@ import type {
   OptimizationSummary,
   ChunkScoreSummary,
   QueryScoreDetail,
+  ContentBrief,
 } from '@/lib/optimizer-types';
 import type { QueryAssignmentMap, ChunkAssignment } from '@/lib/query-assignment';
 
-export type OptimizationStep = 'idle' | 'analyzing' | 'optimizing' | 'scoring' | 'explaining' | 'complete' | 'error';
+export type OptimizationStep = 'idle' | 'analyzing' | 'optimizing' | 'generating_briefs' | 'scoring' | 'explaining' | 'complete' | 'error';
 
 export interface UseOptimizerState {
   step: OptimizationStep;
@@ -108,10 +109,49 @@ export function useOptimizer() {
         console.log('Optimization complete:', optimization.optimized_chunks.length, 'chunks generated');
       }
 
-      setState(prev => ({ ...prev, step: 'scoring', progress: 50 }));
+      // Step 2.5: Generate content briefs for unhoused queries
+      let contentBriefs: ContentBrief[] = [];
+      
+      if (queryAssignments && queryAssignments.unassignedQueries.length > 0) {
+        setState(prev => ({ 
+          ...prev, 
+          step: 'generating_briefs', 
+          progress: 40,
+        }));
+        
+        console.log(`Step 2.5: Generating briefs for ${queryAssignments.unassignedQueries.length} unhoused queries...`);
+        
+        // Get chunk scores from the chunks for summaries
+        const chunkSummaries = (chunks || []).map((c, i) => ({
+          index: i,
+          heading: null, // Will be enriched if available
+          preview: c.slice(0, 200),
+        }));
 
-      // Step 3: Score optimized chunks with embeddings
-      console.log('Step 3: Scoring optimized content...');
+        const briefPromises = queryAssignments.unassignedQueries.map(async (query) => {
+          try {
+            const { data, error } = await supabase.functions.invoke('optimize-content', {
+              body: {
+                type: 'generateContentBrief',
+                query,
+                content,
+                chunkSummaries,
+              },
+            });
+            if (error) throw error;
+            return data?.result as ContentBrief;
+          } catch (err) {
+            console.warn(`Brief generation failed for "${query}":`, err);
+            return null;
+          }
+        });
+
+        const briefResults = await Promise.all(briefPromises);
+        contentBriefs = briefResults.filter((b): b is ContentBrief => b !== null);
+        console.log(`Generated ${contentBriefs.length} content briefs`);
+      }
+
+      setState(prev => ({ ...prev, step: 'scoring', progress: 50 }));
       const chunkTexts = optimization.optimized_chunks.map(
         chunk => (chunk.heading ? chunk.heading + '\n\n' : '') + chunk.optimized_text
       );
@@ -314,7 +354,7 @@ export function useOptimizer() {
         originalScores: originalScoresCosineOnly,
         originalFullScores: originalScoresMap,
         optimizedFullScores: optimizedScoresMap,
-        contentBriefs: [],
+        contentBriefs,
       };
 
       setState({
