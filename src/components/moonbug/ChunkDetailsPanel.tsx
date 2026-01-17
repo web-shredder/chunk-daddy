@@ -119,20 +119,26 @@ function ScoreOverviewSection({
 // ============ TECHNICAL SCORE SECTION ============
 function TechnicalScoreSection({ 
   chunkScore,
-  passageScore 
+  passageScore,
+  assignedQuery
 }: { 
   chunkScore: ChunkScore;
   passageScore: number;
+  assignedQuery?: string;
 }) {
   const [isExpanded, setIsExpanded] = useState(false);
   const [showEducation, setShowEducation] = useState(false);
   
-  // Calculate averages across all queries
-  const avgCosine = chunkScore.keywordScores.reduce((sum, ks) => sum + ks.scores.cosine, 0) / chunkScore.keywordScores.length;
-  const avgChamfer = chunkScore.keywordScores.reduce((sum, ks) => sum + ks.scores.chamfer, 0) / chunkScore.keywordScores.length;
+  // Find the assigned query's scores (case-insensitive), fallback to first keyword
+  const assignedKeywordScore = chunkScore.keywordScores.find(
+    ks => ks.keyword.toLowerCase() === assignedQuery?.toLowerCase()
+  ) || chunkScore.keywordScores[0];
   
-  const cosineContribution = avgCosine * 0.7;
-  const chamferContribution = avgChamfer * 0.3;
+  const cosine = assignedKeywordScore.scores.cosine;
+  const chamfer = assignedKeywordScore.scores.chamfer;
+  
+  const cosineContribution = cosine * 0.7;
+  const chamferContribution = chamfer * 0.3;
   
   return (
     <div className="border-t border-border">
@@ -155,6 +161,13 @@ function TechnicalScoreSection({
       {/* Expanded Content */}
       {isExpanded && (
         <div className="px-4 pb-4 space-y-4">
+          {/* Query indicator */}
+          {assignedQuery && (
+            <div className="text-[10px] text-muted-foreground">
+              Scores for: <span className="text-primary font-medium">{assignedQuery}</span>
+            </div>
+          )}
+          
           {/* Formula */}
           <div className="p-3 bg-muted/50 rounded-lg">
             <div className="text-[10px] uppercase tracking-wider text-muted-foreground mb-1">
@@ -176,7 +189,7 @@ function TechnicalScoreSection({
               </div>
               <div className="text-right">
                 <div className="font-mono text-lg font-semibold">
-                  {avgCosine.toFixed(3)}
+                  {cosine.toFixed(3)}
                 </div>
                 <div className="text-[10px] text-green-600 font-mono">
                   +{(cosineContribution * 100).toFixed(1)} pts
@@ -186,7 +199,7 @@ function TechnicalScoreSection({
             <div className="h-2 bg-muted rounded-full overflow-hidden">
               <div 
                 className="h-full bg-blue-500 transition-all"
-                style={{ width: `${avgCosine * 100}%` }}
+                style={{ width: `${cosine * 100}%` }}
               />
             </div>
             <p className="text-[10px] text-muted-foreground">
@@ -205,7 +218,7 @@ function TechnicalScoreSection({
               </div>
               <div className="text-right">
                 <div className="font-mono text-lg font-semibold">
-                  {avgChamfer.toFixed(3)}
+                  {chamfer.toFixed(3)}
                 </div>
                 <div className="text-[10px] text-green-600 font-mono">
                   +{(chamferContribution * 100).toFixed(1)} pts
@@ -215,7 +228,7 @@ function TechnicalScoreSection({
             <div className="h-2 bg-muted rounded-full overflow-hidden">
               <div 
                 className="h-full bg-purple-500 transition-all"
-                style={{ width: `${avgChamfer * 100}%` }}
+                style={{ width: `${chamfer * 100}%` }}
               />
             </div>
             <p className="text-[10px] text-muted-foreground">
@@ -229,7 +242,7 @@ function TechnicalScoreSection({
               Final Score Calculation:
             </div>
             <div className="font-mono text-xs space-y-0.5">
-              <div>({avgCosine.toFixed(3)} × 0.7) + ({avgChamfer.toFixed(3)} × 0.3)</div>
+              <div>({cosine.toFixed(3)} × 0.7) + ({chamfer.toFixed(3)} × 0.3)</div>
               <div>= {cosineContribution.toFixed(3)} + {chamferContribution.toFixed(3)}</div>
               <div>= {(cosineContribution + chamferContribution).toFixed(3)}</div>
               <div className="text-accent font-semibold">
@@ -469,7 +482,7 @@ function RelatedQueriesSection({
         score: scoreData.passage,
         cosine: scoreData.cosine,
         chamfer: scoreData.chamfer,
-        isCurrent: query === assignedQuery,
+        isCurrent: query.toLowerCase() === assignedQuery?.toLowerCase(),
         scoreDelta: scoreData.passage - currentScore,
       }))
       .sort((a, b) => b.score - a.score)
@@ -644,13 +657,26 @@ export function ChunkDetailsPanel({
   perQueryScores,
 }: ChunkDetailsPanelProps) {
   
-  // Calculate passage score
+  // Calculate passage score for the ASSIGNED query (case-insensitive), not average
   const passageScore = useMemo(() => {
     if (!chunkScore) return 0;
-    const avgCosine = chunkScore.keywordScores.reduce((sum, ks) => sum + ks.scores.cosine, 0) / chunkScore.keywordScores.length;
-    const avgChamfer = chunkScore.keywordScores.reduce((sum, ks) => sum + ks.scores.chamfer, 0) / chunkScore.keywordScores.length;
-    return calculatePassageScore(avgCosine, avgChamfer);
-  }, [chunkScore]);
+    
+    // Find assigned query's scores
+    const assignedKeywordScore = chunkScore.keywordScores.find(
+      ks => ks.keyword.toLowerCase() === assignedQuery?.toLowerCase()
+    );
+    
+    if (assignedKeywordScore) {
+      return calculatePassageScore(
+        assignedKeywordScore.scores.cosine,
+        assignedKeywordScore.scores.chamfer
+      );
+    }
+    
+    // Fallback to first keyword if no match
+    const first = chunkScore.keywordScores[0];
+    return calculatePassageScore(first.scores.cosine, first.scores.chamfer);
+  }, [chunkScore, assignedQuery]);
   
   return (
     <div className="flex flex-col h-full">
@@ -693,6 +719,7 @@ export function ChunkDetailsPanel({
           <TechnicalScoreSection 
             chunkScore={chunkScore}
             passageScore={passageScore}
+            assignedQuery={assignedQuery}
           />
         )}
         
