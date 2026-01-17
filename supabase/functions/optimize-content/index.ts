@@ -29,6 +29,7 @@ interface OptimizationRequest {
   similarityThreshold?: number;
   headings?: string[];
   chunkScores?: any;
+  chunkSummaries?: { index: number; heading?: string; preview: string }[];
 }
 
 // Dynamic token limits by operation type - prevents truncation while optimizing costs
@@ -104,7 +105,7 @@ serve(async (req) => {
       );
     }
 
-    const { type, content, queries, query, currentScores, analysis, validatedChanges, chunkScoreData, queryAssignments, chunks, primaryQuery, contentContext, maxDepth, branchFactor, similarityThreshold, headings, chunkScores }: OptimizationRequest = await req.json();
+    const { type, content, queries, query, currentScores, analysis, validatedChanges, chunkScoreData, queryAssignments, chunks, primaryQuery, contentContext, maxDepth, branchFactor, similarityThreshold, headings, chunkScores, chunkSummaries }: OptimizationRequest = await req.json();
 
     console.log(`Processing ${type} request for content length: ${content?.length}, queries: ${queries?.length}`);
 
@@ -948,9 +949,7 @@ For each Passage Score change, explain the impact on RAG retrieval. Note tier tr
     
     } else if (type === 'generateContentBrief') {
       // Generate content brief for unassigned queries
-      const body = await req.clone().json();
-      const { query, chunkSummaries } = body;
-      
+      // query and chunkSummaries are already destructured from the initial req.json() at line 107
       if (!query || !chunkSummaries) {
         return new Response(
           JSON.stringify({ error: 'generateContentBrief requires query and chunkSummaries' }),
