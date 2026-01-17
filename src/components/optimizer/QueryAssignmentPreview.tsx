@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { ScrollArea } from '@/components/ui/scroll-area';
@@ -10,7 +10,7 @@ import {
   SelectTrigger, 
   SelectValue 
 } from '@/components/ui/select';
-import { ArrowRight, Target, AlertCircle, Check, Star } from 'lucide-react';
+import { ArrowRight, Target, AlertCircle, Check, Star, FileText, Loader2 } from 'lucide-react';
 import { 
   QueryAssignmentMap, 
   ChunkScoreData, 
@@ -18,6 +18,7 @@ import {
   formatScorePercent,
   getScoreColorClass 
 } from '@/lib/query-assignment';
+import type { ContentBrief } from '@/lib/optimizer-types';
 
 interface QueryAssignmentPreviewProps {
   assignmentMap: QueryAssignmentMap;
@@ -25,6 +26,8 @@ interface QueryAssignmentPreviewProps {
   onAssignmentChange: (newMap: QueryAssignmentMap) => void;
   onConfirm: () => void;
   isOptimizing?: boolean;
+  onGenerateBrief?: (query: string) => Promise<ContentBrief | null>;
+  generatedBriefs?: ContentBrief[];
 }
 
 export function QueryAssignmentPreview({
@@ -33,7 +36,12 @@ export function QueryAssignmentPreview({
   onAssignmentChange,
   onConfirm,
   isOptimizing = false,
+  onGenerateBrief,
+  generatedBriefs = [],
 }: QueryAssignmentPreviewProps) {
+  const [generatingBrief, setGeneratingBrief] = useState<string | null>(null);
+  const [generatingAll, setGeneratingAll] = useState(false);
+
   const handleReassign = (query: string, newChunkIndex: string) => {
     const { updatedMap } = reassignQuery(
       assignmentMap, 
@@ -43,6 +51,33 @@ export function QueryAssignmentPreview({
     );
     onAssignmentChange(updatedMap);
   };
+
+  const handleGenerateBrief = async (query: string) => {
+    if (!onGenerateBrief) return;
+    setGeneratingBrief(query);
+    try {
+      await onGenerateBrief(query);
+    } finally {
+      setGeneratingBrief(null);
+    }
+  };
+
+  const handleGenerateAllBriefs = async () => {
+    if (!onGenerateBrief || !assignmentMap.unassignedQueries.length) return;
+    setGeneratingAll(true);
+    try {
+      for (const query of assignmentMap.unassignedQueries) {
+        if (generatedBriefs?.some(b => b.targetQuery === query)) continue;
+        await onGenerateBrief(query);
+      }
+    } finally {
+      setGeneratingAll(false);
+    }
+  };
+
+  const pendingBriefs = assignmentMap.unassignedQueries.filter(
+    q => !generatedBriefs?.some(b => b.targetQuery === q)
+  );
 
   return (
     <div className="space-y-4">
@@ -134,41 +169,108 @@ export function QueryAssignmentPreview({
 
           {/* Queries needing new content */}
           {assignmentMap.unassignedQueries.length > 0 && (
-            <Card className="bg-yellow-500/10 border-yellow-500/30">
+            <Card className="bg-amber-50/50 dark:bg-amber-950/20 border-2 border-dashed border-amber-300 dark:border-amber-600">
               <CardHeader className="py-3 px-4">
-                <CardTitle className="text-sm font-medium text-yellow-500 flex items-center gap-2">
-                  <AlertCircle className="h-4 w-4" />
-                  Queries Needing New Content
-                </CardTitle>
+                <div className="flex items-center justify-between flex-wrap gap-2">
+                  <CardTitle className="text-sm font-medium text-amber-700 dark:text-amber-400 flex items-center gap-2">
+                    <AlertCircle className="h-4 w-4" />
+                    Queries Needing New Content ({assignmentMap.unassignedQueries.length})
+                  </CardTitle>
+                  {onGenerateBrief && pendingBriefs.length > 1 && (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={handleGenerateAllBriefs}
+                      disabled={generatingAll || generatingBrief !== null}
+                      className="text-xs"
+                    >
+                      {generatingAll ? (
+                        <>
+                          <Loader2 className="h-3 w-3 mr-1 animate-spin" />
+                          Generating...
+                        </>
+                      ) : (
+                        <>
+                          <FileText className="h-3 w-3 mr-1" />
+                          Generate All Briefs
+                        </>
+                      )}
+                    </Button>
+                  )}
+                </div>
               </CardHeader>
               <CardContent className="py-2 px-4">
-                <p className="text-xs text-muted-foreground mb-2">
+                <p className="text-xs text-muted-foreground mb-3">
                   These queries have no viable chunk match. Generate content briefs or force-assign to existing chunks.
                 </p>
-                <div className="space-y-2">
-                  {assignmentMap.unassignedQueries.map((query) => (
-                    <div 
-                      key={query}
-                      className="flex items-center justify-between py-2 px-3 bg-muted/30 rounded-md"
-                    >
-                      <span className="text-sm truncate">{query}</span>
-                      
-                      <Select
-                        onValueChange={(value) => handleReassign(query, value)}
+                <div className="space-y-3">
+                  {assignmentMap.unassignedQueries.map((query) => {
+                    const existingBrief = generatedBriefs?.find(b => b.targetQuery === query);
+                    const isGenerating = generatingBrief === query;
+                    
+                    return (
+                      <div 
+                        key={query}
+                        className="p-3 bg-background border border-amber-200 dark:border-amber-700 rounded-lg space-y-2"
                       >
-                        <SelectTrigger className="w-24 h-7 text-xs">
-                          <SelectValue placeholder="Assign" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {chunkScores.map((chunk, idx) => (
-                            <SelectItem key={idx} value={idx.toString()}>
-                              Chunk {idx + 1}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    </div>
-                  ))}
+                        <div className="flex items-center justify-between gap-2 flex-wrap">
+                          <span className="text-sm font-medium truncate flex-1">"{query}"</span>
+                          <div className="flex items-center gap-2">
+                            {onGenerateBrief && !existingBrief && (
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={() => handleGenerateBrief(query)}
+                                disabled={isGenerating || generatingAll}
+                                className="text-xs h-7"
+                              >
+                                {isGenerating ? (
+                                  <>
+                                    <Loader2 className="h-3 w-3 mr-1 animate-spin" />
+                                    Generating...
+                                  </>
+                                ) : (
+                                  <>
+                                    <FileText className="h-3 w-3 mr-1" />
+                                    Generate Brief
+                                  </>
+                                )}
+                              </Button>
+                            )}
+                            <Select
+                              onValueChange={(value) => handleReassign(query, value)}
+                            >
+                              <SelectTrigger className="w-24 h-7 text-xs">
+                                <SelectValue placeholder="Assign" />
+                              </SelectTrigger>
+                              <SelectContent>
+                                {chunkScores.map((chunk, idx) => (
+                                  <SelectItem key={idx} value={idx.toString()}>
+                                    Chunk {idx + 1}
+                                  </SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                          </div>
+                        </div>
+                        
+                        {existingBrief && (
+                          <div className="mt-2 p-2 bg-amber-100/50 dark:bg-amber-900/30 rounded border border-amber-200 dark:border-amber-700 text-sm">
+                            <p className="font-medium text-amber-700 dark:text-amber-400 flex items-center gap-1">
+                              <Check className="h-3 w-3" />
+                              Brief Generated
+                            </p>
+                            <p className="text-muted-foreground mt-1 text-xs">
+                              <strong>Suggested section:</strong> {existingBrief.suggestedHeading}
+                            </p>
+                            <p className="text-muted-foreground text-xs">
+                              <strong>Placement:</strong> {existingBrief.placementDescription}
+                            </p>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
                 </div>
               </CardContent>
             </Card>
