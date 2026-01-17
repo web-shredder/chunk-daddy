@@ -305,6 +305,7 @@ const Index = () => {
           onApplyOptimization={handleApplyOptimization}
           elements={parsedElements}
           result={result}
+          onNavigateToOptimize={() => setActiveTab('optimize')}
         />
       )}
 
