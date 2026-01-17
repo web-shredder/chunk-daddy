@@ -117,7 +117,9 @@ function HeadingNodeView({
   keywords,
   depth = 0,
   onSelectChunk,
-  selectedChunkId
+  selectedChunkId,
+  allChunks,
+  getAssignedQueryForChunk,
 }: {
   node: HeadingNode;
   keywords: string[];
@@ -125,6 +127,7 @@ function HeadingNodeView({
   onSelectChunk: (chunkIndex: number) => void;
   selectedChunkId?: string;
   allChunks: LayoutAwareChunk[];
+  getAssignedQueryForChunk?: (chunkIndex: number) => string | undefined;
 }) {
   const [isOpen, setIsOpen] = useState(true);
   const hasContent = node.children.length > 0 || node.chunks.length > 0;
@@ -150,12 +153,20 @@ function HeadingNodeView({
         
         <CollapsibleContent>
           {node.chunks.map(({ chunk, score }) => {
-            const avgCosine = score ? score.keywordScores.reduce((sum, ks) => sum + ks.scores.cosine, 0) / score.keywordScores.length : 0;
-            const avgChamfer = score ? score.keywordScores.reduce((sum, ks) => sum + ks.scores.chamfer, 0) / score.keywordScores.length : 0;
-            const passageScore = calculatePassageScore(avgCosine, avgChamfer);
+            const chunkNum = parseInt(chunk.id.replace('chunk-', ''));
+            const assignedQuery = getAssignedQueryForChunk?.(chunkNum);
+            
+            // Use assigned query's score, not average
+            let passageScore = 0;
+            if (score) {
+              const assignedKs = score.keywordScores.find(
+                ks => ks.keyword.toLowerCase() === assignedQuery?.toLowerCase()
+              ) || score.keywordScores[0];
+              passageScore = calculatePassageScore(assignedKs.scores.cosine, assignedKs.scores.chamfer);
+            }
+            
             const tier = getPassageScoreTier(passageScore);
             const isSelected = selectedChunkId === chunk.id;
-            const chunkNum = parseInt(chunk.id.replace('chunk-', ''));
             return (
               <button 
                 key={chunk.id} 
@@ -183,7 +194,8 @@ function HeadingNodeView({
               depth={depth + 1} 
               onSelectChunk={onSelectChunk} 
               selectedChunkId={selectedChunkId} 
-              allChunks={[]} 
+              allChunks={[]}
+              getAssignedQueryForChunk={getAssignedQueryForChunk}
             />
           ))}
         </CollapsibleContent>
@@ -214,22 +226,7 @@ export function ResultsTab({
   const [sortBy, setSortBy] = useState<'score' | 'index' | 'heading'>('score');
   const isMobile = useIsMobile();
 
-  // Compute passage scores for all chunks
-  const chunksWithScores = useMemo(() => {
-    return chunks.map((chunk, idx) => {
-      const score = chunkScores[idx];
-      const avgCosine = score ? score.keywordScores.reduce((sum, ks) => sum + ks.scores.cosine, 0) / score.keywordScores.length : 0;
-      const avgChamfer = score ? score.keywordScores.reduce((sum, ks) => sum + ks.scores.chamfer, 0) / score.keywordScores.length : 0;
-      const passageScore = calculatePassageScore(avgCosine, avgChamfer);
-      return { chunk, score, passageScore, originalIndex: idx };
-    });
-  }, [chunks, chunkScores]);
-
-  // Filter counts
-  const problemCount = chunksWithScores.filter(c => c.passageScore < 60).length;
-  const goodCount = chunksWithScores.filter(c => c.passageScore >= 75).length;
-
-  // Build chunk score data for query assignment calculations
+  // Build chunk score data for query assignment calculations (must come first)
   const chunkScoreData = useMemo((): ChunkScoreData[] => {
     if (!chunkScores || chunkScores.length === 0) return [];
     
@@ -270,6 +267,30 @@ export function ResultsTab({
     return assignment?.assignedQuery?.query;
   }, [queryAssignments]);
 
+  // Compute passage scores for all chunks (using ASSIGNED query, not average)
+  const chunksWithScores = useMemo(() => {
+    return chunks.map((chunk, idx) => {
+      const score = chunkScores[idx];
+      const assignedQuery = getAssignedQuery(idx);
+      
+      let passageScore = 0;
+      if (score) {
+        // Find assigned query's score (case-insensitive), fallback to first
+        const assignedKs = score.keywordScores.find(
+          ks => ks.keyword.toLowerCase() === assignedQuery?.toLowerCase()
+        ) || score.keywordScores[0];
+        passageScore = calculatePassageScore(assignedKs.scores.cosine, assignedKs.scores.chamfer);
+      }
+      
+      return { chunk, score, passageScore, originalIndex: idx };
+    });
+  }, [chunks, chunkScores, getAssignedQuery]);
+
+  // Filter counts
+  const problemCount = chunksWithScores.filter(c => c.passageScore < 60).length;
+  const goodCount = chunksWithScores.filter(c => c.passageScore >= 75).length;
+
+
   // Get per-query detailed scores for a chunk (for the RelatedQueriesSection)
   const getPerQueryScores = useCallback((chunkIndex: number): Record<string, { passage: number; cosine: number; chamfer: number }> => {
     const score = chunkScores[chunkIndex];
@@ -304,26 +325,13 @@ export function ResultsTab({
     }
   }, [queryAssignments, chunkScoreData]);
 
-  if (!hasResults) {
-    return (
-      <div className="flex-1 flex items-center justify-center p-4">
-        <div className="empty-state">
-          <BarChart3 size={48} strokeWidth={1} />
-          <h3>No analysis yet</h3>
-          <p>Run an analysis to see chunk structure and relevance scores</p>
-          <button className="btn-secondary" onClick={onGoToAnalyze}>
-            Go to Analyze
-          </button>
-        </div>
-      </div>
-    );
-  }
-
-  const selectedChunk = chunks[selectedIndex];
-  const selectedScore = chunkScores[selectedIndex];
+  const selectedChunk = hasResults ? chunks[selectedIndex] : undefined;
+  const selectedScore = hasResults ? chunkScores[selectedIndex] : undefined;
   
-  // Apply filtering and sorting
+  // Apply filtering and sorting (must be before early return)
   const filteredAndSortedChunks = useMemo(() => {
+    if (!hasResults) return [];
+    
     let filtered = chunksWithScores;
     
     // Apply search filter
@@ -361,9 +369,9 @@ export function ResultsTab({
     }
     
     return sorted;
-  }, [chunksWithScores, searchQuery, scoreFilter, sortBy]);
+  }, [chunksWithScores, searchQuery, scoreFilter, sortBy, hasResults]);
 
-  // Keyboard navigation for list view
+  // Keyboard navigation for list view (must be before early return)
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (viewMode !== 'list' || filteredAndSortedChunks.length === 0) return;
@@ -391,6 +399,22 @@ export function ResultsTab({
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [viewMode, filteredAndSortedChunks, selectedIndex]);
+
+  // Early return for no results state (after all hooks)
+  if (!hasResults) {
+    return (
+      <div className="flex-1 flex items-center justify-center p-4">
+        <div className="empty-state">
+          <BarChart3 size={48} strokeWidth={1} />
+          <h3>No analysis yet</h3>
+          <p>Run an analysis to see chunk structure and relevance scores</p>
+          <button className="btn-secondary" onClick={onGoToAnalyze}>
+            Go to Analyze
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   const handleCopy = () => {
     if (selectedChunk) {
@@ -653,7 +677,8 @@ export function ResultsTab({
                     keywords={keywords} 
                     onSelectChunk={(chunkNum) => handleSelectChunk(chunkNum)} 
                     selectedChunkId={selectedChunk?.id} 
-                    allChunks={chunks} 
+                    allChunks={chunks}
+                    getAssignedQueryForChunk={getAssignedQuery}
                   />
                 ))}
               </div>
