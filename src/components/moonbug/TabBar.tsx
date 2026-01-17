@@ -1,8 +1,8 @@
-import { FileText, Microscope, BarChart3, Sparkles, FileBarChart, Loader2, Check, Save } from 'lucide-react';
+import { FileText, Microscope, BarChart3, Sparkles, FileBarChart, Loader2, Check, Save, Layers } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useIsMobile } from '@/hooks/use-mobile';
 
-export type TabId = 'content' | 'analyze' | 'results' | 'optimize' | 'report';
+export type TabId = 'content' | 'analyze' | 'results' | 'architecture' | 'optimize' | 'report';
 
 interface Tab {
   id: TabId;
@@ -14,6 +14,7 @@ const tabs: Tab[] = [
   { id: 'content', icon: FileText, label: 'Content' },
   { id: 'analyze', icon: Microscope, label: 'Analyze' },
   { id: 'results', icon: BarChart3, label: 'Results' },
+  { id: 'architecture', icon: Layers, label: 'Architecture' },
   { id: 'optimize', icon: Sparkles, label: 'Optimize' },
   { id: 'report', icon: FileBarChart, label: 'Report' },
 ];
@@ -60,6 +61,7 @@ export function TabBar({
   const getTabDisabled = (tabId: TabId): boolean => {
     if (tabId === 'analyze') return !hasContent;
     if (tabId === 'results') return !hasAnalysis;
+    if (tabId === 'architecture') return !hasAnalysis;
     if (tabId === 'optimize') return !hasAnalysis;
     if (tabId === 'report') return !hasOptimizationResult;
     return false;

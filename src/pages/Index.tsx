@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { Loader2 } from "lucide-react";
-import { TopBar, TabBar, ContentTab, AnalyzeTab, ResultsTab, OptimizeTab, ReportTab, type TabId } from "@/components/moonbug";
+import { TopBar, TabBar, ContentTab, AnalyzeTab, ResultsTab, ArchitectureTab, OptimizeTab, ReportTab, type TabId } from "@/components/moonbug";
 import { useApiKey } from "@/hooks/useApiKey";
 import { useAnalysis, type AnalysisResult } from "@/hooks/useAnalysis";
 import { useAuth } from "@/hooks/useAuth";
@@ -341,6 +341,20 @@ const Index = () => {
           elements={parsedElements}
           result={result}
           onNavigateToOptimize={() => setActiveTab('optimize')}
+        />
+      )}
+
+      {activeTab === 'architecture' && (
+        <ArchitectureTab
+          hasResults={hasAnalysis}
+          chunks={layoutChunks}
+          chunkScores={result?.chunkScores || []}
+          keywords={keywords}
+          onGoToResults={() => setActiveTab('results')}
+          onNavigateToChunk={(idx) => {
+            setActiveTab('results');
+            // The ResultsTab will handle selecting the chunk
+          }}
         />
       )}
 

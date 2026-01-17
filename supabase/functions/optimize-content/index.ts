@@ -556,11 +556,12 @@ RULES:
 - Use natural language (how real people search)
 - Mix of short phrases AND full questions
 - Do NOT generate synonym swaps or keyword variations
-- Do NOT include the primary query again`;
+- Do NOT include the primary query again
+- Return response as JSON with format: {"suggestions": [{"query": "...", "intent": "..."}]}`;
 
       const fanoutUserPrompt = `Primary Query: "${fanoutQuery || content}"
 
-${contentContext ? `Content Context:\n${contentContext.slice(0, 500)}\n\n` : ''}Generate 5-7 fan-out queries representing DIFFERENT search intents, not keyword variations.`;
+${contentContext ? `Content Context:\n${contentContext.slice(0, 500)}\n\n` : ''}Generate 5-7 fan-out queries representing DIFFERENT search intents, not keyword variations. Return as JSON.`;
 
       const OPENAI_API_KEY = Deno.env.get('OPENAI_API_KEY');
       
@@ -778,10 +779,11 @@ OUTPUT JSON:
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       });
     
-    } else if (type === 'deduplicate_fanout') {
-      // Semantic deduplication of queries
-      const body = await req.clone().json();
-      const { queries: queryList, similarityThreshold = 0.85 } = body;
+  } else if (type === 'deduplicate_fanout') {
+    // Semantic deduplication of queries
+    // Note: 'queries' is already parsed from req.json() at line 106
+    const queryList = queries || [];
+    const threshold = 0.85;
       
       if (!queryList || queryList.length === 0) {
         return new Response(
@@ -789,8 +791,8 @@ OUTPUT JSON:
           { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
         );
       }
-      
-      console.log(`Deduplicating ${queryList.length} queries with threshold ${similarityThreshold}`);
+    
+    console.log(`Deduplicating ${queryList.length} queries with threshold ${threshold}`);
       
       // Generate embeddings for all queries
       const embeddingResponse = await fetch('https://api.openai.com/v1/embeddings', {
@@ -820,7 +822,7 @@ OUTPUT JSON:
       for (let i = 0; i < queryList.length; i++) {
         for (let j = i + 1; j < queryList.length; j++) {
           const similarity = cosineSimilarity(embeddings[i], embeddings[j]);
-          if (similarity > similarityThreshold) {
+          if (similarity > threshold) {
             duplicatePairs.push({ i, j, similarity });
           }
         }
