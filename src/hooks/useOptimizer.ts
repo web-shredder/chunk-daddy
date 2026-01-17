@@ -152,8 +152,14 @@ export function useOptimizer() {
       }
 
       setState(prev => ({ ...prev, step: 'scoring', progress: 50 }));
+      
+      // Helper to strip any heading lines the AI might have accidentally included
+      const cleanOptimizedText = (text: string): string => {
+        return text.replace(/^(#{1,6}\s+[^\n]+\n+)+/, '').trim();
+      };
+      
       const chunkTexts = optimization.optimized_chunks.map(
-        chunk => (chunk.heading ? chunk.heading + '\n\n' : '') + chunk.optimized_text
+        chunk => (chunk.heading ? chunk.heading + '\n\n' : '') + cleanOptimizedText(chunk.optimized_text)
       );
       const originalTexts = optimization.optimized_chunks.map(chunk => chunk.original_text);
 

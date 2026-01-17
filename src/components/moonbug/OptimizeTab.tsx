@@ -192,8 +192,23 @@ export function OptimizeTab({
         }
         
         setOptimizationResult(result);
+        
+        // Helper to strip any heading lines the AI might have accidentally included
+        const stripAccidentalHeadings = (text: string): string => {
+          return text.replace(/^(#{1,6}\s+[^\n]+\n+)+/, '').trim();
+        };
+        
         const fullContent = result.optimizedChunks
-          .map(chunk => (chunk.heading ? `## ${chunk.heading}\n\n` : '') + chunk.optimized_text)
+          .map(chunk => {
+            // Strip any heading lines the AI might have accidentally included
+            const bodyText = stripAccidentalHeadings(chunk.optimized_text || '');
+            
+            // Reconstruct with proper single heading
+            if (chunk.heading) {
+              return `## ${chunk.heading}\n\n${bodyText}`;
+            }
+            return bodyText;
+          })
           .join('\n\n');
         setOptimizedContent(fullContent);
         
