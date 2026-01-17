@@ -198,18 +198,57 @@ export function OptimizeTab({
           return text.replace(/^(#{1,6}\s+[^\n]+\n+)+/, '').trim();
         };
         
-        const fullContent = result.optimizedChunks
-          .map(chunk => {
-            // Strip any heading lines the AI might have accidentally included
-            const bodyText = stripAccidentalHeadings(chunk.optimized_text || '');
-            
-            // Reconstruct with proper single heading
-            if (chunk.heading) {
-              return `## ${chunk.heading}\n\n${bodyText}`;
+        // Helper to format a chunk for output
+        const formatChunkForOutput = (heading: string | null, body: string): string => {
+          if (heading) {
+            return `## ${heading}\n\n${body}`;
+          }
+          return body;
+        };
+        
+        // Build map of chunkIndex → optimized content (using chunk_number which is 1-indexed)
+        const optimizedChunkMap = new Map<number, { heading: string | null; body: string }>();
+        result.optimizedChunks.forEach(chunk => {
+          // chunk_number is 1-indexed, convert to 0-indexed for matching with allOriginalChunks
+          const chunkIndex = chunk.chunk_number - 1;
+          const cleanBody = stripAccidentalHeadings(chunk.optimized_text || '');
+          optimizedChunkMap.set(chunkIndex, {
+            heading: chunk.heading || null,
+            body: cleanBody,
+          });
+        });
+        
+        // Reconstruct FULL document by iterating through ALL original chunks
+        const allChunks = result.allOriginalChunks || [];
+        
+        let fullContent: string;
+        if (allChunks.length === 0) {
+          // Fallback: if allOriginalChunks not available, show warning and use only optimized
+          console.warn('allOriginalChunks not available - showing only optimized chunks');
+          fullContent = result.optimizedChunks
+            .map(chunk => formatChunkForOutput(chunk.heading || null, stripAccidentalHeadings(chunk.optimized_text || '')))
+            .join('\n\n');
+        } else {
+          // Full reconstruction - iterate through ALL chunks
+          const fullDocumentParts: string[] = [];
+          
+          for (const originalChunk of allChunks) {
+            if (optimizedChunkMap.has(originalChunk.index)) {
+              // This chunk was optimized - use the optimized version
+              const optimized = optimizedChunkMap.get(originalChunk.index)!;
+              fullDocumentParts.push(formatChunkForOutput(optimized.heading, optimized.body));
+            } else {
+              // This chunk was NOT optimized - keep original
+              fullDocumentParts.push(formatChunkForOutput(
+                originalChunk.heading,
+                originalChunk.textWithoutCascade
+              ));
             }
-            return bodyText;
-          })
-          .join('\n\n');
+          }
+          
+          fullContent = fullDocumentParts.join('\n\n');
+        }
+        
         setOptimizedContent(fullContent);
         
         // Auto-accept all chunks initially
@@ -263,18 +302,83 @@ export function OptimizeTab({
   const handleApplyChanges = () => {
     if (!optimizationResult) return;
 
-    // Build final content from accepted/edited chunks
-    const finalChunks = optimizationResult.optimizedChunks.map((chunk, idx) => {
-      if (rejectedChunks.has(idx)) {
-        return chunk.original_text;
+    // Helper to strip any heading lines
+    const stripHeadings = (text: string): string => {
+      return text.replace(/^(#{1,6}\s+[^\n]+\n+)+/, '').trim();
+    };
+    
+    // Helper to format a chunk for output
+    const formatChunk = (heading: string | null, body: string): string => {
+      if (heading) {
+        return `## ${heading}\n\n${body}`;
       }
-      if (editedChunks.has(idx)) {
-        return editedChunks.get(idx)!;
+      return body;
+    };
+
+    // Build map of which optimized chunks to use (by original chunk index)
+    // rejectedChunks/acceptedChunks/editedChunks use the index within optimizedChunks array
+    const optimizedChunkMap = new Map<number, { heading: string | null; body: string; rejected: boolean }>();
+    optimizationResult.optimizedChunks.forEach((chunk, optimizedIdx) => {
+      const originalIndex = chunk.chunk_number - 1; // Convert 1-indexed to 0-indexed
+      
+      if (rejectedChunks.has(optimizedIdx)) {
+        // Rejected - will fall through to use original
+        optimizedChunkMap.set(originalIndex, { heading: null, body: '', rejected: true });
+      } else if (editedChunks.has(optimizedIdx)) {
+        // Edited by user
+        optimizedChunkMap.set(originalIndex, { 
+          heading: chunk.heading || null, 
+          body: stripHeadings(editedChunks.get(optimizedIdx)!),
+          rejected: false 
+        });
+      } else {
+        // Use optimized version
+        optimizedChunkMap.set(originalIndex, { 
+          heading: chunk.heading || null, 
+          body: stripHeadings(chunk.optimized_text || ''),
+          rejected: false 
+        });
       }
-      return (chunk.heading ? `## ${chunk.heading}\n\n` : '') + chunk.optimized_text;
     });
 
-    const finalContent = finalChunks.join('\n\n');
+    // Reconstruct FULL document from all original chunks
+    const allChunks = optimizationResult.allOriginalChunks || [];
+    
+    let finalContent: string;
+    if (allChunks.length === 0) {
+      // Fallback: only optimized chunks available
+      const finalChunks = optimizationResult.optimizedChunks.map((chunk, idx) => {
+        if (rejectedChunks.has(idx)) {
+          return chunk.original_text;
+        }
+        if (editedChunks.has(idx)) {
+          return editedChunks.get(idx)!;
+        }
+        return formatChunk(chunk.heading || null, stripHeadings(chunk.optimized_text || ''));
+      });
+      finalContent = finalChunks.join('\n\n');
+    } else {
+      // Full document reconstruction
+      const fullDocumentParts: string[] = [];
+      
+      for (const originalChunk of allChunks) {
+        const optimizedData = optimizedChunkMap.get(originalChunk.index);
+        
+        if (optimizedData && !optimizedData.rejected) {
+          // Use optimized/edited version
+          fullDocumentParts.push(formatChunk(optimizedData.heading, optimizedData.body));
+        } else {
+          // Use original (either not optimized, or rejected)
+          fullDocumentParts.push(formatChunk(
+            originalChunk.heading,
+            originalChunk.textWithoutCascade
+          ));
+        }
+      }
+      
+      finalContent = fullDocumentParts.join('\n\n');
+    }
+
     onApplyOptimization(finalContent);
     
     // Call optimization complete callback to navigate to report
