@@ -9,7 +9,7 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigge
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet';
 import { toast } from 'sonner';
-import { cn } from '@/lib/utils';
+import { cn, stripLeadingHeadingCascade } from '@/lib/utils';
 import { formatScore, getScoreColorClass, getImprovementColorClass, formatImprovement, calculatePassageScore, getPassageScoreTier, getPassageScoreTierColorClass } from '@/lib/similarity';
 import { PassageScoreHero } from './PassageScoreHero';
 import { downloadCSV } from '@/lib/csv-export';
@@ -385,7 +385,7 @@ export function ResultsTab({
       <div>
         <h4 className="text-label mb-3">Content</h4>
         <pre className="bg-background border border-border rounded-md p-4 font-mono text-xs md:text-[13px] leading-relaxed text-foreground whitespace-pre-wrap break-words max-h-[300px] overflow-auto">
-          {selectedChunk?.text}
+          {selectedChunk?.textWithoutCascade || stripLeadingHeadingCascade(selectedChunk?.text || '')}
         </pre>
       </div>
 
@@ -654,14 +654,14 @@ export function ResultsTab({
             ) : null}
           </ScrollArea>
 
-          {/* Proceed to Optimize CTA */}
+          {/* Analyze Structure CTA */}
           {onNavigateToOptimize && hasResults && (
             <div className="p-3 border-t border-border bg-surface">
               <button 
                 onClick={onNavigateToOptimize}
                 className="btn-primary w-full sm:w-auto flex items-center justify-center gap-2"
               >
-                Proceed to Optimize
+                Analyze structure.
                 <ArrowRight className="h-4 w-4" />
               </button>
             </div>

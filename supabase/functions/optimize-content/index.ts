@@ -598,12 +598,12 @@ ${contentContext ? `Content Context:\n${contentContext.slice(0, 500)}\n\n` : ''}
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       });
     
-    } else if (type === 'generate_fanout_tree') {
-      // Multi-level fanout tree generation - use already-parsed body variables
+  } else if (type === 'generate_fanout_tree') {
+      // TRUE RECURSIVE fanout tree generation
       const pq = primaryQuery;
       const ctx = contentContext;
-      const depth = maxDepth ?? 2;
-      const branch = branchFactor ?? 4;
+      const targetDepth = maxDepth ?? 3;
+      const branch = branchFactor ?? 3;
       
       if (!pq) {
         return new Response(
@@ -612,7 +612,7 @@ ${contentContext ? `Content Context:\n${contentContext.slice(0, 500)}\n\n` : ''}
         );
       }
       
-      console.log(`Generating fanout tree for "${pq}" with depth=${maxDepth}, branch=${branchFactor}`);
+      console.log(`Generating recursive fanout tree for "${pq}" with depth=${targetDepth}, branch=${branch}`);
       
       // Root node
       const root: any = {
@@ -625,24 +625,38 @@ ${contentContext ? `Content Context:\n${contentContext.slice(0, 500)}\n\n` : ''}
         isSelected: true,
       };
       
-      // Level 1: Intent-diverse queries
-      const level1SystemPrompt = `You are an expert in how AI search systems decompose user queries.
+      // Intent types to rotate through at different levels
+      const intentTypes = ['follow_up', 'specification', 'comparison', 'process', 'decision', 'problem'];
+      
+      // Recursive child generation function
+      async function buildChildren(parentNode: any, currentDepth: number): Promise<void> {
+        if (currentDepth >= targetDepth) return;
+        
+        const isFirstLevel = currentDepth === 0;
+        const numToGenerate = isFirstLevel ? 6 : branch; // 6 intent types for level 1, then branch factor
+        
+        const systemPrompt = isFirstLevel 
+          ? `You are an expert in how AI search systems decompose user queries.
 
 Generate sub-queries that an AI search system would create internally to comprehensively answer the primary query.
 
-GENERATE THESE QUERY TYPES:
-1. FOLLOW_UP - What question comes next after the basic answer?
-2. SPECIFICATION - A narrower, more specific version
-3. COMPARISON - X vs Y format against alternatives  
-4. PROCESS - How to implement, use, or do something
-5. DECISION - For someone ready to take action
-6. PROBLEM - What problem or pain point does this solve?
+GENERATE THESE 6 QUERY TYPES (one of each):
+1. FOLLOW_UP - What question naturally comes next after the basic answer?
+2. SPECIFICATION - A narrower, more specific version targeting a niche
+3. COMPARISON - X vs Y format against alternatives or competitors
+4. PROCESS - How to implement, use, or do something step by step
+5. DECISION - For someone ready to take action, questions to ask before committing
+6. PROBLEM - What problem, pain point, or challenge does this solve?
 
-RULES:
-- Generate exactly 6 queries, one of each type
-- Each query must be genuinely different in intent
-- Use natural language (how real people search)
+CRITICAL QUERY FORMAT RULES:
+- Each query MUST be a COMPLETE, NATURAL sentence (typically 8-20 words)
+- Include VERBS and question forms (How, What, Why, When, Which)
+- Add CONTEXT qualifiers (budget, timeline, company size, industry, use case)
+- Example good: "How long does it typically take to implement an RPO solution for a mid-sized company?"
+- Example bad: "RPO implementation timeline" (too short, no context)
+
 - Do NOT generate synonym swaps or keyword variations
+- Do NOT use short noun phrases - always full sentences
 
 OUTPUT JSON:
 {
@@ -654,115 +668,104 @@ OUTPUT JSON:
     {"query": "...", "intentType": "decision"},
     {"query": "...", "intentType": "problem"}
   ]
-}`;
+}`
+          : `Generate ${numToGenerate} MORE SPECIFIC sub-queries that drill deeper into the parent query.
 
-      const level1Response = await fetch('https://api.openai.com/v1/chat/completions', {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${OPENAI_API_KEY}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          model: 'gpt-5.2',
-          messages: [
-            { role: 'system', content: level1SystemPrompt },
-            { role: 'user', content: `Primary Query: "${pq}"\n\nContent Context: ${ctx?.slice(0, 500) || 'Not provided'}\n\nRespond with JSON.` }
-          ],
-          response_format: { type: 'json_object' },
-          temperature: 0.8,
-        }),
-      });
-      
-      if (!level1Response.ok) {
-        const errorText = await level1Response.text();
-        console.error('Level 1 fanout error:', errorText);
-        throw new Error('Failed to generate level 1 queries');
-      }
-      
-      const level1Data = await level1Response.json();
-      const level1Result = JSON.parse(level1Data.choices[0]?.message?.content || '{"queries":[]}');
-      const level1Queries = level1Result.queries || [];
-      
-      console.log(`Generated ${level1Queries.length} level 1 queries`);
-      
-      // Build Level 1 nodes and generate Level 2
-      for (const l1 of level1Queries) {
-        const l1Node: any = {
-          id: generateId(),
-          query: l1.query,
-          intentType: l1.intentType || 'follow_up',
-          level: 1,
-          parentId: root.id,
-          children: [],
-          isSelected: true,
-        };
-        
-        // Level 2: More specific variants
-        if ((maxDepth ?? 2) >= 2) {
-          const level2SystemPrompt = `Generate ${branchFactor ?? 4} MORE SPECIFIC sub-queries for the given query.
+Root topic: "${pq}"
+Parent query to expand: "${parentNode.query}"
+Current depth: Level ${currentDepth + 1}
 
-Parent context: This is exploring "${pq}"
-Current query to expand: "${l1.query}"
+CRITICAL QUERY FORMAT RULES:
+- Each query MUST be a COMPLETE, NATURAL sentence (typically 8-20 words)
+- Include VERBS and question forms (How, What, Why, When, Which)
+- Add CONTEXT qualifiers (budget, timeline, company size, industry, use case, specific scenarios)
+- Example good: "What are the hidden costs of switching from in-house recruiting to an RPO provider?"
+- Example bad: "RPO hidden costs" (too short, no context)
 
-RULES:
-- Each sub-query should be NARROWER than the parent
+- Each sub-query should be NARROWER and more specific than the parent
 - Include practical variants (specific industries, company sizes, scenarios)
 - Include "how to" and actionable variants
 - Do NOT repeat the parent query with minor rewording
-- Keep queries natural and searchable
+- Do NOT use short noun phrases
 
 OUTPUT JSON:
 {
   "queries": [
     {"query": "...", "intentType": "specification"},
-    {"query": "...", "intentType": "specification"},
-    {"query": "...", "intentType": "specification"},
-    {"query": "...", "intentType": "specification"}
+    ...
   ]
 }`;
 
-          try {
-            const level2Response = await fetch('https://api.openai.com/v1/chat/completions', {
-              method: 'POST',
-              headers: {
-                'Authorization': `Bearer ${OPENAI_API_KEY}`,
-                'Content-Type': 'application/json',
-              },
-              body: JSON.stringify({
-                model: 'gpt-5.2',
-                messages: [
-                  { role: 'system', content: level2SystemPrompt },
-                  { role: 'user', content: `Expand: "${l1.query}"\n\nRespond with JSON.` }
-                ],
-                response_format: { type: 'json_object' },
-                temperature: 0.8,
-              }),
-            });
-            
-            if (level2Response.ok) {
-              const level2Data = await level2Response.json();
-              const level2Result = JSON.parse(level2Data.choices[0]?.message?.content || '{"queries":[]}');
-              const level2Queries = level2Result.queries || [];
-              
-              for (const l2 of level2Queries.slice(0, branchFactor)) {
-                l1Node.children.push({
-                  id: generateId(),
-                  query: l2.query || l2,
-                  intentType: l2.intentType || 'specification',
-                  level: 2,
-                  parentId: l1Node.id,
-                  children: [],
-                  isSelected: true,
-                });
-              }
-            }
-          } catch (l2Err) {
-            console.warn('Level 2 generation failed for', l1.query, l2Err);
+        try {
+          const response = await fetch('https://api.openai.com/v1/chat/completions', {
+            method: 'POST',
+            headers: {
+              'Authorization': `Bearer ${OPENAI_API_KEY}`,
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              model: 'gpt-5.2',
+              messages: [
+                { role: 'system', content: systemPrompt },
+                { role: 'user', content: isFirstLevel 
+                  ? `Primary Query: "${pq}"\n\nContent Context: ${ctx?.slice(0, 500) || 'Not provided'}\n\nRespond with JSON.`
+                  : `Expand: "${parentNode.query}"\n\nRespond with JSON.`
+                }
+              ],
+              response_format: { type: 'json_object' },
+              temperature: 0.8,
+            }),
+          });
+          
+          if (!response.ok) {
+            const errorText = await response.text();
+            console.error(`Level ${currentDepth + 1} fanout error:`, errorText);
+            return;
           }
+          
+          const data = await response.json();
+          const result = JSON.parse(data.choices[0]?.message?.content || '{"queries":[]}');
+          const queries = result.queries || [];
+          
+          console.log(`Generated ${queries.length} queries at level ${currentDepth + 1} for "${parentNode.query.slice(0, 50)}..."`);
+          
+          // Build child nodes
+          const childPromises: Promise<void>[] = [];
+          
+          for (const q of queries.slice(0, numToGenerate)) {
+            const childNode: any = {
+              id: generateId(),
+              query: q.query || q,
+              intentType: q.intentType || intentTypes[(currentDepth + 1) % intentTypes.length],
+              level: currentDepth + 1,
+              parentId: parentNode.id,
+              children: [],
+              isSelected: true,
+            };
+            
+            parentNode.children.push(childNode);
+            
+            // Recursively build children for this node
+            if (currentDepth + 1 < targetDepth) {
+              childPromises.push(buildChildren(childNode, currentDepth + 1));
+            }
+          }
+          
+          // Process children in parallel for speed, but limit concurrency
+          if (childPromises.length > 0) {
+            // Process in batches of 3 to avoid rate limits
+            for (let i = 0; i < childPromises.length; i += 3) {
+              await Promise.all(childPromises.slice(i, i + 3));
+            }
+          }
+          
+        } catch (err) {
+          console.warn(`Level ${currentDepth + 1} generation failed for "${parentNode.query}":`, err);
         }
-        
-        root.children.push(l1Node);
       }
+      
+      // Start recursive generation from root
+      await buildChildren(root, 0);
       
       // Count nodes
       const countNodes = (node: any): number => {
@@ -773,10 +776,10 @@ OUTPUT JSON:
         root,
         totalNodes: countNodes(root),
         selectedNodes: countNodes(root),
-        maxDepth,
+        maxDepth: targetDepth,
       };
       
-      console.log(`Fanout tree generated with ${tree.totalNodes} total nodes`);
+      console.log(`Recursive fanout tree generated with ${tree.totalNodes} total nodes across ${targetDepth} levels`);
       
       return new Response(JSON.stringify({ tree }), {
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },

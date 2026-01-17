@@ -165,6 +165,10 @@ export function KeywordInput({
     setGeneratedQueries(prev => prev.map(q => ({ ...q, selected: false })));
   };
   
+  // Tree depth and branch controls
+  const [treeDepth, setTreeDepth] = useState(3);
+  const [treeBranch, setTreeBranch] = useState(3);
+  
   // Tree fanout generation
   const handleGenerateFanoutTree = async () => {
     if (!primaryQuery.trim()) {
@@ -176,14 +180,14 @@ export function KeywordInput({
     setFanoutTree(null);
 
     try {
-      // Generate tree
+      // Generate tree with user-selected depth and branch
       const { data: treeData, error: treeError } = await supabase.functions.invoke('optimize-content', {
         body: {
           type: 'generate_fanout_tree',
           primaryQuery: primaryQuery.trim(),
           contentContext: content?.slice(0, 1000) || '',
-          maxDepth: 2,
-          branchFactor: 4,
+          maxDepth: treeDepth,
+          branchFactor: treeBranch,
         },
       });
 
@@ -408,11 +412,11 @@ export function KeywordInput({
             <Tabs value={fanoutMode} onValueChange={(v) => setFanoutMode(v as 'simple' | 'tree')}>
               <TabsList className="h-8">
                 <TabsTrigger value="simple" className="text-xs px-3 h-6">
-                  Simple (5-7 queries)
+                  Simple (5-7)
                 </TabsTrigger>
                 <TabsTrigger value="tree" className="text-xs px-3 h-6 gap-1">
                   <Network className="h-3 w-3" />
-                  Full Tree (20-30 queries)
+                  Recursive Tree
                 </TabsTrigger>
               </TabsList>
             </Tabs>
@@ -432,9 +436,43 @@ export function KeywordInput({
             </Button>
           </div>
           
+          {/* Tree mode controls */}
+          {fanoutMode === 'tree' && (
+            <div className="flex items-center gap-4 p-3 bg-muted/30 rounded-lg">
+              <div className="flex items-center gap-2">
+                <label className="text-xs text-muted-foreground">Depth:</label>
+                <select 
+                  value={treeDepth} 
+                  onChange={(e) => setTreeDepth(Number(e.target.value))}
+                  className="h-7 px-2 text-xs bg-background border rounded"
+                >
+                  <option value={2}>2 levels</option>
+                  <option value={3}>3 levels</option>
+                  <option value={4}>4 levels</option>
+                </select>
+              </div>
+              <div className="flex items-center gap-2">
+                <label className="text-xs text-muted-foreground">Branch:</label>
+                <select 
+                  value={treeBranch} 
+                  onChange={(e) => setTreeBranch(Number(e.target.value))}
+                  className="h-7 px-2 text-xs bg-background border rounded"
+                >
+                  <option value={2}>2 per node</option>
+                  <option value={3}>3 per node</option>
+                  <option value={4}>4 per node</option>
+                  <option value={5}>5 per node</option>
+                </select>
+              </div>
+              <span className="text-xs text-muted-foreground ml-auto">
+                ~{1 + 6 + 6 * (treeDepth > 1 ? treeBranch : 0) + (treeDepth > 2 ? 6 * treeBranch * treeBranch : 0)} queries
+              </span>
+            </div>
+          )}
+          
           <p className="text-xs text-muted-foreground">
             {fanoutMode === 'tree' 
-              ? 'Generate a 2-level tree of intent-diverse queries for comprehensive coverage'
+              ? `Generate a ${treeDepth}-level recursive tree of intent-diverse queries`
               : 'Generate 5-7 semantic variations to test retrieval'
             }
           </p>

@@ -24,7 +24,7 @@ import { ValidatedChunk, ChangeExplanation, FullScoreMetrics } from '@/lib/optim
 import { QueryAssignmentMap, formatScorePercent, getScoreColorClass } from '@/lib/query-assignment';
 import { getPassageScoreTier, getPassageScoreTierColorClass } from '@/lib/similarity';
 import { toast } from 'sonner';
-import { cn } from '@/lib/utils';
+import { cn, stripLeadingHeadingCascade } from '@/lib/utils';
 
 interface ChunkReviewPanelProps {
   chunks: ValidatedChunk[];
@@ -351,7 +351,7 @@ export function ChunkReviewPanel({
                     </CardHeader>
                     <CardContent className="p-3 flex-1 overflow-auto">
                       <ScrollArea className="h-full">
-                        <p className="text-sm whitespace-pre-wrap">{selectedChunk.original_text}</p>
+                        <p className="text-sm whitespace-pre-wrap">{stripLeadingHeadingCascade(selectedChunk.original_text)}</p>
                       </ScrollArea>
                     </CardContent>
                   </Card>
