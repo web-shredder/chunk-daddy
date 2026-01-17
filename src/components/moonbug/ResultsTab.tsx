@@ -344,7 +344,7 @@ export function ResultsTab({
 
   // Detail panel content (shared between desktop and mobile sheet)
   const DetailContent = () => (
-    <div className="p-4 md:p-6 space-y-6 md:space-y-8">
+    <div className="p-4 md:p-6 space-y-6 md:space-y-8 min-w-0 overflow-hidden">
       <DismissableTip tipId="results-score">
         Passage Score predicts how likely this chunk is to be cited in AI search results. 75+ is competitive, 90+ is excellent.
       </DismissableTip>
@@ -370,13 +370,13 @@ export function ResultsTab({
 
       {/* Heading Context */}
       {selectedChunk?.headingPath.length > 0 && (
-        <div>
+        <div className="min-w-0 overflow-hidden">
           <h4 className="text-label mb-3">Heading Path</h4>
-          <div className="flex items-center gap-2 text-sm text-muted-foreground flex-wrap">
+          <div className="flex items-center gap-2 text-sm text-muted-foreground flex-wrap overflow-x-auto">
             {selectedChunk.headingPath.map((h, i) => (
-              <span key={i} className="flex items-center gap-2">
-                {i > 0 && <ChevronRight className="h-3 w-3" />}
-                <span>{h}</span>
+              <span key={i} className="flex items-center gap-2 shrink-0">
+                {i > 0 && <ChevronRight className="h-3 w-3 shrink-0" />}
+                <span className="truncate max-w-[200px]" title={h}>{h}</span>
               </span>
             ))}
           </div>

@@ -106,40 +106,42 @@ export function QueryAssignmentPreview({
           {assignmentMap.chunkAssignments
             .filter(ca => ca.assignedQuery)
             .map((chunkAssignment) => (
-              <Card key={chunkAssignment.chunkIndex} className="bg-surface border-border">
+              <Card key={chunkAssignment.chunkIndex} className="bg-surface border-border overflow-hidden">
                 <CardHeader className="py-3 px-4">
-                  <div className="flex items-center justify-between">
-                    <CardTitle className="text-sm font-medium">
+                  <div className="flex items-center justify-between gap-2">
+                    <CardTitle className="text-sm font-medium truncate min-w-0 flex-1">
                       Chunk {chunkAssignment.chunkIndex + 1}
                       {chunkAssignment.chunkHeading && (
-                        <span className="text-muted-foreground ml-2">
+                        <span className="text-muted-foreground ml-2 truncate" title={chunkAssignment.chunkHeading}>
                           — {chunkAssignment.chunkHeading}
                         </span>
                       )}
                     </CardTitle>
-                    <Badge variant="outline" className="text-xs">
+                    <Badge variant="outline" className="text-xs shrink-0">
                       1 query
                     </Badge>
                   </div>
                 </CardHeader>
                 <CardContent className="py-2 px-4 space-y-2">
-                  <p className="text-xs text-muted-foreground line-clamp-2 mb-3">
+                  <p className="text-xs text-muted-foreground line-clamp-2 mb-3 break-words">
                     {chunkAssignment.chunkPreview}
                   </p>
                   
                   {chunkAssignment.assignedQuery && (
                     <div className="space-y-2">
                       <div 
-                        className="flex items-center justify-between py-2 px-3 bg-muted/30 rounded-md"
+                        className="flex items-center justify-between gap-2 py-2 px-3 bg-muted/30 rounded-md"
                       >
                         <div className="flex items-center gap-2 flex-1 min-w-0">
                           {chunkAssignment.assignedQuery.isPrimary && (
                             <Star className="h-3.5 w-3.5 text-yellow-500 shrink-0" />
                           )}
-                          <span className="text-sm truncate">{chunkAssignment.assignedQuery.query}</span>
+                          <span className="text-sm truncate query-text" title={chunkAssignment.assignedQuery.query}>
+                            {chunkAssignment.assignedQuery.query}
+                          </span>
                         </div>
                         
-                        <div className="flex items-center gap-3">
+                        <div className="flex items-center gap-2 shrink-0">
                           <span className={`text-sm font-mono ${getScoreColorClass(chunkAssignment.assignedQuery.score)}`}>
                             {formatScorePercent(chunkAssignment.assignedQuery.score)}
                           </span>
@@ -211,10 +213,10 @@ export function QueryAssignmentPreview({
                     return (
                       <div 
                         key={query}
-                        className="p-3 bg-background border border-amber-200 dark:border-amber-700 rounded-lg space-y-2"
+                        className="p-3 bg-background border border-amber-200 dark:border-amber-700 rounded-lg space-y-2 overflow-hidden"
                       >
                         <div className="flex items-center justify-between gap-2 flex-wrap">
-                          <span className="text-sm font-medium truncate flex-1">"{query}"</span>
+                          <span className="text-sm font-medium truncate flex-1 min-w-0" title={query}>"{query}"</span>
                           <div className="flex items-center gap-2">
                             {onGenerateBrief && !existingBrief && (
                               <Button
