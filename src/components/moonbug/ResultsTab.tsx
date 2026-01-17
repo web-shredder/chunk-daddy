@@ -26,12 +26,14 @@ import {
 } from '@/lib/query-assignment';
 import type { LayoutAwareChunk, DocumentElement } from '@/lib/layout-chunker';
 import type { ChunkScore, AnalysisResult } from '@/hooks/useAnalysis';
+import type { FanoutIntentType } from '@/lib/optimizer-types';
 
 interface ResultsTabProps {
   hasResults: boolean;
   chunks: LayoutAwareChunk[];
   chunkScores: ChunkScore[];
   keywords: string[];
+  queryIntentTypes?: Record<string, FanoutIntentType>;
   contentModified: boolean;
   onReanalyze: () => void;
   onGoToAnalyze: () => void;
@@ -210,6 +212,7 @@ export function ResultsTab({
   chunks,
   chunkScores,
   keywords,
+  queryIntentTypes = {},
   contentModified,
   onReanalyze,
   onGoToAnalyze,
@@ -249,10 +252,10 @@ export function ResultsTab({
   // Initial computed query assignments
   const initialQueryAssignments = useMemo(() => {
     if (chunkScoreData.length === 0 || keywords.length === 0) {
-      return { assignments: [], chunkAssignments: [], unassignedQueries: [] } as QueryAssignmentMap;
+      return { assignments: [], chunkAssignments: [], unassignedQueries: [], intentTypes: {} } as QueryAssignmentMap;
     }
-    return computeQueryAssignments(chunkScoreData, keywords, 0.3);
-  }, [chunkScoreData, keywords]);
+    return computeQueryAssignments(chunkScoreData, keywords, 0.3, queryIntentTypes);
+  }, [chunkScoreData, keywords, queryIntentTypes]);
 
   // State for query assignments (allows manual reassignment)
   const [queryAssignments, setQueryAssignments] = useState<QueryAssignmentMap>(initialQueryAssignments);
@@ -746,6 +749,7 @@ export function ResultsTab({
                         chunks={chunks}
                         chunkScores={chunkScores}
                         primaryQuery={keywords[0]}
+                        intentTypes={queryAssignments.intentTypes}
                         trigger={
                           <button className="text-[10px] text-yellow-600 hover:text-yellow-700 underline underline-offset-2">
                             Export Gaps

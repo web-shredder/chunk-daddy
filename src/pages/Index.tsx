@@ -7,7 +7,7 @@ import { useAnalysis, type AnalysisResult } from "@/hooks/useAnalysis";
 import { useAuth } from "@/hooks/useAuth";
 import { useProjects } from "@/hooks/useProjects";
 import { parseMarkdown, createLayoutAwareChunks, type LayoutAwareChunk, type ChunkerOptions, type DocumentElement } from "@/lib/layout-chunker";
-import type { FullOptimizationResult, ArchitectureAnalysis } from "@/lib/optimizer-types";
+import type { FullOptimizationResult, ArchitectureAnalysis, FanoutIntentType } from "@/lib/optimizer-types";
 import {
   Dialog,
   DialogContent,
@@ -42,6 +42,8 @@ const Index = () => {
   const [activeTab, setActiveTab] = useState<TabId>('content');
   const [content, setContent] = useState("");
   const [keywords, setKeywords] = useState<string[]>([]);
+  // Track intent types for queries (from fanout)
+  const [queryIntentTypes, setQueryIntentTypes] = useState<Record<string, FanoutIntentType>>({});
   const [chunkerOptions, setChunkerOptions] = useState<ChunkerOptions>({
     maxChunkSize: 512,
     chunkOverlap: 50,
@@ -173,8 +175,12 @@ const Index = () => {
     markUnsaved(newContent, keywords, chunkerOptions, result, optimizedContent, optimizationResult, architectureAnalysis);
   }, [keywords, chunkerOptions, result, optimizedContent, optimizationResult, architectureAnalysis, markUnsaved]);
 
-  const handleKeywordsChange = useCallback((newKeywords: string[]) => {
+  const handleKeywordsChange = useCallback((newKeywords: string[], intentTypes?: Record<string, FanoutIntentType>) => {
     setKeywords(newKeywords);
+    // Merge new intent types with existing ones
+    if (intentTypes) {
+      setQueryIntentTypes(prev => ({ ...prev, ...intentTypes }));
+    }
     markUnsaved(content, newKeywords, chunkerOptions, result, optimizedContent, optimizationResult, architectureAnalysis);
   }, [content, chunkerOptions, result, optimizedContent, optimizationResult, architectureAnalysis, markUnsaved]);
 
@@ -199,6 +205,7 @@ const Index = () => {
     newProject();
     setContent("");
     setKeywords([]);
+    setQueryIntentTypes({});
     setChunkerOptions({ maxChunkSize: 512, chunkOverlap: 50, cascadeHeadings: true });
     reset();
     setParsedElements([]);
@@ -367,6 +374,7 @@ const Index = () => {
           chunks={layoutChunks}
           chunkScores={result?.chunkScores || []}
           keywords={keywords}
+          queryIntentTypes={queryIntentTypes}
           contentModified={contentModified}
           onReanalyze={handleAnalyze}
           onGoToAnalyze={() => setActiveTab('analyze')}

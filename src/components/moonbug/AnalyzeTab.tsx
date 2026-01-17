@@ -59,7 +59,7 @@ const intentLabels: Record<FanoutIntentType, string> = {
 interface AnalyzeTabProps {
   hasChunks: boolean;
   keywords: string[];
-  onKeywordsChange: (keywords: string[]) => void;
+  onKeywordsChange: (keywords: string[], intentTypes?: Record<string, FanoutIntentType>) => void;
   chunkerOptions: ChunkerOptions;
   onOptionsChange: (options: ChunkerOptions) => void;
   onAnalyze: () => void;
@@ -220,12 +220,21 @@ export function AnalyzeTab({
   const applyTreeQueries = () => {
     if (!fanoutTree) return;
     
-    const selectedQueries = flattenTree(fanoutTree.root)
+    const selectedNodes = flattenTree(fanoutTree.root)
       .filter(node => node.isSelected)
-      .map(node => node.query)
-      .filter(q => !keywords.includes(q));
+      .filter(node => !keywords.includes(node.query));
     
-    onKeywordsChange([...keywords, ...selectedQueries]);
+    const selectedQueries = selectedNodes.map(node => node.query);
+    
+    // Build intent types map from selected nodes
+    const newIntentTypes: Record<string, FanoutIntentType> = {};
+    selectedNodes.forEach(node => {
+      if (node.intentType) {
+        newIntentTypes[node.query] = node.intentType;
+      }
+    });
+    
+    onKeywordsChange([...keywords, ...selectedQueries], newIntentTypes);
     setFanoutTree(null);
     setNewQuery('');
     toast.success(`Added ${selectedQueries.length} queries`);
@@ -240,12 +249,21 @@ export function AnalyzeTab({
   };
 
   const applyExpandedQueries = () => {
-    const selected = expandedQueries
+    const selectedExpanded = expandedQueries
       .filter(q => q.selected)
-      .map(q => q.keyword)
-      .filter(k => !keywords.includes(k));
+      .filter(q => !keywords.includes(q.keyword));
     
-    onKeywordsChange([...keywords, ...selected]);
+    const selected = selectedExpanded.map(q => q.keyword);
+    
+    // Build intent types map from selected expanded queries
+    const newIntentTypes: Record<string, FanoutIntentType> = {};
+    selectedExpanded.forEach(q => {
+      if (q.intentType) {
+        newIntentTypes[q.keyword] = q.intentType;
+      }
+    });
+    
+    onKeywordsChange([...keywords, ...selected], newIntentTypes);
     setExpandedQueries([]);
     setNewQuery('');
     toast.success(`Added ${selected.length} queries`);
