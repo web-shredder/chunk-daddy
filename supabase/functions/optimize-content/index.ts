@@ -571,7 +571,7 @@ ${contentContext ? `Content Context:\n${contentContext.slice(0, 500)}\n\n` : ''}
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          model: 'gpt-4o',
+          model: 'gpt-5.2',
           messages: [
             { role: 'system', content: fanoutSystemPrompt },
             { role: 'user', content: fanoutUserPrompt }
@@ -659,7 +659,7 @@ OUTPUT JSON:
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          model: 'gpt-4o',
+          model: 'gpt-5.2',
           messages: [
             { role: 'system', content: level1SystemPrompt },
             { role: 'user', content: `Primary Query: "${pq}"\n\nContent Context: ${ctx?.slice(0, 500) || 'Not provided'}` }
@@ -725,7 +725,7 @@ OUTPUT JSON:
                 'Content-Type': 'application/json',
               },
               body: JSON.stringify({
-                model: 'gpt-4o',
+                model: 'gpt-5.2',
                 messages: [
                   { role: 'system', content: level2SystemPrompt },
                   { role: 'user', content: `Expand: "${l1.query}"` }
