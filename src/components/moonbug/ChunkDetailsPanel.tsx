@@ -71,10 +71,10 @@ function ScoreOverviewSection({
   const tier = getScoreTier(score);
   
   return (
-    <div className="p-4 space-y-4">
+    <div className="p-4 space-y-4 min-w-0">
       {/* Large score display */}
       <div className="flex items-start gap-4">
-        <div className="text-center">
+        <div className="text-center shrink-0">
           <div className={cn("text-5xl font-bold font-mono", tier.textColor)}>
             {score}
           </div>
@@ -84,7 +84,7 @@ function ScoreOverviewSection({
         </div>
         
         {/* Visual score indicator */}
-        <div className="flex-1 space-y-1.5">
+        <div className="flex-1 space-y-1.5 min-w-0">
           <div className="h-3 bg-muted rounded-full overflow-hidden">
             <div 
               className={cn("h-full transition-all duration-500", tier.color)}
@@ -104,12 +104,12 @@ function ScoreOverviewSection({
       
       {/* Assigned query */}
       {assignedQuery && (
-        <div className="flex items-center gap-2 text-sm">
-          <span className="text-muted-foreground">Optimized for:</span>
-          <Badge variant="secondary" className="bg-accent/10 text-accent">
-            <Zap className="h-3 w-3 mr-1" />
-            {stripMarkdown(assignedQuery)}
-          </Badge>
+        <div className="flex flex-col gap-1 text-sm min-w-0">
+          <span className="text-muted-foreground text-xs">Optimized for:</span>
+          <div className="flex items-start gap-1.5 min-w-0">
+            <Zap className="h-3.5 w-3.5 text-accent shrink-0 mt-0.5" />
+            <span className="text-accent break-words">{stripMarkdown(assignedQuery)}</span>
+          </div>
         </div>
       )}
     </div>
@@ -160,10 +160,10 @@ function TechnicalScoreSection({
       
       {/* Expanded Content */}
       {isExpanded && (
-        <div className="px-4 pb-4 space-y-4">
+        <div className="px-4 pb-4 space-y-4 min-w-0">
           {/* Query indicator */}
           {assignedQuery && (
-            <div className="text-[10px] text-muted-foreground">
+            <div className="text-[10px] text-muted-foreground break-words">
               Scores for: <span className="text-primary font-medium">{assignedQuery}</span>
             </div>
           )}
@@ -377,7 +377,7 @@ function DiagnosticSection({
   }, [chunk, passageScore, assignedQuery]);
   
   return (
-    <div className="p-4 border-t border-border space-y-3">
+    <div className="p-4 border-t border-border space-y-3 min-w-0">
       <h4 className="text-sm font-medium flex items-center gap-2">
         <Target className="h-4 w-4 text-muted-foreground" />
         Diagnostic Analysis
@@ -388,12 +388,12 @@ function DiagnosticSection({
           {diagnosis.map((issue, i) => (
             <div 
               key={i}
-              className="p-3 rounded-lg border border-border flex items-start gap-3 text-sm"
+              className="p-3 rounded-lg border border-border flex items-start gap-3 text-sm min-w-0"
             >
               {issue.type === 'error' && <AlertCircle className="h-4 w-4 text-red-500 shrink-0 mt-0.5" />}
               {issue.type === 'warning' && <AlertTriangle className="h-4 w-4 text-orange-500 shrink-0 mt-0.5" />}
               {issue.type === 'info' && <Info className="h-4 w-4 text-blue-500 shrink-0 mt-0.5" />}
-              <span className="text-foreground">{issue.message}</span>
+              <span className="text-foreground break-words">{issue.message}</span>
             </div>
           ))}
         </div>
@@ -422,7 +422,7 @@ function ActionsSection({
   };
   
   return (
-    <div className="p-4 border-t border-border space-y-3">
+    <div className="p-4 border-t border-border space-y-3 min-w-0">
       <h4 className="text-sm font-medium flex items-center gap-2">
         <Zap className="h-4 w-4 text-muted-foreground" />
         Quick Actions
@@ -508,7 +508,7 @@ function RelatedQueriesSection({
   const hasBetterMatch = querySimilarities.some(q => !q.isCurrent && q.scoreDelta > 10);
   
   return (
-    <div className="p-4 border-t border-border space-y-3 overflow-hidden">
+    <div className="p-4 border-t border-border space-y-3 min-w-0">
       <div>
         <h4 className="text-sm font-medium flex items-center gap-2">
           <Target className="h-4 w-4 text-muted-foreground" />
@@ -604,18 +604,18 @@ function ContentSection({ chunk }: { chunk: LayoutAwareChunk }) {
   const isLong = bodyText.length > 500;
   
   return (
-    <div className="p-4 border-t border-border space-y-3">
+    <div className="p-4 border-t border-border space-y-3 min-w-0">
       <h4 className="text-sm font-medium flex items-center gap-2">
         <FileText className="h-4 w-4 text-muted-foreground" />
         Full Content
       </h4>
       
-      <pre className={cn(
-        "bg-muted/30 border border-border rounded-lg p-3 font-mono text-xs leading-relaxed text-foreground whitespace-pre-wrap break-words overflow-auto",
-        !isExpanded && isLong && "max-h-[200px]"
+      <div className={cn(
+        "bg-muted/30 border border-border rounded-lg p-3 text-xs leading-relaxed text-foreground whitespace-pre-wrap break-words overflow-x-hidden",
+        !isExpanded && isLong && "max-h-[200px] overflow-y-auto"
       )}>
         {bodyText}
-      </pre>
+      </div>
       
       {isLong && (
         <Button 
@@ -674,7 +674,7 @@ export function ChunkDetailsPanel({
   }, [chunkScore, assignedQuery]);
   
   return (
-    <div className="flex flex-col h-full">
+    <div className="flex flex-col h-full w-full min-w-0 overflow-hidden">
       {/* Header */}
       <div className="p-4 border-b border-border bg-surface shrink-0">
         <div className="space-y-1">
