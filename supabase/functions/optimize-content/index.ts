@@ -12,7 +12,7 @@ interface QueryChunkAssignment {
 }
 
 interface OptimizationRequest {
-  type: 'analyze' | 'optimize' | 'optimize_focused' | 'explain' | 'suggest_keywords' | 'summarize' | 'generateContentBrief';
+  type: 'analyze' | 'optimize' | 'optimize_focused' | 'explain' | 'suggest_keywords' | 'summarize' | 'generateContentBrief' | 'generate_fanout';
   content: string;
   queries?: string[];
   currentScores?: Record<string, number>;
@@ -21,6 +21,8 @@ interface OptimizationRequest {
   chunkScoreData?: any; // For summarize: original and optimized scores per chunk per query
   queryAssignments?: QueryChunkAssignment[]; // For optimize_focused: which queries to optimize each chunk for
   chunks?: string[]; // For optimize_focused: the pre-split chunks
+  primaryQuery?: string; // For generate_fanout
+  contentContext?: string; // For generate_fanout
 }
 
 // Dynamic token limits by operation type - prevents truncation while optimizing costs
@@ -32,6 +34,7 @@ const maxTokensByType: Record<OptimizationRequest['type'], number> = {
   'suggest_keywords': 2048,  // Just a keyword list
   'summarize': 8192,         // RAG explanations, suggestions, trade-offs
   'generateContentBrief': 4096, // Content brief generation
+  'generate_fanout': 4096,   // Query fan-out generation
 };
 
 // Passage Score context to educate AI about the scoring system
@@ -74,7 +77,7 @@ serve(async (req) => {
       );
     }
 
-    const { type, content, queries, currentScores, analysis, validatedChanges, chunkScoreData, queryAssignments, chunks }: OptimizationRequest = await req.json();
+    const { type, content, queries, currentScores, analysis, validatedChanges, chunkScoreData, queryAssignments, chunks, primaryQuery, contentContext }: OptimizationRequest = await req.json();
 
     console.log(`Processing ${type} request for content length: ${content?.length}, queries: ${queries?.length}`);
 
@@ -484,6 +487,88 @@ Suggest keywords that:
         }
       }];
       toolChoice = { type: "function", function: { name: "suggest_keywords" } };
+
+    } else if (type === 'generate_fanout') {
+      // Intent-based query decomposition for AI search fan-out
+      const fanoutQuery = primaryQuery || content;
+      
+      const fanoutSystemPrompt = `You are an expert in how AI search systems decompose user queries.
+
+Modern AI search (Google AI Overviews, ChatGPT, Perplexity) uses "query fan-out" - expanding one query into multiple sub-queries to retrieve comprehensive information from different angles.
+
+Given a primary query, generate the sub-queries an AI search system would create internally.
+
+GENERATE THESE QUERY TYPES:
+
+1. FOLLOW-UP QUERY
+   What question comes next after the basic answer?
+   "What is RPO?" → "How long does RPO implementation take?"
+
+2. SPECIFICATION QUERY
+   A narrower, more specific version
+   "What is RPO?" → "RPO for technology companies"
+
+3. COMPARISON QUERY
+   X vs Y format against alternatives
+   "What is RPO?" → "RPO vs internal recruiting team cost comparison"
+
+4. PROCESS/HOW-TO QUERY
+   How to implement, use, or do something
+   "What is RPO?" → "How to transition to an RPO model"
+
+5. DECISION QUERY
+   For someone ready to act
+   "What is RPO?" → "Questions to ask RPO providers before signing"
+
+6. PROBLEM QUERY
+   What problem or pain point does this solve?
+   "What is RPO?" → "How to reduce hiring costs and time-to-fill"
+
+RULES:
+- Generate 5-7 queries total
+- Each query must be a DIFFERENT intent type
+- Use natural language (how real people search)
+- Mix of short phrases AND full questions
+- Do NOT generate synonym swaps or keyword variations
+- Do NOT include the primary query again`;
+
+      const fanoutUserPrompt = `Primary Query: "${fanoutQuery || content}"
+
+${contentContext ? `Content Context:\n${contentContext.slice(0, 500)}\n\n` : ''}Generate 5-7 fan-out queries representing DIFFERENT search intents, not keyword variations.`;
+
+      const OPENAI_API_KEY = Deno.env.get('OPENAI_API_KEY');
+      
+      const fanoutResponse = await fetch('https://api.openai.com/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${OPENAI_API_KEY}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          model: 'gpt-4o',
+          messages: [
+            { role: 'system', content: fanoutSystemPrompt },
+            { role: 'user', content: fanoutUserPrompt }
+          ],
+          response_format: { type: 'json_object' },
+          temperature: 0.8,
+        }),
+      });
+
+      if (!fanoutResponse.ok) {
+        const errorText = await fanoutResponse.text();
+        console.error('OpenAI fan-out error:', errorText);
+        throw new Error('Failed to generate fan-out queries');
+      }
+
+      const fanoutData = await fanoutResponse.json();
+      const fanoutResult = JSON.parse(fanoutData.choices[0]?.message?.content || '{"queries":[]}');
+      
+      return new Response(JSON.stringify({
+        suggestions: fanoutResult.queries || [],
+      }), {
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
     
     } else if (type === 'summarize') {
       systemPrompt = `You are a RAG retrieval optimization expert. Analyze Passage Score changes and provide insights.

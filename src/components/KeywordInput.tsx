@@ -9,7 +9,7 @@ import { toast } from 'sonner';
 
 interface GeneratedQuery {
   query: string;
-  type: 'primary' | 'synonym' | 'subtopic' | 'related' | 'alternative' | 'custom';
+  type: 'primary' | 'followup' | 'specification' | 'comparison' | 'howto' | 'decision' | 'problem' | 'custom';
   selected: boolean;
 }
 
@@ -44,25 +44,9 @@ export function KeywordInput({
     try {
       const { data, error } = await supabase.functions.invoke('optimize-content', {
         body: {
-          type: 'suggest_keywords',
-          content: `You are generating semantic query fan-outs for RAG retrieval testing.
-
-Primary query: "${primaryQuery.trim()}"
-
-Generate 6-8 related search queries that a user might use to find the same content. These should represent different ways of searching for the same topic.
-
-Include:
-1. Direct synonyms or rephrased versions
-2. More specific sub-topics within this area
-3. Related concepts that would appear in the same content
-4. Common alternative terminology (technical vs casual, abbreviations, etc.)
-5. Question-form queries if applicable
-
-IMPORTANT: 
-- Queries can be any natural length (short phrases, questions, or descriptive searches)
-- Focus on semantic diversity, not word count
-- Each query should represent a distinct search intent or angle
-- Think about how real users would actually search`,
+          type: 'generate_fanout',
+          primaryQuery: primaryQuery.trim(),
+          contentContext: content?.slice(0, 1000) || '',
         },
       });
 
@@ -70,30 +54,35 @@ IMPORTANT:
         throw new Error(data?.error || error?.message || 'Failed to generate queries');
       }
 
-      const suggestions = data.result.keywords || [];
-      const typeMap: Record<number, GeneratedQuery['type']> = {
-        0: 'synonym',
-        1: 'synonym', 
-        2: 'subtopic',
-        3: 'subtopic',
-        4: 'related',
-        5: 'related',
-        6: 'alternative',
-        7: 'alternative',
+      const suggestions = data.suggestions || [];
+      
+      // Map intent types to our internal types
+      const intentTypeMap: Record<string, GeneratedQuery['type']> = {
+        'follow-up': 'followup',
+        'followup': 'followup',
+        'specification': 'specification',
+        'comparison': 'comparison',
+        'process': 'howto',
+        'how-to': 'howto',
+        'howto': 'howto',
+        'decision': 'decision',
+        'problem': 'problem',
       };
 
       const generated: GeneratedQuery[] = [
         { query: primaryQuery.trim(), type: 'primary', selected: true },
-        ...suggestions.map((s: { keyword: string }, idx: number) => ({
-          query: s.keyword,
-          type: typeMap[idx] || 'related',
-          selected: true,
-        })),
+        ...suggestions
+          .filter((s: any) => s.query && s.query.toLowerCase() !== primaryQuery.trim().toLowerCase())
+          .map((s: any) => ({
+            query: typeof s === 'string' ? s : s.query,
+            type: intentTypeMap[s.intentType?.toLowerCase()] || 'followup',
+            selected: true,
+          })),
       ];
 
       setGeneratedQueries(generated);
       setHasGenerated(true);
-      toast.success(`Generated ${generated.length - 1} related queries`);
+      toast.success(`Generated ${generated.length - 1} intent-based queries`);
     } catch (err) {
       console.error('Query fanout error:', err);
       toast.error(err instanceof Error ? err.message : 'Failed to generate queries');
@@ -171,10 +160,12 @@ IMPORTANT:
 
   const typeLabels: Record<GeneratedQuery['type'], { label: string; color: string }> = {
     primary: { label: 'Primary', color: 'bg-primary text-primary-foreground' },
-    synonym: { label: 'Synonym', color: 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300' },
-    subtopic: { label: 'Subtopic', color: 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300' },
-    related: { label: 'Related', color: 'bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-300' },
-    alternative: { label: 'Alt Term', color: 'bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-300' },
+    followup: { label: 'Follow-up', color: 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300' },
+    specification: { label: 'Specific', color: 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300' },
+    comparison: { label: 'Compare', color: 'bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-300' },
+    howto: { label: 'How-to', color: 'bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-300' },
+    decision: { label: 'Decision', color: 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300' },
+    problem: { label: 'Problem', color: 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300' },
     custom: { label: 'Custom', color: 'bg-muted text-muted-foreground' },
   };
 
