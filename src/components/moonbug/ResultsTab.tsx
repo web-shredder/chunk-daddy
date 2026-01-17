@@ -1,5 +1,5 @@
 import { useState, useMemo } from 'react';
-import { BarChart3, ChevronLeft, ChevronRight, ChevronDown, ChevronUp, Copy, Download, Search, AlertCircle, FileJson, FileText, TreeDeciduous, List, Table, Target, Star, X, ArrowRight } from 'lucide-react';
+import { BarChart3, ChevronLeft, ChevronRight, ChevronDown, ChevronUp, Copy, Download, Search, AlertCircle, FileJson, FileText, TreeDeciduous, List, Table, Target, Star, X, ArrowRight, CheckCircle2, ArrowUpDown } from 'lucide-react';
 import { DismissableTip } from '@/components/DismissableTip';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
@@ -8,6 +8,7 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { toast } from 'sonner';
 import { cn, stripLeadingHeadingCascade } from '@/lib/utils';
 import { formatScore, getScoreColorClass, getImprovementColorClass, formatImprovement, calculatePassageScore, getPassageScoreTier, getPassageScoreTierColorClass } from '@/lib/similarity';
@@ -209,7 +210,24 @@ export function ResultsTab({
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [viewMode, setViewMode] = useState<'list' | 'structure' | 'assignments'>('list');
   const [mobileDetailOpen, setMobileDetailOpen] = useState(false);
+  const [scoreFilter, setScoreFilter] = useState<'all' | 'problems' | 'good'>('problems');
+  const [sortBy, setSortBy] = useState<'score' | 'index' | 'heading'>('score');
   const isMobile = useIsMobile();
+
+  // Compute passage scores for all chunks
+  const chunksWithScores = useMemo(() => {
+    return chunks.map((chunk, idx) => {
+      const score = chunkScores[idx];
+      const avgCosine = score ? score.keywordScores.reduce((sum, ks) => sum + ks.scores.cosine, 0) / score.keywordScores.length : 0;
+      const avgChamfer = score ? score.keywordScores.reduce((sum, ks) => sum + ks.scores.chamfer, 0) / score.keywordScores.length : 0;
+      const passageScore = calculatePassageScore(avgCosine, avgChamfer);
+      return { chunk, score, passageScore, originalIndex: idx };
+    });
+  }, [chunks, chunkScores]);
+
+  // Filter counts
+  const problemCount = chunksWithScores.filter(c => c.passageScore < 60).length;
+  const goodCount = chunksWithScores.filter(c => c.passageScore >= 75).length;
 
   // Compute query assignments for the assignments view
   const queryAssignments = useMemo(() => {
@@ -251,9 +269,47 @@ export function ResultsTab({
 
   const selectedChunk = chunks[selectedIndex];
   const selectedScore = chunkScores[selectedIndex];
-  const filteredChunks = searchQuery 
-    ? chunks.filter(c => c.text.toLowerCase().includes(searchQuery.toLowerCase()) || c.headingPath.some(h => h.toLowerCase().includes(searchQuery.toLowerCase()))) 
-    : chunks;
+  
+  // Apply filtering and sorting
+  const filteredAndSortedChunks = useMemo(() => {
+    let filtered = chunksWithScores;
+    
+    // Apply search filter
+    if (searchQuery) {
+      filtered = filtered.filter(c => 
+        c.chunk.text.toLowerCase().includes(searchQuery.toLowerCase()) || 
+        c.chunk.headingPath.some(h => h.toLowerCase().includes(searchQuery.toLowerCase()))
+      );
+    }
+    
+    // Apply score filter
+    if (scoreFilter === 'problems') {
+      filtered = filtered.filter(c => c.passageScore < 60);
+    } else if (scoreFilter === 'good') {
+      filtered = filtered.filter(c => c.passageScore >= 75);
+    }
+    
+    // Apply sorting
+    const sorted = [...filtered];
+    switch (sortBy) {
+      case 'score':
+        sorted.sort((a, b) => a.passageScore - b.passageScore); // Worst first
+        break;
+      case 'heading':
+        sorted.sort((a, b) => {
+          const headingA = a.chunk.headingPath[a.chunk.headingPath.length - 1] || '';
+          const headingB = b.chunk.headingPath[b.chunk.headingPath.length - 1] || '';
+          return headingA.localeCompare(headingB);
+        });
+        break;
+      case 'index':
+      default:
+        sorted.sort((a, b) => a.originalIndex - b.originalIndex);
+        break;
+    }
+    
+    return sorted;
+  }, [chunksWithScores, searchQuery, scoreFilter, sortBy]);
 
   const handleCopy = () => {
     if (selectedChunk) {
@@ -511,6 +567,7 @@ export function ResultsTab({
         )}>
           {/* Header with view toggle */}
           <div className="p-2 md:p-3 border-b border-border space-y-2">
+            {/* View mode toggles */}
             <div className="flex items-center gap-1">
               <button 
                 onClick={() => setViewMode('list')} 
@@ -534,15 +591,82 @@ export function ResultsTab({
                 <span className="hidden sm:inline">Queries</span>
               </button>
             </div>
-            
-            <div className="relative">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-              <Input 
-                value={searchQuery} 
-                onChange={e => setSearchQuery(e.target.value)} 
-                placeholder="Search chunks..." 
-                className="pl-9 moonbug-input h-8 text-xs md:text-[13px]" 
-              />
+
+            {/* Score filters (only show in list view) */}
+            {viewMode === 'list' && (
+              <div className="flex items-center gap-1">
+                <button 
+                  onClick={() => setScoreFilter('problems')} 
+                  className={cn(
+                    "flex items-center gap-1 py-1 px-2 rounded-md text-xs transition-colors",
+                    scoreFilter === 'problems' 
+                      ? "bg-destructive/20 text-destructive" 
+                      : "text-muted-foreground hover:text-foreground hover:bg-muted/50"
+                  )}
+                >
+                  <AlertCircle className="h-3 w-3" />
+                  <span>Problems</span>
+                  <Badge variant="secondary" className="text-[9px] px-1 py-0 h-4 ml-0.5">
+                    {problemCount}
+                  </Badge>
+                </button>
+                <button 
+                  onClick={() => setScoreFilter('good')} 
+                  className={cn(
+                    "flex items-center gap-1 py-1 px-2 rounded-md text-xs transition-colors",
+                    scoreFilter === 'good' 
+                      ? "bg-green-500/20 text-green-600" 
+                      : "text-muted-foreground hover:text-foreground hover:bg-muted/50"
+                  )}
+                >
+                  <CheckCircle2 className="h-3 w-3" />
+                  <span>Good</span>
+                  <Badge variant="secondary" className="text-[9px] px-1 py-0 h-4 ml-0.5">
+                    {goodCount}
+                  </Badge>
+                </button>
+                <button 
+                  onClick={() => setScoreFilter('all')} 
+                  className={cn(
+                    "flex items-center gap-1 py-1 px-2 rounded-md text-xs transition-colors",
+                    scoreFilter === 'all' 
+                      ? "bg-accent/20 text-accent" 
+                      : "text-muted-foreground hover:text-foreground hover:bg-muted/50"
+                  )}
+                >
+                  <span>All</span>
+                  <Badge variant="secondary" className="text-[9px] px-1 py-0 h-4 ml-0.5">
+                    {chunks.length}
+                  </Badge>
+                </button>
+              </div>
+            )}
+
+            {/* Search and Sort */}
+            <div className="flex items-center gap-2">
+              <div className="relative flex-1">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                <Input 
+                  value={searchQuery} 
+                  onChange={e => setSearchQuery(e.target.value)} 
+                  placeholder="Search chunks..." 
+                  className="pl-9 moonbug-input h-8 text-xs md:text-[13px]" 
+                />
+              </div>
+              
+              {viewMode === 'list' && (
+                <Select value={sortBy} onValueChange={(v) => setSortBy(v as 'score' | 'index' | 'heading')}>
+                  <SelectTrigger className="w-[130px] h-8 text-xs">
+                    <ArrowUpDown className="h-3 w-3 mr-1" />
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="score">Score (worst)</SelectItem>
+                    <SelectItem value="index">Doc order</SelectItem>
+                    <SelectItem value="heading">Heading A-Z</SelectItem>
+                  </SelectContent>
+                </Select>
+              )}
             </div>
           </div>
 
@@ -550,28 +674,44 @@ export function ResultsTab({
           <ScrollArea className="flex-1">
             {viewMode === 'list' ? (
               <div className="p-2 space-y-0.5">
-                {filteredChunks.map((chunk, idx) => {
-                  const score = chunkScores[chunks.indexOf(chunk)];
-                  const avgCosine = score ? score.keywordScores.reduce((sum, ks) => sum + ks.scores.cosine, 0) / score.keywordScores.length : 0;
-                  const avgChamfer = score ? score.keywordScores.reduce((sum, ks) => sum + ks.scores.chamfer, 0) / score.keywordScores.length : 0;
-                  const passageScore = calculatePassageScore(avgCosine, avgChamfer);
-                  const tier = getPassageScoreTier(passageScore);
-                  const isActive = chunks.indexOf(chunk) === selectedIndex;
-                  return (
+                {filteredAndSortedChunks.length === 0 ? (
+                  <div className="text-center py-12">
+                    <CheckCircle2 className="mx-auto h-12 w-12 text-green-500 mb-4" />
+                    <h3 className="text-lg font-semibold mb-2">
+                      {scoreFilter === 'problems' ? 'No problem chunks found!' : 'No chunks in this category'}
+                    </h3>
+                    <p className="text-muted-foreground mb-4 text-sm">
+                      {scoreFilter === 'problems' 
+                        ? 'All chunks are scoring well (60+)' 
+                        : 'Try a different filter to see more chunks'}
+                    </p>
                     <button 
-                      key={chunk.id} 
-                      onClick={() => handleSelectChunk(chunks.indexOf(chunk))} 
-                      className={cn('tree-item w-full text-left', isActive && 'active')}
+                      onClick={() => setScoreFilter('all')}
+                      className="btn-secondary text-xs"
                     >
-                      <span className="truncate flex-1 text-xs md:text-sm">
-                        {chunk.headingPath.length > 0 ? chunk.headingPath[chunk.headingPath.length - 1] : `Chunk ${chunk.id.replace('chunk-', '')}`}
-                      </span>
-                      <Badge variant="secondary" className={cn('text-[10px] px-1.5 py-0 h-4 shrink-0 font-mono', getPassageScoreTierColorClass(tier))}>
-                        {passageScore}
-                      </Badge>
+                      Show All Chunks
                     </button>
-                  );
-                })}
+                  </div>
+                ) : (
+                  filteredAndSortedChunks.map(({ chunk, passageScore, originalIndex }) => {
+                    const tier = getPassageScoreTier(passageScore);
+                    const isActive = originalIndex === selectedIndex;
+                    return (
+                      <button 
+                        key={chunk.id} 
+                        onClick={() => handleSelectChunk(originalIndex)} 
+                        className={cn('tree-item w-full text-left', isActive && 'active')}
+                      >
+                        <span className="truncate flex-1 text-xs md:text-sm">
+                          {chunk.headingPath.length > 0 ? chunk.headingPath[chunk.headingPath.length - 1] : `Chunk ${chunk.id.replace('chunk-', '')}`}
+                        </span>
+                        <Badge variant="secondary" className={cn('text-[10px] px-1.5 py-0 h-4 shrink-0 font-mono', getPassageScoreTierColorClass(tier))}>
+                          {passageScore}
+                        </Badge>
+                      </button>
+                    );
+                  })
+                )}
               </div>
             ) : viewMode === 'structure' ? (
               <div className="p-2 space-y-0.5">
