@@ -9,3 +9,5 @@ export { ReportTab } from './ReportTab';
 export { ScoreItem, ScoreGrid } from './ScoreItem';
 export { PassageScoreHero, MiniPassageScore, DaddyScoreHero, MiniDaddyScore } from './PassageScoreHero';
 export { ExportGapsDialog } from './ExportGapsDialog';
+export { FanoutListView } from './FanoutListView';
+export { ExportFanoutDialog } from './ExportFanoutDialog';
