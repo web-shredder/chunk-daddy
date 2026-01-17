@@ -535,10 +535,10 @@ function RelatedQueriesSection({
             )}
           >
             {/* Query text - full wrap, no truncation */}
-            <div className="flex items-start gap-2 mb-2">
+            <div className="flex items-start gap-2 mb-2 min-w-0">
               {isCurrent && <Star className="h-3.5 w-3.5 text-primary shrink-0 mt-0.5" />}
               {isReassigning === query && <Loader2 className="h-3.5 w-3.5 animate-spin shrink-0 mt-0.5" />}
-              <span className="text-foreground break-words">{stripMarkdown(query)}</span>
+              <span className="text-foreground break-words min-w-0 flex-1">{stripMarkdown(query)}</span>
             </div>
             
             {/* Score row - stacked below */}
