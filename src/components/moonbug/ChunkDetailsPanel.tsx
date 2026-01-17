@@ -508,7 +508,7 @@ function RelatedQueriesSection({
   const hasBetterMatch = querySimilarities.some(q => !q.isCurrent && q.scoreDelta > 10);
   
   return (
-    <div className="p-4 border-t border-border space-y-3">
+    <div className="p-4 border-t border-border space-y-3 overflow-hidden">
       <div>
         <h4 className="text-sm font-medium flex items-center gap-2">
           <Target className="h-4 w-4 text-muted-foreground" />
@@ -519,14 +519,14 @@ function RelatedQueriesSection({
         </p>
       </div>
       
-      <div className="space-y-2">
+      <div className="space-y-2 min-w-0">
         {querySimilarities.map(({ query, score, cosine, chamfer, scoreDelta, isCurrent }) => (
           <button
             key={query}
             onClick={() => !isCurrent && handleReassign(query)}
             disabled={isCurrent || isReassigning === query || !onReassignQuery}
             className={cn(
-              "w-full p-3 rounded-lg text-sm transition-all text-left",
+              "w-full p-3 rounded-lg text-sm transition-all text-left overflow-hidden",
               isCurrent 
                 ? "bg-primary/10 border-2 border-primary cursor-default" 
                 : "border border-border hover:border-primary/50 hover:bg-muted/50 cursor-pointer",
@@ -534,11 +534,11 @@ function RelatedQueriesSection({
               !onReassignQuery && !isCurrent && "cursor-not-allowed opacity-60"
             )}
           >
-            <div className="flex items-center justify-between gap-2">
-              <div className="flex items-center gap-2 min-w-0">
+            <div className="flex items-center justify-between gap-2 min-w-0">
+              <div className="flex items-center gap-2 min-w-0 flex-1 overflow-hidden">
                 {isCurrent && <Star className="h-3.5 w-3.5 text-primary shrink-0" />}
                 {isReassigning === query && <Loader2 className="h-3.5 w-3.5 animate-spin shrink-0" />}
-                <span className="truncate text-foreground">{stripMarkdown(query)}</span>
+                <span className="truncate text-foreground block">{stripMarkdown(query)}</span>
               </div>
               
               <div className="flex items-center gap-2 shrink-0">
@@ -707,7 +707,8 @@ export function ChunkDetailsPanel({
       </div>
       
       {/* Scrollable Content */}
-      <ScrollArea className="flex-1">
+      <ScrollArea className="flex-1 min-w-0">
+        <div className="min-w-0 overflow-hidden">
         {/* Section 1: Score Overview */}
         <ScoreOverviewSection 
           score={passageScore} 
@@ -747,6 +748,7 @@ export function ChunkDetailsPanel({
         
         {/* Section 6: Full Content */}
         <ContentSection chunk={chunk} />
+        </div>
       </ScrollArea>
     </div>
   );
