@@ -1,5 +1,5 @@
 import { useState, useMemo } from 'react';
-import { BarChart3, ChevronLeft, ChevronRight, ChevronDown, ChevronUp, Copy, Download, Search, AlertCircle, FileJson, FileText, TreeDeciduous, List, Table, Target, Star, X } from 'lucide-react';
+import { BarChart3, ChevronLeft, ChevronRight, ChevronDown, ChevronUp, Copy, Download, Search, AlertCircle, FileJson, FileText, TreeDeciduous, List, Table, Target, Star, X, ArrowRight } from 'lucide-react';
 import { DismissableTip } from '@/components/DismissableTip';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
@@ -36,6 +36,7 @@ interface ResultsTabProps {
   onApplyOptimization: (optimizedContent: string) => void;
   elements: DocumentElement[];
   result?: AnalysisResult;
+  onNavigateToOptimize?: () => void;
 }
 
 // Tree node for document structure
@@ -200,7 +201,8 @@ export function ResultsTab({
   content,
   onApplyOptimization,
   elements,
-  result
+  result,
+  onNavigateToOptimize
 }: ResultsTabProps) {
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedIndex, setSelectedIndex] = useState(0);
@@ -648,6 +650,19 @@ export function ResultsTab({
               </div>
             )}
           </ScrollArea>
+
+          {/* Proceed to Optimize CTA */}
+          {onNavigateToOptimize && hasResults && (
+            <div className="p-3 border-t border-border bg-surface">
+              <button 
+                onClick={onNavigateToOptimize}
+                className="btn-primary w-full sm:w-auto flex items-center justify-center gap-2"
+              >
+                Proceed to Optimize
+                <ArrowRight className="h-4 w-4" />
+              </button>
+            </div>
+          )}
         </div>
 
         {/* Right: Detail Panel (Desktop only) */}
