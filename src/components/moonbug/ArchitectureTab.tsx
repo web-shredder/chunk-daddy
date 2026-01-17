@@ -1,4 +1,3 @@
-import { useState } from 'react';
 import { Layers, Loader2, Download } from 'lucide-react';
 import { toast } from 'sonner';
 import { ScrollArea } from '@/components/ui/scroll-area';
@@ -31,6 +30,11 @@ interface ArchitectureTabProps {
   keywords: string[];
   onGoToResults: () => void;
   onNavigateToChunk?: (chunkIndex: number) => void;
+  // Lifted state props
+  analysis: ArchitectureAnalysis | null;
+  onAnalysisUpdate: (analysis: ArchitectureAnalysis | null) => void;
+  isAnalyzing: boolean;
+  onAnalyzingChange: (loading: boolean) => void;
 }
 
 export function ArchitectureTab({
@@ -40,9 +44,11 @@ export function ArchitectureTab({
   keywords,
   onGoToResults,
   onNavigateToChunk,
+  analysis: architectureAnalysis,
+  onAnalysisUpdate: setArchitectureAnalysis,
+  isAnalyzing,
+  onAnalyzingChange: setIsAnalyzing,
 }: ArchitectureTabProps) {
-  const [architectureAnalysis, setArchitectureAnalysis] = useState<ArchitectureAnalysis | null>(null);
-  const [isAnalyzing, setIsAnalyzing] = useState(false);
 
   const handleAnalyzeArchitecture = async () => {
     setIsAnalyzing(true);

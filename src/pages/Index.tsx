@@ -7,7 +7,7 @@ import { useAnalysis, type AnalysisResult } from "@/hooks/useAnalysis";
 import { useAuth } from "@/hooks/useAuth";
 import { useProjects } from "@/hooks/useProjects";
 import { parseMarkdown, createLayoutAwareChunks, type LayoutAwareChunk, type ChunkerOptions, type DocumentElement } from "@/lib/layout-chunker";
-import type { FullOptimizationResult } from "@/lib/optimizer-types";
+import type { FullOptimizationResult, ArchitectureAnalysis } from "@/lib/optimizer-types";
 import {
   Dialog,
   DialogContent,
@@ -53,6 +53,8 @@ const Index = () => {
   const [contentHashAtAnalysis, setContentHashAtAnalysis] = useState<string>("");
   const [optimizedContent, setOptimizedContent] = useState<string>("");
   const [optimizationResult, setOptimizationResult] = useState<FullOptimizationResult | null>(null);
+  const [architectureAnalysis, setArchitectureAnalysis] = useState<ArchitectureAnalysis | null>(null);
+  const [architectureLoading, setArchitectureLoading] = useState(false);
   
   // Local project name
   const [localProjectName, setLocalProjectName] = useState<string>('Untitled Project');
@@ -118,6 +120,13 @@ const Index = () => {
           setOptimizationResult(null);
         }
         
+        // Restore architecture analysis if it exists
+        if (currentProject.architecture_analysis) {
+          setArchitectureAnalysis(currentProject.architecture_analysis);
+        } else {
+          setArchitectureAnalysis(null);
+        }
+        
         // Restore analysis results if they exist
         if (currentProject.results) {
           // Re-parse and re-chunk to get layout chunks
@@ -135,6 +144,7 @@ const Index = () => {
           reset();
           setParsedElements([]);
           setLayoutChunks([]);
+          setArchitectureAnalysis(null);
         }
       }
       // When saving (same project ID), don't touch the local state
@@ -144,18 +154,18 @@ const Index = () => {
 
   const handleContentChange = useCallback((newContent: string) => {
     setContent(newContent);
-    markUnsaved(newContent, keywords, chunkerOptions, result, optimizedContent, optimizationResult);
-  }, [keywords, chunkerOptions, result, optimizedContent, optimizationResult, markUnsaved]);
+    markUnsaved(newContent, keywords, chunkerOptions, result, optimizedContent, optimizationResult, architectureAnalysis);
+  }, [keywords, chunkerOptions, result, optimizedContent, optimizationResult, architectureAnalysis, markUnsaved]);
 
   const handleKeywordsChange = useCallback((newKeywords: string[]) => {
     setKeywords(newKeywords);
-    markUnsaved(content, newKeywords, chunkerOptions, result, optimizedContent, optimizationResult);
-  }, [content, chunkerOptions, result, optimizedContent, optimizationResult, markUnsaved]);
+    markUnsaved(content, newKeywords, chunkerOptions, result, optimizedContent, optimizationResult, architectureAnalysis);
+  }, [content, chunkerOptions, result, optimizedContent, optimizationResult, architectureAnalysis, markUnsaved]);
 
   const handleSettingsChange = useCallback((newOptions: ChunkerOptions) => {
     setChunkerOptions(newOptions);
-    markUnsaved(content, keywords, newOptions, result, optimizedContent, optimizationResult);
-  }, [content, keywords, result, optimizedContent, optimizationResult, markUnsaved]);
+    markUnsaved(content, keywords, newOptions, result, optimizedContent, optimizationResult, architectureAnalysis);
+  }, [content, keywords, result, optimizedContent, optimizationResult, architectureAnalysis, markUnsaved]);
 
   const handleLoadProject = async (projectId: string) => {
     await loadProject(projectId);
@@ -179,6 +189,7 @@ const Index = () => {
     setLayoutChunks([]);
     setOptimizedContent("");
     setOptimizationResult(null);
+    setArchitectureAnalysis(null);
     setLocalProjectName(pendingProjectName.trim());
     setActiveTab('content');
     setShowNewProjectDialog(false);
@@ -193,7 +204,8 @@ const Index = () => {
       result,
       currentProject?.id,
       optimizedContent,
-      optimizationResult
+      optimizationResult,
+      architectureAnalysis
     );
   };
 
@@ -241,19 +253,19 @@ const Index = () => {
   const handleApplyOptimization = useCallback((newOptimizedContent: string) => {
     setOptimizedContent(newOptimizedContent);
     setContent(newOptimizedContent);
-    markUnsaved(newOptimizedContent, keywords, chunkerOptions, result, newOptimizedContent, optimizationResult);
+    markUnsaved(newOptimizedContent, keywords, chunkerOptions, result, newOptimizedContent, optimizationResult, architectureAnalysis);
     // Switch to content tab to show the new content
     setActiveTab('content');
-  }, [keywords, chunkerOptions, result, optimizationResult, markUnsaved]);
+  }, [keywords, chunkerOptions, result, optimizationResult, architectureAnalysis, markUnsaved]);
   
   const handleOptimizationComplete = useCallback((optResult: FullOptimizationResult, finalContent: string) => {
     setOptimizationResult(optResult);
     setOptimizedContent(finalContent);
     // Save to project with optimization data
-    markUnsaved(content, keywords, chunkerOptions, result, finalContent, optResult);
+    markUnsaved(content, keywords, chunkerOptions, result, finalContent, optResult, architectureAnalysis);
     // Navigate to report tab
     setActiveTab('report');
-  }, [content, keywords, chunkerOptions, result, markUnsaved]);
+  }, [content, keywords, chunkerOptions, result, architectureAnalysis, markUnsaved]);
 
   const wordCount = content.trim() ? content.trim().split(/\s+/).length : 0;
   const tokenCount = Math.ceil(wordCount * 1.3);
@@ -353,8 +365,16 @@ const Index = () => {
           onGoToResults={() => setActiveTab('results')}
           onNavigateToChunk={(idx) => {
             setActiveTab('results');
-            // The ResultsTab will handle selecting the chunk
           }}
+          analysis={architectureAnalysis}
+          onAnalysisUpdate={(newAnalysis) => {
+            setArchitectureAnalysis(newAnalysis);
+            if (newAnalysis) {
+              markUnsaved(content, keywords, chunkerOptions, result, optimizedContent, optimizationResult, newAnalysis);
+            }
+          }}
+          isAnalyzing={architectureLoading}
+          onAnalyzingChange={setArchitectureLoading}
         />
       )}
 
