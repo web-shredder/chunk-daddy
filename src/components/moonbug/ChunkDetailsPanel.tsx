@@ -519,14 +519,14 @@ function RelatedQueriesSection({
         </p>
       </div>
       
-      <div className="space-y-2 min-w-0">
+      <div className="space-y-2">
         {querySimilarities.map(({ query, score, cosine, chamfer, scoreDelta, isCurrent }) => (
           <button
             key={query}
             onClick={() => !isCurrent && handleReassign(query)}
             disabled={isCurrent || isReassigning === query || !onReassignQuery}
             className={cn(
-              "w-full p-3 rounded-lg text-sm transition-all text-left overflow-hidden",
+              "w-full p-3 rounded-lg text-sm transition-all text-left",
               isCurrent 
                 ? "bg-primary/10 border-2 border-primary cursor-default" 
                 : "border border-border hover:border-primary/50 hover:bg-muted/50 cursor-pointer",
@@ -534,39 +534,15 @@ function RelatedQueriesSection({
               !onReassignQuery && !isCurrent && "cursor-not-allowed opacity-60"
             )}
           >
-            <div className="flex items-center justify-between gap-2 min-w-0">
-              <div className="flex items-center gap-2 min-w-0 flex-1 overflow-hidden">
-                {isCurrent && <Star className="h-3.5 w-3.5 text-primary shrink-0" />}
-                {isReassigning === query && <Loader2 className="h-3.5 w-3.5 animate-spin shrink-0" />}
-                <span className="truncate text-foreground block">{stripMarkdown(query)}</span>
-              </div>
-              
-              <div className="flex items-center gap-2 shrink-0">
-                {/* Score badge */}
-                <span className={cn(
-                  "px-2 py-0.5 rounded text-xs font-mono font-medium",
-                  score >= 75 ? "bg-blue-500/10 text-blue-600" :
-                  score >= 60 ? "bg-yellow-500/10 text-yellow-600" :
-                  score >= 40 ? "bg-orange-500/10 text-orange-600" :
-                  "bg-red-500/10 text-red-600"
-                )}>
-                  {score}
-                </span>
-                
-                {/* Score delta indicator */}
-                {!isCurrent && scoreDelta !== 0 && (
-                  <span className={cn(
-                    "text-xs font-mono font-medium",
-                    scoreDelta > 0 ? "text-green-600" : "text-red-500"
-                  )}>
-                    {scoreDelta > 0 ? "+" : ""}{scoreDelta}
-                  </span>
-                )}
-              </div>
+            {/* Query text - full wrap, no truncation */}
+            <div className="flex items-start gap-2 mb-2">
+              {isCurrent && <Star className="h-3.5 w-3.5 text-primary shrink-0 mt-0.5" />}
+              {isReassigning === query && <Loader2 className="h-3.5 w-3.5 animate-spin shrink-0 mt-0.5" />}
+              <span className="text-foreground break-words">{stripMarkdown(query)}</span>
             </div>
             
-            {/* Score breakdown + status labels */}
-            <div className="flex items-center justify-between mt-1.5 text-[10px]">
+            {/* Score row - stacked below */}
+            <div className="flex items-center justify-between gap-2 text-[10px]">
               <div className="flex items-center gap-2">
                 {isCurrent && (
                   <span className="text-primary font-medium">Current</span>
@@ -577,12 +553,31 @@ function RelatedQueriesSection({
                     Better match
                   </span>
                 )}
+                {!isCurrent && scoreDelta !== 0 && (
+                  <span className={cn(
+                    "font-mono font-medium",
+                    scoreDelta > 0 ? "text-green-600" : "text-red-500"
+                  )}>
+                    {scoreDelta > 0 ? "+" : ""}{scoreDelta}
+                  </span>
+                )}
               </div>
               
-              {/* Cosine/Chamfer breakdown */}
-              <div className="flex items-center gap-2 font-mono text-muted-foreground">
-                <span>C: {cosine.toFixed(2)}</span>
-                <span>Ch: {chamfer.toFixed(2)}</span>
+              <div className="flex items-center gap-2 shrink-0">
+                {/* Cosine/Chamfer breakdown */}
+                <span className="font-mono text-muted-foreground">C: {cosine.toFixed(2)}</span>
+                <span className="font-mono text-muted-foreground">Ch: {chamfer.toFixed(2)}</span>
+                
+                {/* Score badge */}
+                <span className={cn(
+                  "px-2 py-0.5 rounded font-mono font-medium",
+                  score >= 75 ? "bg-blue-500/10 text-blue-600" :
+                  score >= 60 ? "bg-yellow-500/10 text-yellow-600" :
+                  score >= 40 ? "bg-orange-500/10 text-orange-600" :
+                  "bg-red-500/10 text-red-600"
+                )}>
+                  {score}
+                </span>
               </div>
             </div>
           </button>
