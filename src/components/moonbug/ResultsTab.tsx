@@ -13,6 +13,7 @@ import { cn, stripLeadingHeadingCascade } from '@/lib/utils';
 import { formatScore, getScoreColorClass, calculatePassageScore, getPassageScoreTier, getPassageScoreTierColorClass } from '@/lib/similarity';
 import { ChunkCard } from './ChunkCard';
 import { ChunkDetailsPanel } from './ChunkDetailsPanel';
+import { ExportGapsDialog } from './ExportGapsDialog';
 import { downloadCSV } from '@/lib/csv-export';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { 
@@ -736,8 +737,21 @@ export function ResultsTab({
 
                 {queryAssignments.unassignedQueries.length > 0 && (
                   <div className="p-3 rounded-lg border border-yellow-500/30 bg-yellow-500/10">
-                    <div className="text-xs text-yellow-600 font-medium mb-2">
-                      Content Gaps ({queryAssignments.unassignedQueries.length})
+                    <div className="flex items-center justify-between mb-2">
+                      <div className="text-xs text-yellow-600 font-medium">
+                        Content Gaps ({queryAssignments.unassignedQueries.length})
+                      </div>
+                      <ExportGapsDialog
+                        unassignedQueries={queryAssignments.unassignedQueries}
+                        chunks={chunks}
+                        chunkScores={chunkScores}
+                        primaryQuery={keywords[0]}
+                        trigger={
+                          <button className="text-[10px] text-yellow-600 hover:text-yellow-700 underline underline-offset-2">
+                            Export Gaps
+                          </button>
+                        }
+                      />
                     </div>
                     <div className="space-y-1">
                       {queryAssignments.unassignedQueries.map((q) => (
