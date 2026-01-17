@@ -367,16 +367,11 @@ function DiagnosticSection({
           {diagnosis.map((issue, i) => (
             <div 
               key={i}
-              className={cn(
-                "p-3 rounded-lg flex items-start gap-3 text-sm",
-                issue.type === 'error' && "bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-900",
-                issue.type === 'warning' && "bg-orange-50 dark:bg-orange-950/30 border border-orange-200 dark:border-orange-900",
-                issue.type === 'info' && "bg-blue-50 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-900"
-              )}
+              className="p-3 rounded-lg border border-border flex items-start gap-3 text-sm"
             >
-              {issue.type === 'error' && <AlertCircle className="h-4 w-4 text-red-600 shrink-0 mt-0.5" />}
-              {issue.type === 'warning' && <AlertTriangle className="h-4 w-4 text-orange-600 shrink-0 mt-0.5" />}
-              {issue.type === 'info' && <Info className="h-4 w-4 text-blue-600 shrink-0 mt-0.5" />}
+              {issue.type === 'error' && <AlertCircle className="h-4 w-4 text-red-500 shrink-0 mt-0.5" />}
+              {issue.type === 'warning' && <AlertTriangle className="h-4 w-4 text-orange-500 shrink-0 mt-0.5" />}
+              {issue.type === 'info' && <Info className="h-4 w-4 text-blue-500 shrink-0 mt-0.5" />}
               <span className="text-foreground">{issue.message}</span>
             </div>
           ))}
