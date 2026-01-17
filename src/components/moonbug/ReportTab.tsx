@@ -19,15 +19,20 @@ import {
   RotateCcw,
   AlertTriangle,
   Lightbulb,
+  MoreHorizontal,
+  Download,
 } from 'lucide-react';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger, DropdownMenuSeparator } from '@/components/ui/dropdown-menu';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
 import { MarkdownEditor } from '@/components/MarkdownEditor';
 import { formatScore, getScoreColorClass, formatImprovement, getImprovementColorClass, calculatePassageScore } from '@/lib/similarity';
+import { generateFormalTextReport } from '@/lib/report-generator';
+import { useIsMobile } from '@/hooks/use-mobile';
 import type { FullOptimizationResult, ValidatedChunk, ChangeExplanation, FurtherOptimizationSuggestion, TradeOffConsideration } from '@/lib/optimizer-types';
 
 interface ReportTabProps {
@@ -40,6 +45,7 @@ interface ReportTabProps {
   onGoToOptimize: () => void;
   onReanalyze: () => void;
   onSaveProject?: () => void;
+  projectName?: string;
 }
 
 export function ReportTab({
@@ -52,12 +58,14 @@ export function ReportTab({
   onGoToOptimize,
   onReanalyze,
   onSaveProject,
+  projectName,
 }: ReportTabProps) {
   const [editableContent, setEditableContent] = useState(optimizedContent);
   const [expandedChunks, setExpandedChunks] = useState<Set<number>>(new Set([0]));
   const [showSuggestions, setShowSuggestions] = useState(true);
   const [showTradeOffs, setShowTradeOffs] = useState(true);
   const [showContent, setShowContent] = useState(false);
+  const isMobile = useIsMobile();
 
   // Sync editable content when optimizedContent changes
   useMemo(() => {
@@ -66,7 +74,7 @@ export function ReportTab({
 
   if (!hasOptimizationResult || !optimizationResult) {
     return (
-      <div className="flex-1 flex items-center justify-center">
+      <div className="flex-1 flex items-center justify-center p-4">
         <div className="empty-state">
           <FileBarChart size={48} strokeWidth={1} />
           <h3>No optimization report yet</h3>
@@ -198,6 +206,29 @@ export function ReportTab({
     });
   }, [optimizationResult]);
 
+  const handleExportFormalReport = () => {
+    const report = generateFormalTextReport({
+      projectName,
+      originalContent,
+      optimizedContent: editableContent,
+      optimizationResult,
+      keywords,
+      stats,
+      chunkImprovements,
+    });
+
+    const blob = new Blob([report], { type: 'text/plain' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `optimization-report-${new Date().toISOString().slice(0, 10)}.txt`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+    toast.success('Exported formal report as TXT');
+  };
+
   const ImprovementIcon = ({ value }: { value: number }) => {
     if (value > 1) return <TrendingUp className="h-4 w-4 text-success" />;
     if (value < -1) return <TrendingDown className="h-4 w-4 text-destructive" />;
@@ -220,44 +251,104 @@ export function ReportTab({
   return (
     <div className="flex-1 flex flex-col overflow-hidden">
       {/* Header */}
-      <div className="h-14 px-6 border-b border-border flex items-center justify-between bg-surface shrink-0">
-        <div className="flex items-center gap-3">
-          <h3 className="text-sm font-medium text-foreground flex items-center gap-2">
+      <div className="min-h-12 md:h-14 px-4 md:px-6 py-2 md:py-0 border-b border-border flex flex-wrap items-center justify-between gap-2 bg-surface shrink-0">
+        <div className="flex items-center gap-2 md:gap-3">
+          <h3 className="text-xs md:text-sm font-medium text-foreground flex items-center gap-2">
             <FileBarChart className="h-4 w-4 text-accent" />
-            Optimization Report
+            <span className="hidden sm:inline">Optimization Report</span>
+            <span className="sm:hidden">Report</span>
           </h3>
-          <Badge variant="outline" className="text-xs">
-            {new Date(stats.timestamp).toLocaleDateString()} {new Date(stats.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+          <Badge variant="outline" className="text-[10px] hidden sm:inline-flex">
+            {new Date(stats.timestamp).toLocaleDateString()}
           </Badge>
         </div>
 
-        <div className="flex items-center gap-2">
-          <Button variant="ghost" size="sm" onClick={handleCopy}>
-            <Copy className="h-4 w-4 mr-1.5" />
-            Copy
-          </Button>
-          <Button variant="ghost" size="sm" onClick={handleExportMarkdown}>
-            <FileText className="h-4 w-4 mr-1.5" />
-            Export MD
-          </Button>
-          <Button variant="ghost" size="sm" onClick={handleExportReport}>
-            <FileJson className="h-4 w-4 mr-1.5" />
-            Full Report
-          </Button>
-          <Button variant="outline" size="sm" onClick={onReanalyze}>
-            <Play className="h-4 w-4 mr-1.5" />
-            Re-analyze
-          </Button>
-          {onSaveProject && (
-            <Button size="sm" onClick={onSaveProject}>
-              Save Project
+        {/* Desktop: Full buttons */}
+        {!isMobile && (
+          <div className="flex items-center gap-2">
+            <Button variant="ghost" size="sm" onClick={handleCopy}>
+              <Copy className="h-4 w-4 mr-1.5" />
+              Copy
             </Button>
-          )}
-        </div>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="ghost" size="sm">
+                  <Download className="h-4 w-4 mr-1.5" />
+                  Export
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="bg-elevated">
+                <DropdownMenuItem onClick={handleExportMarkdown}>
+                  <FileText className="h-4 w-4 mr-2" />
+                  Markdown (.md)
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={handleExportReport}>
+                  <FileJson className="h-4 w-4 mr-2" />
+                  Full Report (.json)
+                </DropdownMenuItem>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem onClick={handleExportFormalReport}>
+                  <FileText className="h-4 w-4 mr-2" />
+                  Formal Report (.txt)
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+            <Button variant="outline" size="sm" onClick={onReanalyze}>
+              <Play className="h-4 w-4 mr-1.5" />
+              Re-analyze
+            </Button>
+            {onSaveProject && (
+              <Button size="sm" onClick={onSaveProject}>
+                Save Project
+              </Button>
+            )}
+          </div>
+        )}
+
+        {/* Mobile: Condensed menu */}
+        {isMobile && (
+          <div className="flex items-center gap-2">
+            <Button variant="ghost" size="sm" onClick={handleCopy}>
+              <Copy className="h-4 w-4" />
+            </Button>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="ghost" size="sm">
+                  <MoreHorizontal className="h-4 w-4" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="bg-elevated">
+                <DropdownMenuItem onClick={handleExportMarkdown}>
+                  <FileText className="h-4 w-4 mr-2" />
+                  Export Markdown
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={handleExportReport}>
+                  <FileJson className="h-4 w-4 mr-2" />
+                  Export JSON
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={handleExportFormalReport}>
+                  <FileText className="h-4 w-4 mr-2" />
+                  Export Formal Report
+                </DropdownMenuItem>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem onClick={onReanalyze}>
+                  <Play className="h-4 w-4 mr-2" />
+                  Re-analyze
+                </DropdownMenuItem>
+                {onSaveProject && (
+                  <DropdownMenuItem onClick={onSaveProject}>
+                    <Check className="h-4 w-4 mr-2" />
+                    Save Project
+                  </DropdownMenuItem>
+                )}
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </div>
+        )}
       </div>
 
       <ScrollArea className="flex-1">
-        <div className="p-6 max-w-5xl mx-auto space-y-8">
+        <div className="p-4 md:p-6 max-w-5xl mx-auto space-y-6 md:space-y-8">
           {/* Journey Overview */}
           <section className="panel">
             <div className="panel-header">
@@ -266,30 +357,25 @@ export function ReportTab({
                 Optimization Journey
               </h4>
             </div>
-            <div className="flex items-center justify-between gap-4 flex-wrap">
-              <div className="flex items-center gap-3">
-                <div className="p-3 bg-muted/30 rounded-lg text-center min-w-[100px]">
-                  <div className="text-lg font-bold text-foreground">{stats.originalWordCount}</div>
-                  <div className="text-[10px] uppercase tracking-wider text-muted-foreground">Original Words</div>
+            <div className="flex flex-wrap items-center justify-center md:justify-between gap-3 md:gap-4">
+              <div className="flex flex-wrap items-center justify-center gap-2 md:gap-3">
+                <div className="p-2 md:p-3 bg-muted/30 rounded-lg text-center min-w-[70px] md:min-w-[100px]">
+                  <div className="text-base md:text-lg font-bold text-foreground">{stats.originalWordCount}</div>
+                  <div className="text-[8px] md:text-[10px] uppercase tracking-wider text-muted-foreground">Original</div>
                 </div>
-                <ArrowRight className="h-4 w-4 text-muted-foreground" />
-                <div className="p-3 bg-muted/30 rounded-lg text-center min-w-[100px]">
-                  <div className="text-lg font-bold text-foreground">{stats.chunksOptimized}</div>
-                  <div className="text-[10px] uppercase tracking-wider text-muted-foreground">Chunks</div>
+                <ArrowRight className="h-3 w-3 md:h-4 md:w-4 text-muted-foreground" />
+                <div className="p-2 md:p-3 bg-muted/30 rounded-lg text-center min-w-[70px] md:min-w-[100px]">
+                  <div className="text-base md:text-lg font-bold text-foreground">{stats.chunksOptimized}</div>
+                  <div className="text-[8px] md:text-[10px] uppercase tracking-wider text-muted-foreground">Chunks</div>
                 </div>
-                <ArrowRight className="h-4 w-4 text-muted-foreground" />
-                <div className="p-3 bg-muted/30 rounded-lg text-center min-w-[100px]">
-                  <div className="text-lg font-bold text-foreground">{stats.queriesTargeted}</div>
-                  <div className="text-[10px] uppercase tracking-wider text-muted-foreground">Queries</div>
-                </div>
-                <ArrowRight className="h-4 w-4 text-muted-foreground" />
-                <div className="p-3 bg-accent/10 border border-accent/30 rounded-lg text-center min-w-[100px]">
-                  <div className="text-lg font-bold text-accent">{stats.optimizedWordCount}</div>
-                  <div className="text-[10px] uppercase tracking-wider text-muted-foreground">Optimized Words</div>
+                <ArrowRight className="h-3 w-3 md:h-4 md:w-4 text-muted-foreground" />
+                <div className="p-2 md:p-3 bg-accent/10 border border-accent/30 rounded-lg text-center min-w-[70px] md:min-w-[100px]">
+                  <div className="text-base md:text-lg font-bold text-accent">{stats.optimizedWordCount}</div>
+                  <div className="text-[8px] md:text-[10px] uppercase tracking-wider text-muted-foreground">Optimized</div>
                 </div>
               </div>
-              <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                <Clock className="h-4 w-4" />
+              <div className="flex items-center gap-2 text-xs md:text-sm text-muted-foreground">
+                <Clock className="h-3 w-3 md:h-4 md:w-4" />
                 {stats.wordCountDiff > 0 ? '+' : ''}{stats.wordCountDiff} words
               </div>
             </div>
@@ -303,57 +389,57 @@ export function ReportTab({
                 Score Improvement
               </h4>
             </div>
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 md:gap-6">
               {/* Original */}
-              <div className="p-4 bg-muted/20 rounded-lg text-center">
+              <div className="p-3 md:p-4 bg-muted/20 rounded-lg text-center">
                 <div className="text-xs uppercase tracking-wider text-muted-foreground mb-2">Original</div>
                 <div className={cn(
-                  "text-3xl font-bold",
+                  "text-2xl md:text-3xl font-bold",
                   getScoreColorClass(stats.overallOriginalAvg / 100)
                 )}>
                   {stats.overallOriginalAvg.toFixed(1)}
                 </div>
-                <div className="text-xs text-muted-foreground mt-1">Avg Passage Score</div>
+                <div className="text-[10px] md:text-xs text-muted-foreground mt-1">Avg Passage Score</div>
               </div>
 
               {/* Arrow with improvement */}
               <div className="flex flex-col items-center justify-center">
                 <div className={cn(
-                  "text-2xl font-bold flex items-center gap-2",
+                  "text-xl md:text-2xl font-bold flex items-center gap-2",
                   getImprovementColorClass(stats.overallPercentChange)
                 )}>
                   <ImprovementIcon value={stats.overallPercentChange} />
                   {formatImprovement(stats.overallPercentChange)}
                 </div>
-                <div className="text-xs text-muted-foreground mt-1">Improvement</div>
+                <div className="text-[10px] md:text-xs text-muted-foreground mt-1">Improvement</div>
               </div>
 
               {/* Optimized */}
-              <div className="p-4 bg-accent/10 border border-accent/30 rounded-lg text-center">
+              <div className="p-3 md:p-4 bg-accent/10 border border-accent/30 rounded-lg text-center">
                 <div className="text-xs uppercase tracking-wider text-muted-foreground mb-2">Optimized</div>
                 <div className={cn(
-                  "text-3xl font-bold",
+                  "text-2xl md:text-3xl font-bold",
                   getScoreColorClass(stats.overallOptimizedAvg / 100)
                 )}>
                   {stats.overallOptimizedAvg.toFixed(1)}
                 </div>
-                <div className="text-xs text-muted-foreground mt-1">Avg Passage Score</div>
+                <div className="text-[10px] md:text-xs text-muted-foreground mt-1">Avg Passage Score</div>
               </div>
             </div>
 
             {/* Quick stats row */}
-            <div className="grid grid-cols-3 gap-4 mt-6 pt-6 border-t border-border">
+            <div className="grid grid-cols-3 gap-3 md:gap-4 mt-4 md:mt-6 pt-4 md:pt-6 border-t border-border">
               <div className="text-center">
-                <div className="text-2xl font-bold text-foreground">{stats.chunksOptimized}</div>
-                <div className="text-xs text-muted-foreground">Chunks Optimized</div>
+                <div className="text-xl md:text-2xl font-bold text-foreground">{stats.chunksOptimized}</div>
+                <div className="text-[10px] md:text-xs text-muted-foreground">Chunks</div>
               </div>
               <div className="text-center">
-                <div className="text-2xl font-bold text-foreground">{stats.totalChanges}</div>
-                <div className="text-xs text-muted-foreground">Changes Applied</div>
+                <div className="text-xl md:text-2xl font-bold text-foreground">{stats.totalChanges}</div>
+                <div className="text-[10px] md:text-xs text-muted-foreground">Changes</div>
               </div>
               <div className="text-center">
-                <div className="text-2xl font-bold text-foreground">{optimizationResult.explanations.length}</div>
-                <div className="text-xs text-muted-foreground">Explanations</div>
+                <div className="text-xl md:text-2xl font-bold text-foreground">{optimizationResult.explanations.length}</div>
+                <div className="text-[10px] md:text-xs text-muted-foreground">Explanations</div>
               </div>
             </div>
           </section>
@@ -374,69 +460,69 @@ export function ReportTab({
                   onOpenChange={() => toggleChunk(idx)}
                 >
                   <CollapsibleTrigger className="w-full">
-                    <div className="flex items-center justify-between p-3 bg-muted/20 hover:bg-muted/30 rounded-lg transition-colors">
-                      <div className="flex items-center gap-3">
+                    <div className="flex flex-wrap items-center justify-between gap-2 p-2 md:p-3 bg-muted/20 hover:bg-muted/30 rounded-lg transition-colors">
+                      <div className="flex items-center gap-2 md:gap-3">
                         {expandedChunks.has(idx) ? (
                           <ChevronDown className="h-4 w-4 text-muted-foreground" />
                         ) : (
                           <ChevronRight className="h-4 w-4 text-muted-foreground" />
                         )}
-                        <Badge variant="outline">Chunk {item.chunk.chunk_number}</Badge>
+                        <Badge variant="outline" className="text-[10px]">Chunk {item.chunk.chunk_number}</Badge>
                         {item.chunk.heading && (
-                          <span className="text-sm text-muted-foreground truncate max-w-[200px]">
+                          <span className="text-xs md:text-sm text-muted-foreground truncate max-w-[100px] md:max-w-[200px] hidden sm:inline">
                             {item.chunk.heading}
                           </span>
                         )}
                       </div>
-                      <div className="flex items-center gap-4">
-                        <div className="text-sm font-mono">
+                      <div className="flex items-center gap-2 md:gap-4">
+                        <div className="text-xs md:text-sm font-mono">
                           <span className="text-muted-foreground">{item.avgOriginal.toFixed(0)}</span>
-                          <span className="text-muted-foreground mx-2">→</span>
+                          <span className="text-muted-foreground mx-1 md:mx-2">→</span>
                           <span className={getScoreColorClass(item.avgOptimized / 100)}>
                             {item.avgOptimized.toFixed(0)}
                           </span>
                         </div>
                         <div className={cn(
-                          "flex items-center gap-1 text-sm font-medium min-w-[80px] justify-end",
+                          "flex items-center gap-1 text-xs md:text-sm font-medium min-w-[60px] md:min-w-[80px] justify-end",
                           getImprovementColorClass(item.improvement)
                         )}>
                           <ImprovementIcon value={item.improvement} />
                           {formatImprovement(item.improvement)}
                         </div>
-                        <Badge variant="secondary" className="min-w-[60px] justify-center">
-                          {item.changeCount} change{item.changeCount !== 1 ? 's' : ''}
+                        <Badge variant="secondary" className="min-w-[50px] md:min-w-[60px] justify-center text-[10px]">
+                          {item.changeCount} {isMobile ? '' : 'change'}{item.changeCount !== 1 && !isMobile ? 's' : ''}
                         </Badge>
                       </div>
                     </div>
                   </CollapsibleTrigger>
                   <CollapsibleContent>
-                    <div className="mt-2 ml-7 p-4 bg-background border border-border rounded-lg space-y-4">
+                    <div className="mt-2 ml-4 md:ml-7 p-3 md:p-4 bg-background border border-border rounded-lg space-y-4">
                       {/* Changes applied */}
                       <div className="space-y-2">
-                        <h5 className="text-xs uppercase tracking-wider text-muted-foreground">Changes Applied</h5>
+                        <h5 className="text-[10px] md:text-xs uppercase tracking-wider text-muted-foreground">Changes Applied</h5>
                         {item.chunk.changes_applied.map((change, changeIdx) => {
                           const explanation = optimizationResult.explanations.find(
                             e => e.change_id === change.change_id
                           );
                           return (
-                            <div key={changeIdx} className="p-3 bg-surface border border-border/50 rounded text-sm">
-                              <div className="flex items-center gap-2 mb-2">
+                            <div key={changeIdx} className="p-2 md:p-3 bg-surface border border-border/50 rounded text-xs md:text-sm">
+                              <div className="flex flex-wrap items-center gap-2 mb-2">
                                 <Badge variant="outline" className="text-[10px]">
                                   {change.change_type.replace('_', ' ')}
                                 </Badge>
                                 {change.actual_scores && (
                                   <span className={cn(
-                                    "text-xs font-mono",
+                                    "text-[10px] md:text-xs font-mono",
                                     getImprovementColorClass(change.actual_scores.improvement_pct)
                                   )}>
                                     {formatImprovement(change.actual_scores.improvement_pct)}
                                   </span>
                                 )}
                               </div>
-                              <p className="text-muted-foreground">{change.reason}</p>
+                              <p className="text-muted-foreground text-xs md:text-sm">{change.reason}</p>
                               {explanation && (
                                 <div className="mt-2 pt-2 border-t border-border/50">
-                                  <p className="text-primary text-xs">{explanation.impact_summary}</p>
+                                  <p className="text-primary text-[10px] md:text-xs">{explanation.impact_summary}</p>
                                 </div>
                               )}
                             </div>
@@ -446,8 +532,8 @@ export function ReportTab({
 
                       {/* Text preview */}
                       <div className="space-y-2">
-                        <h5 className="text-xs uppercase tracking-wider text-muted-foreground">Optimized Text Preview</h5>
-                        <div className="p-3 bg-muted/10 rounded text-sm text-muted-foreground line-clamp-4">
+                        <h5 className="text-[10px] md:text-xs uppercase tracking-wider text-muted-foreground">Optimized Text Preview</h5>
+                        <div className="p-2 md:p-3 bg-muted/10 rounded text-xs md:text-sm text-muted-foreground line-clamp-4">
                           {item.chunk.optimized_text.slice(0, 300)}
                           {item.chunk.optimized_text.length > 300 && '...'}
                         </div>
@@ -467,7 +553,8 @@ export function ReportTab({
                   <div className="panel-header flex items-center justify-between">
                     <h4 className="text-label flex items-center gap-2">
                       <Lightbulb className="h-4 w-4" />
-                      Further Optimization Suggestions
+                      <span className="hidden sm:inline">Further Optimization Suggestions</span>
+                      <span className="sm:hidden">Suggestions</span>
                       <Badge variant="secondary" className="ml-2">
                         {optimizationResult.summary.furtherSuggestions.length}
                       </Badge>
@@ -482,14 +569,14 @@ export function ReportTab({
                 <CollapsibleContent>
                   <div className="space-y-3 mt-4">
                     {optimizationResult.summary.furtherSuggestions.map((suggestion, idx) => (
-                      <div key={idx} className="p-4 bg-muted/20 rounded-lg space-y-2">
-                        <div className="flex items-start justify-between gap-4">
-                          <p className="text-sm text-foreground">{suggestion.suggestion}</p>
-                          <Badge variant="outline" className={cn("shrink-0", impactColors[suggestion.expectedImpact])}>
-                            {suggestion.expectedImpact} impact
+                      <div key={idx} className="p-3 md:p-4 bg-muted/20 rounded-lg space-y-2">
+                        <div className="flex flex-wrap items-start justify-between gap-2 md:gap-4">
+                          <p className="text-xs md:text-sm text-foreground flex-1">{suggestion.suggestion}</p>
+                          <Badge variant="outline" className={cn("shrink-0 text-[10px]", impactColors[suggestion.expectedImpact])}>
+                            {suggestion.expectedImpact}
                           </Badge>
                         </div>
-                        <p className="text-xs text-muted-foreground">{suggestion.reasoning}</p>
+                        <p className="text-[10px] md:text-xs text-muted-foreground">{suggestion.reasoning}</p>
                       </div>
                     ))}
                   </div>
@@ -506,7 +593,8 @@ export function ReportTab({
                   <div className="panel-header flex items-center justify-between">
                     <h4 className="text-label flex items-center gap-2">
                       <AlertTriangle className="h-4 w-4" />
-                      Trade-off Considerations
+                      <span className="hidden sm:inline">Trade-off Considerations</span>
+                      <span className="sm:hidden">Trade-offs</span>
                       <Badge variant="secondary" className="ml-2">
                         {optimizationResult.summary.tradeOffConsiderations.length}
                       </Badge>
@@ -521,15 +609,15 @@ export function ReportTab({
                 <CollapsibleContent>
                   <div className="space-y-3 mt-4">
                     {optimizationResult.summary.tradeOffConsiderations.map((tradeoff, idx) => (
-                      <div key={idx} className="p-4 bg-muted/20 rounded-lg">
-                        <div className="flex items-start justify-between gap-4">
-                          <div className="flex items-start gap-3">
-                            <Badge variant="outline" className="uppercase text-[10px]">
+                      <div key={idx} className="p-3 md:p-4 bg-muted/20 rounded-lg">
+                        <div className="flex flex-wrap items-start justify-between gap-2 md:gap-4">
+                          <div className="flex flex-wrap items-start gap-2 md:gap-3 flex-1">
+                            <Badge variant="outline" className="uppercase text-[8px] md:text-[10px]">
                               {tradeoff.category}
                             </Badge>
-                            <p className="text-sm text-foreground">{tradeoff.concern}</p>
+                            <p className="text-xs md:text-sm text-foreground flex-1">{tradeoff.concern}</p>
                           </div>
-                          <Badge variant="outline" className={cn("shrink-0", severityColors[tradeoff.severity])}>
+                          <Badge variant="outline" className={cn("shrink-0 text-[10px]", severityColors[tradeoff.severity])}>
                             {tradeoff.severity}
                           </Badge>
                         </div>
@@ -559,7 +647,7 @@ export function ReportTab({
               </CollapsibleTrigger>
               <CollapsibleContent>
                 <div className="mt-4 border border-border rounded-lg overflow-hidden">
-                  <div className="h-[400px]">
+                  <div className="h-[300px] md:h-[400px]">
                     <MarkdownEditor
                       value={editableContent}
                       onChange={setEditableContent}
@@ -567,8 +655,8 @@ export function ReportTab({
                     />
                   </div>
                   {editableContent !== optimizedContent && (
-                    <div className="p-4 border-t border-border bg-surface flex items-center justify-between">
-                      <span className="text-sm text-muted-foreground">You have unsaved edits</span>
+                    <div className="p-3 md:p-4 border-t border-border bg-surface flex flex-col sm:flex-row items-center justify-between gap-2">
+                      <span className="text-xs md:text-sm text-muted-foreground">You have unsaved edits</span>
                       <div className="flex items-center gap-2">
                         <Button variant="ghost" size="sm" onClick={() => setEditableContent(optimizedContent)}>
                           <RotateCcw className="h-4 w-4 mr-1.5" />
@@ -576,7 +664,7 @@ export function ReportTab({
                         </Button>
                         <Button size="sm" onClick={handleApplyEdits}>
                           <Check className="h-4 w-4 mr-1.5" />
-                          Apply Edits
+                          Apply
                         </Button>
                       </div>
                     </div>
