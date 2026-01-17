@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Plus, X, Play, Loader2, Microscope, Sparkles, Check } from 'lucide-react';
+import { Plus, X, Play, Loader2, Microscope, Sparkles, Check, Network, ChevronRight, ChevronDown } from 'lucide-react';
 import { DismissableTip } from '@/components/DismissableTip';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -8,20 +8,53 @@ import { Switch } from '@/components/ui/switch';
 import { Progress } from '@/components/ui/progress';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Badge } from '@/components/ui/badge';
+import { ScrollArea } from '@/components/ui/scroll-area';
 import {
   Collapsible,
   CollapsibleContent,
   CollapsibleTrigger,
 } from '@/components/ui/collapsible';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
 import type { ChunkerOptions } from '@/lib/layout-chunker';
+import type { FanoutNode, FanoutTree, FanoutIntentType } from '@/lib/optimizer-types';
+import { cn } from '@/lib/utils';
 
+// Fanout tree node types for recursive display
 interface ExpandedQuery {
   keyword: string;
   isOriginal: boolean;
   selected: boolean;
+  intentType?: FanoutIntentType;
+  level?: number;
 }
+
+const intentColors: Record<FanoutIntentType, string> = {
+  primary: 'bg-purple-100 text-purple-800 dark:bg-purple-900/30 dark:text-purple-300',
+  follow_up: 'bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300',
+  specification: 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300',
+  comparison: 'bg-orange-100 text-orange-800 dark:bg-orange-900/30 dark:text-orange-300',
+  process: 'bg-cyan-100 text-cyan-800 dark:bg-cyan-900/30 dark:text-cyan-300',
+  decision: 'bg-pink-100 text-pink-800 dark:bg-pink-900/30 dark:text-pink-300',
+  problem: 'bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-300',
+};
+
+const intentLabels: Record<FanoutIntentType, string> = {
+  primary: 'Primary',
+  follow_up: 'Follow-up',
+  specification: 'Specific',
+  comparison: 'Compare',
+  process: 'How-to',
+  decision: 'Decision',
+  problem: 'Problem',
+};
 
 interface AnalyzeTabProps {
   hasChunks: boolean;
@@ -50,6 +83,12 @@ export function AnalyzeTab({
   const [isGenerating, setIsGenerating] = useState(false);
   const [expandedQueries, setExpandedQueries] = useState<ExpandedQuery[]>([]);
   const [fanoutOpen, setFanoutOpen] = useState(true);
+  
+  // Fanout tree state
+  const [fanoutTree, setFanoutTree] = useState<FanoutTree | null>(null);
+  const [fanoutDepth, setFanoutDepth] = useState(3);
+  const [fanoutBranch, setFanoutBranch] = useState(3);
+  const [fanoutMode, setFanoutMode] = useState<'simple' | 'tree'>('tree');
 
   const addQuery = () => {
     if (newQuery.trim() && !keywords.includes(newQuery.trim())) {
@@ -62,6 +101,53 @@ export function AnalyzeTab({
     onKeywordsChange(keywords.filter((_, i) => i !== index));
   };
 
+  // Flatten tree nodes to array for selection
+  const flattenTree = (node: FanoutNode): FanoutNode[] => {
+    return [node, ...node.children.flatMap(flattenTree)];
+  };
+
+  // Count selected nodes in tree
+  const countSelected = (node: FanoutNode): number => {
+    return (node.isSelected ? 1 : 0) + node.children.reduce((sum, child) => sum + countSelected(child), 0);
+  };
+
+  // Toggle node selection in tree
+  const toggleNodeSelection = (nodeId: string, selected: boolean) => {
+    if (!fanoutTree) return;
+    
+    const updateNode = (node: FanoutNode): FanoutNode => {
+      if (node.id === nodeId) {
+        return { ...node, isSelected: selected };
+      }
+      return { ...node, children: node.children.map(updateNode) };
+    };
+    
+    const newRoot = updateNode(fanoutTree.root);
+    setFanoutTree({
+      ...fanoutTree,
+      root: newRoot,
+      selectedNodes: countSelected(newRoot),
+    });
+  };
+
+  // Select/deselect all tree nodes
+  const setAllSelected = (selected: boolean) => {
+    if (!fanoutTree) return;
+    
+    const updateNode = (node: FanoutNode): FanoutNode => ({
+      ...node,
+      isSelected: selected,
+      children: node.children.map(updateNode),
+    });
+    
+    const newRoot = updateNode(fanoutTree.root);
+    setFanoutTree({
+      ...fanoutTree,
+      root: newRoot,
+      selectedNodes: selected ? fanoutTree.totalNodes : 0,
+    });
+  };
+
   const handleGenerateFanout = async () => {
     if (!newQuery.trim()) {
       toast.error('Enter a query first');
@@ -70,52 +156,79 @@ export function AnalyzeTab({
 
     setIsGenerating(true);
     setExpandedQueries([]);
+    setFanoutTree(null);
 
     try {
-      const { data, error } = await supabase.functions.invoke('optimize-content', {
-        body: {
-          type: 'suggest_keywords',
-          content: `Generate semantically related search queries for: "${newQuery.trim()}"
-          
-Context: This is for testing RAG retrieval. Generate exactly 24 related queries that capture different ways users might search for similar content.
+      if (fanoutMode === 'tree') {
+        // Use the new recursive fanout tree generator
+        const { data, error } = await supabase.functions.invoke('optimize-content', {
+          body: {
+            type: 'generate_fanout_tree',
+            primaryQuery: newQuery.trim(),
+            maxDepth: fanoutDepth,
+            branchFactor: fanoutBranch,
+          },
+        });
 
-Include:
-- Direct synonyms and alternative phrasings
-- More specific sub-topics
-- Related concepts and terminology
-- Common alternative terms and jargon
-- Different question formats users might ask
-- Long-tail variations
+        if (error || data?.error) {
+          throw new Error(data?.error || error?.message);
+        }
 
-Return exactly 24 diverse related queries. Do not limit word count - queries can be as long as needed to be meaningful.`,
-        },
-      });
+        if (data?.tree) {
+          setFanoutTree(data.tree as FanoutTree);
+          toast.success(`Generated ${data.tree.totalNodes} queries in recursive tree (depth ${fanoutDepth})`);
+        }
+      } else {
+        // Simple fanout (5-7 queries)
+        const { data, error } = await supabase.functions.invoke('optimize-content', {
+          body: {
+            type: 'generate_fanout',
+            primaryQuery: newQuery.trim(),
+          },
+        });
 
-      if (error || data?.error) {
-        throw new Error(data?.error || error?.message);
+        if (error || data?.error) {
+          throw new Error(data?.error || error?.message);
+        }
+
+        const suggestions = data.suggestions || [];
+        
+        // Create expanded queries: primary + generated
+        const expanded: ExpandedQuery[] = [
+          { keyword: newQuery.trim(), isOriginal: true, selected: true, intentType: 'primary', level: 0 },
+          ...suggestions.map((s: { query: string; intent?: string }, idx: number) => ({
+            keyword: s.query || s,
+            isOriginal: false,
+            selected: true,
+            intentType: (s.intent as FanoutIntentType) || 'follow_up',
+            level: 1,
+          })),
+        ];
+
+        setExpandedQueries(expanded);
+        toast.success(`Generated ${suggestions.length} related queries`);
       }
-
-      const suggestions = data.result?.keywords?.map((k: { keyword: string }) => k.keyword) || [];
-      
-      // Create expanded queries: primary + up to 24 generated (25 total)
-      // Select first 14 generated by default (15 total with primary)
-      const expanded: ExpandedQuery[] = [
-        { keyword: newQuery.trim(), isOriginal: true, selected: true },
-        ...suggestions.slice(0, 24).map((s: string, idx: number) => ({
-          keyword: s,
-          isOriginal: false,
-          selected: idx < 14, // Select first 14 (so 15 total with primary)
-        })),
-      ];
-
-      setExpandedQueries(expanded);
-      toast.success(`Generated ${expanded.length - 1} related queries`);
     } catch (err) {
       console.error(err);
-      toast.error('Failed to generate variations');
+      toast.error('Failed to generate fanout queries');
     } finally {
       setIsGenerating(false);
     }
+  };
+
+  // Apply selected queries from tree
+  const applyTreeQueries = () => {
+    if (!fanoutTree) return;
+    
+    const selectedQueries = flattenTree(fanoutTree.root)
+      .filter(node => node.isSelected)
+      .map(node => node.query)
+      .filter(q => !keywords.includes(q));
+    
+    onKeywordsChange([...keywords, ...selectedQueries]);
+    setFanoutTree(null);
+    setNewQuery('');
+    toast.success(`Added ${selectedQueries.length} queries`);
   };
 
   const toggleExpandedQuery = (keyword: string) => {
@@ -181,6 +294,69 @@ Return exactly 24 diverse related queries. Do not limit word count - queries can
             Enter the exact search queries your audience will ask Google. Use "Run Fanout" to generate related questions.
           </DismissableTip>
 
+          {/* Fanout Mode Toggle */}
+          <div className="flex items-center gap-2 mb-2">
+            <button 
+              onClick={() => setFanoutMode('simple')}
+              className={cn(
+                "flex-1 py-1.5 px-3 rounded-md text-xs transition-colors",
+                fanoutMode === 'simple' 
+                  ? "bg-accent/20 text-accent" 
+                  : "text-muted-foreground hover:text-foreground hover:bg-muted/50"
+              )}
+            >
+              Simple (5-7)
+            </button>
+            <button 
+              onClick={() => setFanoutMode('tree')}
+              className={cn(
+                "flex-1 py-1.5 px-3 rounded-md text-xs transition-colors flex items-center justify-center gap-1.5",
+                fanoutMode === 'tree' 
+                  ? "bg-accent/20 text-accent" 
+                  : "text-muted-foreground hover:text-foreground hover:bg-muted/50"
+              )}
+            >
+              <Network className="h-3.5 w-3.5" />
+              Recursive Tree
+            </button>
+          </div>
+
+          {/* Tree Mode Controls */}
+          {fanoutMode === 'tree' && (
+            <div className="grid grid-cols-2 gap-3 p-3 bg-muted/30 rounded-lg border border-border/50">
+              <div className="space-y-1.5">
+                <Label className="text-xs text-muted-foreground">Depth</Label>
+                <Select value={String(fanoutDepth)} onValueChange={(v) => setFanoutDepth(Number(v))}>
+                  <SelectTrigger className="h-8 text-xs">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="2">2 levels</SelectItem>
+                    <SelectItem value="3">3 levels</SelectItem>
+                    <SelectItem value="4">4 levels</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-1.5">
+                <Label className="text-xs text-muted-foreground">Branch</Label>
+                <Select value={String(fanoutBranch)} onValueChange={(v) => setFanoutBranch(Number(v))}>
+                  <SelectTrigger className="h-8 text-xs">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="2">2 children</SelectItem>
+                    <SelectItem value="3">3 children</SelectItem>
+                    <SelectItem value="4">4 children</SelectItem>
+                    <SelectItem value="5">5 children</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="col-span-2 text-[10px] text-muted-foreground text-center">
+                Est. ~{1 + 6 + 6 * fanoutBranch + (fanoutDepth > 2 ? 6 * fanoutBranch * fanoutBranch : 0)} nodes
+              </div>
+            </div>
+          )}
+
           {/* Add Query Input */}
           <div className="flex flex-col sm:flex-row gap-2">
             <Input
@@ -211,6 +387,8 @@ Return exactly 24 diverse related queries. Do not limit word count - queries can
               >
                 {isGenerating ? (
                   <Loader2 className="h-4 w-4 animate-spin" />
+                ) : fanoutMode === 'tree' ? (
+                  <Network className="h-4 w-4" />
                 ) : (
                   <Sparkles className="h-4 w-4" />
                 )}
@@ -219,8 +397,51 @@ Return exactly 24 diverse related queries. Do not limit word count - queries can
             </div>
           </div>
 
-          {/* Fanout Expanded Queries */}
-          {expandedQueries.length > 0 && (
+          {/* Fanout Tree View (new recursive) */}
+          {fanoutTree && (
+            <div className="border border-accent/30 rounded-lg bg-accent/5 overflow-hidden">
+              <div className="flex items-center justify-between p-3 border-b border-accent/20">
+                <div className="flex items-center gap-2">
+                  <Network className="h-4 w-4 text-accent" />
+                  <span className="text-sm font-medium">Query Fanout Tree</span>
+                  <Badge variant="secondary" className="text-[10px]">
+                    {fanoutTree.selectedNodes} / {fanoutTree.totalNodes}
+                  </Badge>
+                </div>
+                <div className="flex items-center gap-1">
+                  <button onClick={() => setAllSelected(true)} className="text-xs text-primary hover:underline">
+                    All
+                  </button>
+                  <span className="text-muted-foreground text-xs">|</span>
+                  <button onClick={() => setAllSelected(false)} className="text-xs text-muted-foreground hover:text-foreground">
+                    None
+                  </button>
+                </div>
+              </div>
+              
+              <ScrollArea className="h-[300px]">
+                <div className="p-2">
+                  <FanoutNodeDisplay 
+                    node={fanoutTree.root} 
+                    onToggle={toggleNodeSelection}
+                  />
+                </div>
+              </ScrollArea>
+              
+              <div className="flex items-center gap-2 p-3 border-t border-accent/20">
+                <button onClick={applyTreeQueries} className="btn-primary flex-1 h-8 text-sm">
+                  <Check className="h-3.5 w-3.5 mr-1.5" />
+                  Apply {fanoutTree.selectedNodes} Selected
+                </button>
+                <button onClick={() => setFanoutTree(null)} className="btn-secondary h-8">
+                  <X className="h-4 w-4" />
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* Simple Fanout Expanded Queries */}
+          {expandedQueries.length > 0 && !fanoutTree && (
             <Collapsible open={fanoutOpen} onOpenChange={setFanoutOpen}>
               <div className="border border-accent/30 rounded-lg p-3 bg-accent/5 space-y-3">
                 <CollapsibleTrigger asChild>
@@ -259,6 +480,14 @@ Return exactly 24 diverse related queries. Do not limit word count - queries can
                           onCheckedChange={() => toggleExpandedQuery(query.keyword)}
                           className="mt-0.5"
                         />
+                        {query.intentType && (
+                          <Badge 
+                            variant="outline" 
+                            className={cn("shrink-0 text-[10px] px-1.5", intentColors[query.intentType])}
+                          >
+                            {intentLabels[query.intentType]}
+                          </Badge>
+                        )}
                         <span className="text-sm flex-1">{query.keyword}</span>
                         {query.isOriginal && (
                           <Badge variant="secondary" className="text-[10px] px-1.5 py-0 h-4">
@@ -406,6 +635,82 @@ Return exactly 24 diverse related queries. Do not limit word count - queries can
           </div>
         </div>
       </div>
+    </div>
+  );
+}
+
+// Recursive fanout node display component
+function FanoutNodeDisplay({ 
+  node, 
+  onToggle 
+}: { 
+  node: FanoutNode; 
+  onToggle: (nodeId: string, selected: boolean) => void;
+}) {
+  const [expanded, setExpanded] = useState(true);
+  const hasChildren = node.children.length > 0;
+  
+  return (
+    <div className="relative">
+      <div 
+        className={cn(
+          "flex items-center gap-2 py-1.5 px-2 rounded-md hover:bg-background/50 transition-colors",
+          node.isSelected && "bg-primary/5"
+        )}
+        style={{ marginLeft: `${node.level * 16}px` }}
+      >
+        {hasChildren ? (
+          <button
+            onClick={() => setExpanded(!expanded)}
+            className="p-0.5 hover:bg-muted rounded shrink-0"
+          >
+            {expanded ? (
+              <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" />
+            ) : (
+              <ChevronRight className="h-3.5 w-3.5 text-muted-foreground" />
+            )}
+          </button>
+        ) : (
+          <div className="w-4" />
+        )}
+        
+        <Checkbox
+          checked={node.isSelected}
+          onCheckedChange={(checked) => onToggle(node.id, !!checked)}
+          className="shrink-0"
+        />
+        
+        <Badge 
+          variant="outline" 
+          className={cn("shrink-0 text-[10px] px-1.5", intentColors[node.intentType])}
+        >
+          {intentLabels[node.intentType]}
+        </Badge>
+        
+        <span className="text-xs flex-1 truncate" title={node.query}>
+          {node.query}
+        </span>
+        
+        <Badge variant="outline" className="shrink-0 text-[9px] text-muted-foreground">
+          L{node.level}
+        </Badge>
+      </div>
+
+      {expanded && hasChildren && (
+        <div className="relative">
+          <div 
+            className="absolute left-0 top-0 bottom-0 border-l border-border/50"
+            style={{ marginLeft: `${(node.level + 1) * 16 + 6}px` }}
+          />
+          {node.children.map(child => (
+            <FanoutNodeDisplay
+              key={child.id}
+              node={child}
+              onToggle={onToggle}
+            />
+          ))}
+        </div>
+      )}
     </div>
   );
 }

@@ -257,7 +257,9 @@ export function ResultsTab({
 
   const handleCopy = () => {
     if (selectedChunk) {
-      navigator.clipboard.writeText(selectedChunk.text);
+      // Copy body-only content (without heading cascade)
+      const bodyText = selectedChunk.textWithoutCascade || stripLeadingHeadingCascade(selectedChunk.text);
+      navigator.clipboard.writeText(bodyText);
       toast.success('Chunk copied to clipboard');
     }
   };

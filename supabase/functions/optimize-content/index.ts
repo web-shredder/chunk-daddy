@@ -529,40 +529,46 @@ GENERATE THESE QUERY TYPES:
 
 1. FOLLOW-UP QUERY
    What question comes next after the basic answer?
-   "What is RPO?" → "How long does RPO implementation take?"
+   "What is RPO?" → "How long does it typically take to implement an RPO solution for a mid-sized company?"
 
 2. SPECIFICATION QUERY
    A narrower, more specific version
-   "What is RPO?" → "RPO for technology companies"
+   "What is RPO?" → "How does RPO pricing work for technology companies with under 500 employees?"
 
 3. COMPARISON QUERY
    X vs Y format against alternatives
-   "What is RPO?" → "RPO vs internal recruiting team cost comparison"
+   "What is RPO?" → "What are the cost and time-to-hire differences between RPO and traditional staffing agencies?"
 
 4. PROCESS/HOW-TO QUERY
    How to implement, use, or do something
-   "What is RPO?" → "How to transition to an RPO model"
+   "What is RPO?" → "What are the step-by-step stages of transitioning from in-house recruiting to an RPO model?"
 
 5. DECISION QUERY
    For someone ready to act
-   "What is RPO?" → "Questions to ask RPO providers before signing"
+   "What is RPO?" → "What questions should a CFO ask RPO providers before signing a contract?"
 
 6. PROBLEM QUERY
    What problem or pain point does this solve?
-   "What is RPO?" → "How to reduce hiring costs and time-to-fill"
+   "What is RPO?" → "How can companies reduce their hiring costs and time-to-fill with external recruiting support?"
+
+CRITICAL QUERY FORMAT RULES:
+- Each query MUST be a COMPLETE, NATURAL sentence (typically 8-20 words)
+- Include VERBS and question forms (How, What, Why, When, Which)
+- Add CONTEXT qualifiers (budget, timeline, company size, industry, use case)
+- NEVER generate short noun phrases like "RPO pricing" or "staffing vs RPO"
+- NEVER generate 2-4 word fragments
 
 RULES:
 - Generate 5-7 queries total
 - Each query must be a DIFFERENT intent type
 - Use natural language (how real people search)
-- Mix of short phrases AND full questions
 - Do NOT generate synonym swaps or keyword variations
 - Do NOT include the primary query again
-- Return response as JSON with format: {"suggestions": [{"query": "...", "intent": "..."}]}`;
+- Return response as JSON with format: {"queries": [{"query": "...", "intent": "..."}]}`;
 
       const fanoutUserPrompt = `Primary Query: "${fanoutQuery || content}"
 
-${contentContext ? `Content Context:\n${contentContext.slice(0, 500)}\n\n` : ''}Generate 5-7 fan-out queries representing DIFFERENT search intents, not keyword variations. Return as JSON.`;
+${contentContext ? `Content Context:\n${contentContext.slice(0, 500)}\n\n` : ''}Generate 5-7 fan-out queries representing DIFFERENT search intents. Each must be a FULL SENTENCE (8-20 words), not short phrases. Return as JSON.`;
 
       const OPENAI_API_KEY = Deno.env.get('OPENAI_API_KEY');
       
@@ -591,6 +597,8 @@ ${contentContext ? `Content Context:\n${contentContext.slice(0, 500)}\n\n` : ''}
 
       const fanoutData = await fanoutResponse.json();
       const fanoutResult = JSON.parse(fanoutData.choices[0]?.message?.content || '{"queries":[]}');
+      
+      console.log(`generate_fanout: ${(fanoutResult.queries || []).length} queries generated`);
       
       return new Response(JSON.stringify({
         suggestions: fanoutResult.queries || [],
