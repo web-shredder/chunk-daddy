@@ -69,10 +69,12 @@ export function useOptimizer() {
         console.log('Step 2: Generating FOCUSED optimizations per chunk...');
         
         // Convert query assignments to the format expected by the edge function
-        const assignmentData = queryAssignments.chunkAssignments.map(ca => ({
-          chunkIndex: ca.chunkIndex,
-          queries: ca.assignedQueries.map(q => q.query),
-        }));
+        const assignmentData = queryAssignments.chunkAssignments
+          .filter(ca => ca.assignedQuery)
+          .map(ca => ({
+            chunkIndex: ca.chunkIndex,
+            queries: [ca.assignedQuery!.query],
+          }));
         
         const { data: optimizeData, error: optimizeError } = await supabase.functions.invoke('optimize-content', {
           body: { 

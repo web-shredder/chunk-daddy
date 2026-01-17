@@ -12,8 +12,7 @@ export interface ChunkAssignment {
   chunkIndex: number;
   chunkHeading?: string;
   chunkPreview: string;
-  assignedQueries: QueryAssignment[];
-  averageScore: number;
+  assignedQuery: QueryAssignment | null;
 }
 
 export interface QueryAssignmentMap {
@@ -43,121 +42,119 @@ export function computeQueryAssignments(
   queries: string[],
   minScoreThreshold: number = 0.3
 ): QueryAssignmentMap {
-  const assignments: QueryAssignment[] = [];
-  const unassignedQueries: string[] = [];
+  // Build all valid (query, chunk, score) candidates
+  const candidates: Array<{
+    query: string;
+    chunkIndex: number;
+    score: number;
+    queryIndex: number;
+  }> = [];
 
-  // For each query, find the chunk with the highest score
   queries.forEach((query, queryIndex) => {
-    let bestChunkIndex = -1;
-    let bestScore = 0;
-
-    chunkScores.forEach((chunk, chunkIdx) => {
+    chunkScores.forEach((chunk, chunkIndex) => {
       const score = chunk.scores[query] || 0;
-      if (score > bestScore) {
-        bestScore = score;
-        bestChunkIndex = chunkIdx;
+      if (score >= minScoreThreshold) {
+        candidates.push({ query, chunkIndex, score, queryIndex });
       }
     });
-
-    if (bestChunkIndex >= 0 && bestScore >= minScoreThreshold) {
-      assignments.push({
-        query,
-        assignedChunkIndex: bestChunkIndex,
-        score: bestScore,
-        isPrimary: queryIndex === 0,
-      });
-    } else {
-      unassignedQueries.push(query);
-    }
   });
 
-  // Group assignments by chunk
-  const chunkAssignments = createChunkAssignments(chunkScores, assignments);
+  // Sort by score descending - highest scores get first pick
+  candidates.sort((a, b) => b.score - a.score);
 
-  return {
-    assignments,
-    chunkAssignments,
-    unassignedQueries,
-  };
-}
+  const assignedChunks = new Set<number>();
+  const assignedQueries = new Set<string>();
+  const assignments: QueryAssignment[] = [];
 
-/**
- * Groups query assignments by chunk for the optimization view
- */
-function createChunkAssignments(
-  chunkScores: ChunkScoreData[],
-  assignments: QueryAssignment[]
-): ChunkAssignment[] {
-  const chunkMap = new Map<number, QueryAssignment[]>();
+  // Greedy assignment: best scores win, each chunk/query used only once
+  for (const candidate of candidates) {
+    if (assignedChunks.has(candidate.chunkIndex)) continue;
+    if (assignedQueries.has(candidate.query)) continue;
 
-  // Group assignments by chunk
-  assignments.forEach(assignment => {
-    const existing = chunkMap.get(assignment.assignedChunkIndex) || [];
-    existing.push(assignment);
-    chunkMap.set(assignment.assignedChunkIndex, existing);
-  });
-
-  // Create ChunkAssignment objects only for chunks that have assigned queries
-  const result: ChunkAssignment[] = [];
-
-  chunkMap.forEach((queries, chunkIndex) => {
-    const chunk = chunkScores[chunkIndex];
-    if (!chunk) return;
-
-    const avgScore = queries.reduce((sum, q) => sum + q.score, 0) / queries.length;
-    
-    result.push({
-      chunkIndex,
-      chunkHeading: chunk.heading,
-      chunkPreview: chunk.text.slice(0, 150) + (chunk.text.length > 150 ? '...' : ''),
-      assignedQueries: queries.sort((a, b) => {
-        // Primary query first, then by score
-        if (a.isPrimary !== b.isPrimary) return a.isPrimary ? -1 : 1;
-        return b.score - a.score;
-      }),
-      averageScore: avgScore,
+    assignments.push({
+      query: candidate.query,
+      assignedChunkIndex: candidate.chunkIndex,
+      score: candidate.score,
+      isPrimary: candidate.queryIndex === 0,
     });
+
+    assignedChunks.add(candidate.chunkIndex);
+    assignedQueries.add(candidate.query);
+  }
+
+  // Unhoused queries = not assigned to any chunk
+  const unassignedQueries = queries.filter(q => !assignedQueries.has(q));
+
+  // Build chunk assignments with single query each
+  const chunkAssignments: ChunkAssignment[] = chunkScores.map((chunk, index) => {
+    const assignment = assignments.find(a => a.assignedChunkIndex === index);
+    return {
+      chunkIndex: index,
+      chunkHeading: chunk.heading,
+      chunkPreview: chunk.text.slice(0, 150) + '...',
+      assignedQuery: assignment || null,
+    };
   });
 
-  // Sort by chunk index
-  return result.sort((a, b) => a.chunkIndex - b.chunkIndex);
+  return { assignments, chunkAssignments, unassignedQueries };
 }
 
 /**
- * Manually reassign a query to a different chunk
+ * Manually reassign a query to a different chunk.
+ * Returns the updated map and any evicted query name.
  */
 export function reassignQuery(
-  assignmentMap: QueryAssignmentMap,
+  currentMap: QueryAssignmentMap,
   query: string,
   newChunkIndex: number,
   chunkScores: ChunkScoreData[]
-): QueryAssignmentMap {
-  const newAssignments = assignmentMap.assignments.map(a => {
-    if (a.query === query) {
-      const newScore = chunkScores[newChunkIndex]?.scores[query] || 0;
-      return { ...a, assignedChunkIndex: newChunkIndex, score: newScore };
-    }
-    return a;
-  });
+): { updatedMap: QueryAssignmentMap; evictedQuery: string | null } {
+  // Find if target chunk is already occupied
+  const targetChunk = currentMap.chunkAssignments.find(
+    ca => ca.chunkIndex === newChunkIndex
+  );
+  const evictedQuery = targetChunk?.assignedQuery?.query || null;
 
-  // Handle unassigned queries being assigned
-  if (!assignmentMap.assignments.find(a => a.query === query)) {
-    const newScore = chunkScores[newChunkIndex]?.scores[query] || 0;
-    const isPrimary = chunkScores[0]?.scores && Object.keys(chunkScores[0].scores)[0] === query;
-    newAssignments.push({
-      query,
-      assignedChunkIndex: newChunkIndex,
-      score: newScore,
-      isPrimary,
-    });
+  // Remove query from current assignment
+  let updatedAssignments = currentMap.assignments.filter(a => a.query !== query);
+  
+  // If evicting, remove that assignment too
+  if (evictedQuery) {
+    updatedAssignments = updatedAssignments.filter(a => a.query !== evictedQuery);
   }
 
-  const newUnassigned = assignmentMap.unassignedQueries.filter(q => q !== query);
+  // Add new assignment
+  const score = chunkScores[newChunkIndex]?.scores[query] || 0;
+  updatedAssignments.push({
+    query,
+    assignedChunkIndex: newChunkIndex,
+    score,
+    isPrimary: false,
+  });
+
+  // Rebuild chunk assignments
+  const chunkAssignments: ChunkAssignment[] = chunkScores.map((chunk, index) => {
+    const assignment = updatedAssignments.find(a => a.assignedChunkIndex === index);
+    return {
+      chunkIndex: index,
+      chunkHeading: chunk.heading,
+      chunkPreview: chunk.text.slice(0, 150) + '...',
+      assignedQuery: assignment || null,
+    };
+  });
+
+  // Update unassigned queries
+  const assignedQuerySet = new Set(updatedAssignments.map(a => a.query));
+  const allQueries = [...new Set([
+    ...currentMap.assignments.map(a => a.query),
+    ...currentMap.unassignedQueries,
+    query
+  ])];
+  const unassignedQueries = allQueries.filter(q => !assignedQuerySet.has(q));
 
   return {
-    assignments: newAssignments,
-    chunkAssignments: createChunkAssignments(chunkScores, newAssignments),
-    unassignedQueries: newUnassigned,
+    updatedMap: { assignments: updatedAssignments, chunkAssignments, unassignedQueries },
+    evictedQuery,
   };
 }
 

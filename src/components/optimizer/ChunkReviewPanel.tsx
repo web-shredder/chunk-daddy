@@ -201,7 +201,7 @@ export function ChunkReviewPanel({
                       : 'pending';
                 
                 const assignment = queryAssignments.chunkAssignments.find(ca => ca.chunkIndex === idx);
-                const hasPrimary = assignment?.assignedQueries.some(q => q.isPrimary);
+                const hasPrimary = assignment?.assignedQuery?.isPrimary;
 
                 return (
                   <button
@@ -223,9 +223,9 @@ export function ChunkReviewPanel({
                       </span>
                       <StatusIndicator status={status} />
                     </div>
-                    {assignment && (
+                    {assignment?.assignedQuery && (
                       <div className="text-xs text-muted-foreground mt-1">
-                        {assignment.assignedQueries.length} queries
+                        {assignment.assignedQuery.query}
                       </div>
                     )}
                   </button>
@@ -307,10 +307,10 @@ export function ChunkReviewPanel({
           </div>
 
           {/* Query Scores Panel */}
-          {chunkAssignment && (
+          {chunkAssignment?.assignedQuery && (
             <ScoresPanel
               chunkIndex={selectedChunkIndex}
-              assignedQueries={chunkAssignment.assignedQueries}
+              assignedQueries={[chunkAssignment.assignedQuery]}
               originalFullScores={originalFullScores}
               optimizedFullScores={optimizedFullScores}
             />
