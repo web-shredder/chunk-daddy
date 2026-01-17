@@ -34,6 +34,35 @@ export interface OptimizeOptions {
   useFocusedOptimization?: boolean;
 }
 
+// Process items in batches with concurrency control
+async function processBatched<T, R>(
+  items: T[],
+  batchSize: number,
+  delayMs: number,
+  processor: (item: T, index: number) => Promise<R>,
+  onBatchComplete?: (processed: number, total: number) => void
+): Promise<R[]> {
+  const results: R[] = [];
+  
+  for (let i = 0; i < items.length; i += batchSize) {
+    const batch = items.slice(i, i + batchSize);
+    const batchResults = await Promise.all(
+      batch.map((item, batchIdx) => processor(item, i + batchIdx))
+    );
+    results.push(...batchResults);
+    
+    // Report progress
+    onBatchComplete?.(Math.min(i + batchSize, items.length), items.length);
+    
+    // Add delay between batches (except after last batch)
+    if (i + batchSize < items.length) {
+      await new Promise(resolve => setTimeout(resolve, delayMs));
+    }
+  }
+  
+  return results;
+}
+
 export function useOptimizer() {
   const [state, setState] = useState<UseOptimizerState>({
     step: 'idle',
@@ -129,27 +158,38 @@ export function useOptimizer() {
           preview: c.slice(0, 200),
         }));
 
-        const briefPromises = queryAssignments.unassignedQueries.map(async (query) => {
-          try {
-            const { data, error } = await supabase.functions.invoke('optimize-content', {
-              body: {
-                type: 'generateContentBrief',
-                query,
-                content,
-                chunkSummaries,
-              },
-            });
-            if (error) throw error;
-            return data?.result as ContentBrief;
-          } catch (err) {
-            console.warn(`Brief generation failed for "${query}":`, err);
-            return null;
+        const totalQueries = queryAssignments.unassignedQueries.length;
+        
+        const briefResults = await processBatched(
+          queryAssignments.unassignedQueries,
+          5, // Process 5 at a time
+          500, // 500ms delay between batches
+          async (query) => {
+            try {
+              const { data, error } = await supabase.functions.invoke('optimize-content', {
+                body: {
+                  type: 'generateContentBrief',
+                  query,
+                  content,
+                  chunkSummaries,
+                },
+              });
+              if (error) throw error;
+              return data?.result as ContentBrief;
+            } catch (err) {
+              console.warn(`Brief generation failed for "${query}":`, err);
+              return null;
+            }
+          },
+          (processed, total) => {
+            // Update progress: 40-50% range for brief generation
+            const briefProgress = 40 + (10 * processed / total);
+            setState(prev => ({ ...prev, progress: Math.round(briefProgress) }));
           }
-        });
-
-        const briefResults = await Promise.all(briefPromises);
+        );
+        
         contentBriefs = briefResults.filter((b): b is ContentBrief => b !== null);
-        console.log(`Generated ${contentBriefs.length} content briefs`);
+        console.log(`Generated ${contentBriefs.length}/${totalQueries} content briefs`);
       }
 
       setState(prev => ({ ...prev, step: 'scoring', progress: 50 }));
