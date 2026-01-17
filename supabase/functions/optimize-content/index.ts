@@ -751,93 +751,46 @@ Return JSON:
   ]
 }`;
 
-        // Level 2: Drill into DIFFERENT DIMENSIONS of the parent
-        const level2SystemPrompt = `Generate sub-queries that explore SPECIFIC DIMENSIONS of the parent query.
+        // Level 2+: Drill deeper into the parent's aspect with specificity
+        const level2PlusSystemPrompt = `You drill deeper into one aspect of a question.
 
-Parent query: "${parentNode.query}"
+ROOT QUESTION: "${pq}"
+PARENT SUB-QUERY: "${parentNode.query}"
+ASPECT BEING EXPLORED: "${(parentNode as any).aspectAnswered || 'unknown'}"
 
-LEVEL 2 RULES:
-- Each sub-query explores a DIFFERENT FACET or DIMENSION of the parent
-- Don't just add "in the US" or "for enterprises" - that's lazy and useless
-- Ask about specific ASPECTS: fees, policies, mechanisms, stakeholders, timelines, causes, effects
-- 8-15 words per query
+YOUR JOB: Generate ${numToGenerate} more specific questions that explore this aspect in greater detail.
 
-WHAT "DRILLING DOWN" MEANS:
+HOW TO DRILL DEEPER:
+1. Add SPECIFICITY (specific examples, named entities, time periods)
+2. Explore SUB-DIMENSIONS of this aspect
+3. Ask about EVIDENCE or EXAMPLES
 
-Parent: "How does Live Nation compare to other ticket sellers?"
-GOOD L2 (explores dimensions):
-- "How do Live Nation's service fees compare to other ticket platforms?" (FEES dimension)
-- "How does Live Nation's refund and cancellation policy compare to competitors?" (POLICY dimension)  
-- "How does Live Nation's market dominance compare to independent ticket sellers?" (MARKET SHARE dimension)
-- "How does the Live Nation checkout experience compare to other platforms?" (UX dimension)
+EXAMPLE:
+Root: "why is live nation hated?"
+Parent (L1): "What fee practices make people hate Live Nation?"
+Good L2 children:
+- "What are the specific fees Ticketmaster charges and how much do they add to ticket prices?" (aspect: fee breakdown)
+- "Why do Live Nation's 'service fees' and 'facility charges' anger consumers?" (aspect: fee types)
+- "How did Taylor Swift's Eras Tour expose Live Nation's fee problems?" (aspect: incidents)
+- "What percentage of a concert ticket goes to fees versus the artist?" (aspect: fee ratio)
 
-BAD L2 (just appends filters):
-- "How does Live Nation compare to other ticket sellers in the US?" ❌
-- "How does Live Nation compare to other ticket sellers for concerts?" ❌
-- "How does enterprise Live Nation compare globally?" ❌
+EXAMPLE:
+Root: "how to choose an RPO provider"
+Parent (L1): "What criteria matter most when evaluating RPO providers?"
+Good L2 children:
+- "How do you evaluate an RPO provider's industry expertise and track record?" (aspect: expertise)
+- "What technology and ATS integration capabilities should RPO providers have?" (aspect: technology)
+- "How do you assess an RPO provider's service level guarantees?" (aspect: SLAs)
+- "What questions reveal an RPO provider's true pricing and hidden fees?" (aspect: pricing)
 
-Parent: "What problems do people associate with Live Nation?"
-GOOD L2:
-- "What fee-related problems do people associate with Live Nation?" (FEES)
-- "What customer service problems do people report with Live Nation?" (SERVICE)
-- "What competition and monopoly concerns surround Live Nation?" (ANTITRUST)
-- "What problems do artists and venues have with Live Nation?" (STAKEHOLDER)
+THE TEST: Does this help answer the parent query with more specific detail?
 
-BAD L2:
-- "What problems do US people associate with Live Nation?" ❌
-- "What problems do enterprise customers associate with Live Nation?" ❌
-
-THINK: What are the 3-4 specific ASPECTS someone researching this parent query would want to explore?
-
-Generate ${numToGenerate} queries that each explore a DIFFERENT dimension.
+Keep queries 8-18 words each.
 
 Return JSON:
 {
   "queries": [
-    { "query": "...", "intentType": "specification|process|comparison|decision|problem|follow_up" }
-  ]
-}`;
-
-        // Level 3+: Add CONCRETE SPECIFICS to the dimension
-        const level3PlusSystemPrompt = `Generate highly specific sub-queries that drill even deeper into the parent's dimension.
-
-Parent query: "${parentNode.query}"
-Root topic: "${pq}"
-
-LEVEL 3+ RULES:
-- Parent already focused on a dimension (fees, policy, stakeholder, etc.)
-- Now add CONCRETE SPECIFICS: exact mechanisms, real examples, named entities, specific scenarios
-- Can include: specific fee types, named competitors, regulatory bodies, time periods, specific events
-- 10-18 words per query
-
-WHAT "DEEPER DRILLING" MEANS:
-
-Parent (L2): "How do Live Nation's service fees compare to other ticket platforms?"
-GOOD L3 (adds concrete specifics):
-- "Why are Live Nation's dynamic pricing fees higher than StubHub or SeatGeek?"
-- "How did Live Nation's fee structure change after the Taylor Swift Eras Tour backlash?"
-- "What percentage of ticket price goes to Live Nation fees versus artist payment?"
-- "How do Live Nation's 'facility charges' compare to fees at independent venues?"
-
-Parent (L2): "What competition and monopoly concerns surround Live Nation?"
-GOOD L3:
-- "What did the DOJ lawsuit allege about Live Nation's anti-competitive practices?"
-- "How does Live Nation's venue ownership create conflicts of interest for touring artists?"
-- "What market share does Live Nation control in US arena and amphitheater bookings?"
-- "How do Live Nation's exclusive artist contracts limit competition in concert promotion?"
-
-NOW you can add specifics like:
-- Named entities (Taylor Swift, DOJ, StubHub, specific venues)
-- Time references (after 2022, since the merger)
-- Specific mechanisms (dynamic pricing, facility charges, exclusive contracts)
-- Concrete numbers or percentages where relevant
-
-Generate ${numToGenerate} queries.
-
-Return JSON:
-{
-  "queries": [
-    { "query": "...", "intentType": "specification|process|comparison|decision|problem|follow_up" }
+    { "query": "...", "aspectAnswered": "what specific detail this adds" }
   ]
 }`;
 
@@ -845,10 +798,9 @@ Return JSON:
         let systemPrompt: string;
         if (isFirstLevel) {
           systemPrompt = level1SystemPrompt;
-        } else if (isSecondLevel) {
-          systemPrompt = level2SystemPrompt;
         } else {
-          systemPrompt = level3PlusSystemPrompt;
+          // L2+ all use the unified level2Plus prompt
+          systemPrompt = level2PlusSystemPrompt;
         }
         
         const level1UserPrompt = `Primary Query: "${pq}"
@@ -861,31 +813,21 @@ Each sub-query should address a DIFFERENT ASPECT of the answer. Ask yourself: "I
 
 Respond with JSON.`;
 
-        const level2UserPrompt = `Primary Query: "${pq}"
+        const level2PlusUserPrompt = `Primary Query: "${pq}"
 Parent query: "${parentNode.query}"
-Parent intent type: ${parentNode.intentType || 'general'}
+Parent aspect: ${(parentNode as any).aspectAnswered || parentNode.intentType || 'general'}
 
-Generate ${numToGenerate} sub-queries that each explore a DIFFERENT DIMENSION of the parent.
+Generate ${numToGenerate} sub-queries that drill DEEPER into the parent's aspect.
 
-DO NOT just add "in the US" or "for enterprises" - explore substantive facets like fees, policies, stakeholders, mechanisms, causes, effects.
-
-Respond with JSON.`;
-
-        const level3PlusUserPrompt = `Primary Query: "${pq}"
-Parent query: "${parentNode.query}"
-Parent intent type: ${parentNode.intentType || 'general'}
-
-Generate ${numToGenerate} highly specific sub-queries with CONCRETE SPECIFICS: named entities, exact mechanisms, specific events, real examples.
+Add specificity: concrete examples, named entities, specific mechanisms, evidence.
 
 Respond with JSON.`;
 
         let userPrompt: string;
         if (isFirstLevel) {
           userPrompt = level1UserPrompt;
-        } else if (isSecondLevel) {
-          userPrompt = level2UserPrompt;
         } else {
-          userPrompt = level3PlusUserPrompt;
+          userPrompt = level2PlusUserPrompt;
         }
 
         try {

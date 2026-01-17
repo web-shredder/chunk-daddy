@@ -415,18 +415,18 @@ export function AnalyzeTab({
             </div>
           </div>
 
-          {/* Fanout Tree View (new recursive) */}
+          {/* Fanout Tree View (new recursive) - FIXED OVERFLOW */}
           {fanoutTree && (
-            <div className="border border-accent/30 rounded-lg bg-accent/5 overflow-hidden">
+            <div className="border border-accent/30 rounded-lg bg-accent/5 overflow-hidden w-full">
               <div className="flex items-center justify-between p-3 border-b border-accent/20">
-                <div className="flex items-center gap-2">
-                  <Network className="h-4 w-4 text-accent" />
-                  <span className="text-sm font-medium">Query Fanout Tree</span>
-                  <Badge variant="secondary" className="text-[10px]">
+                <div className="flex items-center gap-2 min-w-0">
+                  <Network className="h-4 w-4 text-accent shrink-0" />
+                  <span className="text-sm font-medium shrink-0">Query Fanout Tree</span>
+                  <Badge variant="secondary" className="text-[10px] shrink-0">
                     {fanoutTree.selectedNodes} / {fanoutTree.totalNodes}
                   </Badge>
                 </div>
-                <div className="flex items-center gap-1">
+                <div className="flex items-center gap-1 shrink-0">
                   <button onClick={() => setAllSelected(true)} className="text-xs text-primary hover:underline">
                     All
                   </button>
@@ -437,14 +437,17 @@ export function AnalyzeTab({
                 </div>
               </div>
               
-              <ScrollArea className="h-[300px]">
-                <div className="p-2">
-                  <FanoutNodeDisplay 
-                    node={fanoutTree.root} 
-                    onToggle={toggleNodeSelection}
-                  />
-                </div>
-              </ScrollArea>
+              {/* Properly constrained container with overflow handling */}
+              <div className="w-full overflow-hidden">
+                <ScrollArea className="h-[300px]">
+                  <div className="p-2 pr-4 overflow-x-hidden">
+                    <FanoutNodeDisplay 
+                      node={fanoutTree.root} 
+                      onToggle={toggleNodeSelection}
+                    />
+                  </div>
+                </ScrollArea>
+              </div>
               
               <div className="flex items-center gap-2 p-3 border-t border-accent/20">
                 <button onClick={applyTreeQueries} className="btn-primary flex-1 h-8 text-sm">
@@ -657,7 +660,7 @@ export function AnalyzeTab({
   );
 }
 
-// Recursive fanout node display component
+// Recursive fanout node display component with overflow fix
 function FanoutNodeDisplay({ 
   node, 
   onToggle 
@@ -668,14 +671,20 @@ function FanoutNodeDisplay({
   const [expanded, setExpanded] = useState(true);
   const hasChildren = node.children.length > 0;
   
+  // Show aspectAnswered if available, otherwise fall back to intentType label
+  const displayLabel = (node as any).aspectAnswered || intentLabels[node.intentType];
+  const labelColor = (node as any).aspectAnswered 
+    ? 'bg-secondary text-secondary-foreground' 
+    : intentColors[node.intentType];
+  
   return (
-    <div className="relative">
+    <div className="relative w-full overflow-hidden">
       <div 
         className={cn(
-          "flex items-center gap-2 py-1.5 px-2 rounded-md hover:bg-background/50 transition-colors",
+          "flex items-center gap-2 py-1.5 px-2 rounded-md hover:bg-background/50 transition-colors w-full",
           node.isSelected && "bg-primary/5"
         )}
-        style={{ marginLeft: `${node.level * 16}px` }}
+        style={{ paddingLeft: `${node.level * 16 + 8}px` }}
       >
         {hasChildren ? (
           <button
@@ -689,7 +698,7 @@ function FanoutNodeDisplay({
             )}
           </button>
         ) : (
-          <div className="w-4" />
+          <div className="w-4 shrink-0" />
         )}
         
         <Checkbox
@@ -700,12 +709,17 @@ function FanoutNodeDisplay({
         
         <Badge 
           variant="outline" 
-          className={cn("shrink-0 text-[10px] px-1.5", intentColors[node.intentType])}
+          className={cn("shrink-0 text-[10px] px-1.5 max-w-[80px] truncate", labelColor)}
+          title={displayLabel}
         >
-          {intentLabels[node.intentType]}
+          {displayLabel}
         </Badge>
         
-        <span className="text-xs flex-1 truncate" title={node.query}>
+        {/* Query text with tooltip for full text on hover */}
+        <span 
+          className="text-xs flex-1 truncate min-w-0 block" 
+          title={node.query}
+        >
           {node.query}
         </span>
         
@@ -715,10 +729,10 @@ function FanoutNodeDisplay({
       </div>
 
       {expanded && hasChildren && (
-        <div className="relative">
+        <div className="relative w-full overflow-hidden">
           <div 
             className="absolute left-0 top-0 bottom-0 border-l border-border/50"
-            style={{ marginLeft: `${(node.level + 1) * 16 + 6}px` }}
+            style={{ marginLeft: `${(node.level + 1) * 16 + 14}px` }}
           />
           {node.children.map(child => (
             <FanoutNodeDisplay
