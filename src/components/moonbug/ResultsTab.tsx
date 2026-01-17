@@ -270,18 +270,23 @@ export function ResultsTab({
     return assignment?.assignedQuery?.query;
   }, [queryAssignments]);
 
-  // Get per-query scores for a chunk (for the RelatedQueriesSection)
-  const getPerQueryScores = useCallback((chunkIndex: number): Record<string, number> => {
-    const scoreData = chunkScoreData[chunkIndex];
-    if (!scoreData) return {};
+  // Get per-query detailed scores for a chunk (for the RelatedQueriesSection)
+  const getPerQueryScores = useCallback((chunkIndex: number): Record<string, { passage: number; cosine: number; chamfer: number }> => {
+    const score = chunkScores[chunkIndex];
+    if (!score) return {};
     
-    // Convert from 0-1 to 0-100 for display
-    const scores: Record<string, number> = {};
-    Object.entries(scoreData.scores).forEach(([query, score]) => {
-      scores[query] = Math.round(score * 100);
+    // Build detailed scores with cosine/chamfer breakdown
+    const scores: Record<string, { passage: number; cosine: number; chamfer: number }> = {};
+    score.keywordScores.forEach(ks => {
+      const passageScore = calculatePassageScore(ks.scores.cosine, ks.scores.chamfer);
+      scores[ks.keyword] = {
+        passage: passageScore,
+        cosine: ks.scores.cosine,
+        chamfer: ks.scores.chamfer,
+      };
     });
     return scores;
-  }, [chunkScoreData]);
+  }, [chunkScores]);
 
   // Handle query reassignment
   const handleReassignQuery = useCallback((chunkIndex: number, newQuery: string) => {

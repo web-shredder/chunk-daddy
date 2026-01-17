@@ -15,6 +15,12 @@ import { toast } from 'sonner';
 import type { LayoutAwareChunk } from '@/lib/layout-chunker';
 import type { ChunkScore } from '@/hooks/useAnalysis';
 
+interface PerQueryScore {
+  passage: number;
+  cosine: number;
+  chamfer: number;
+}
+
 interface ChunkDetailsPanelProps {
   chunk: LayoutAwareChunk;
   chunkIndex: number;
@@ -24,7 +30,7 @@ interface ChunkDetailsPanelProps {
   assignedQuery?: string;
   onEditContent?: () => void;
   onReassignQuery?: (newQuery: string) => void;
-  perQueryScores?: Record<string, number>; // query -> passageScore (0-100)
+  perQueryScores?: Record<string, PerQueryScore>; // query -> detailed scores
 }
 
 // Strip markdown formatting
@@ -446,7 +452,7 @@ function RelatedQueriesSection({
   currentScore: number;
   assignedQuery?: string;
   allQueries: string[];
-  perQueryScores?: Record<string, number>;
+  perQueryScores?: Record<string, PerQueryScore>;
   onReassignQuery?: (query: string) => void;
 }) {
   const [isReassigning, setIsReassigning] = useState<string | null>(null);
@@ -458,11 +464,13 @@ function RelatedQueriesSection({
     }
     
     return Object.entries(perQueryScores)
-      .map(([query, score]) => ({
+      .map(([query, scoreData]) => ({
         query,
-        score,
+        score: scoreData.passage,
+        cosine: scoreData.cosine,
+        chamfer: scoreData.chamfer,
         isCurrent: query === assignedQuery,
-        scoreDelta: score - currentScore,
+        scoreDelta: scoreData.passage - currentScore,
       }))
       .sort((a, b) => b.score - a.score)
       .slice(0, 5);
@@ -499,7 +507,7 @@ function RelatedQueriesSection({
       </div>
       
       <div className="space-y-2">
-        {querySimilarities.map(({ query, score, scoreDelta, isCurrent }) => (
+        {querySimilarities.map(({ query, score, cosine, chamfer, scoreDelta, isCurrent }) => (
           <button
             key={query}
             onClick={() => !isCurrent && handleReassign(query)}
@@ -544,17 +552,25 @@ function RelatedQueriesSection({
               </div>
             </div>
             
-            {/* Status labels */}
-            <div className="flex items-center gap-2 mt-1.5 text-[10px]">
-              {isCurrent && (
-                <span className="text-primary font-medium">Current</span>
-              )}
-              {!isCurrent && scoreDelta > 10 && (
-                <span className="flex items-center gap-1 text-green-600">
-                  <TrendingUp className="h-3 w-3" />
-                  Better match
-                </span>
-              )}
+            {/* Score breakdown + status labels */}
+            <div className="flex items-center justify-between mt-1.5 text-[10px]">
+              <div className="flex items-center gap-2">
+                {isCurrent && (
+                  <span className="text-primary font-medium">Current</span>
+                )}
+                {!isCurrent && scoreDelta > 10 && (
+                  <span className="flex items-center gap-1 text-green-600">
+                    <TrendingUp className="h-3 w-3" />
+                    Better match
+                  </span>
+                )}
+              </div>
+              
+              {/* Cosine/Chamfer breakdown */}
+              <div className="flex items-center gap-2 font-mono text-muted-foreground">
+                <span>C: {cosine.toFixed(2)}</span>
+                <span>Ch: {chamfer.toFixed(2)}</span>
+              </div>
             </div>
           </button>
         ))}
