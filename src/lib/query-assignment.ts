@@ -1,11 +1,14 @@
 // Query-to-Chunk Assignment System
 // Determines which chunk should be optimized for each query based on scores
 
+import type { FanoutIntentType } from './optimizer-types';
+
 export interface QueryAssignment {
   query: string;
   assignedChunkIndex: number;
   score: number;
   isPrimary: boolean;
+  intentType?: FanoutIntentType;
 }
 
 export interface ChunkAssignment {
@@ -19,6 +22,8 @@ export interface QueryAssignmentMap {
   assignments: QueryAssignment[];
   chunkAssignments: ChunkAssignment[];
   unassignedQueries: string[];
+  // Maps query string to its intent type for gap export
+  intentTypes: Record<string, FanoutIntentType>;
 }
 
 export interface ChunkScoreData {
@@ -35,12 +40,14 @@ export interface ChunkScoreData {
  * @param chunkScores - Array of chunks with their scores per query
  * @param queries - Array of query strings (first is primary)
  * @param minScoreThreshold - Minimum score to consider a valid assignment (default 0.3)
+ * @param intentTypes - Optional map of query -> intentType from fanout
  * @returns QueryAssignmentMap with all assignments
  */
 export function computeQueryAssignments(
   chunkScores: ChunkScoreData[],
   queries: string[],
-  minScoreThreshold: number = 0.3
+  minScoreThreshold: number = 0.3,
+  intentTypes: Record<string, FanoutIntentType> = {}
 ): QueryAssignmentMap {
   // Build all valid (query, chunk, score) candidates
   const candidates: Array<{
@@ -76,6 +83,7 @@ export function computeQueryAssignments(
       assignedChunkIndex: candidate.chunkIndex,
       score: candidate.score,
       isPrimary: candidate.queryIndex === 0,
+      intentType: intentTypes[candidate.query],
     });
 
     assignedChunks.add(candidate.chunkIndex);
@@ -96,7 +104,7 @@ export function computeQueryAssignments(
     };
   });
 
-  return { assignments, chunkAssignments, unassignedQueries };
+  return { assignments, chunkAssignments, unassignedQueries, intentTypes };
 }
 
 /**
@@ -153,7 +161,12 @@ export function reassignQuery(
   const unassignedQueries = allQueries.filter(q => !assignedQuerySet.has(q));
 
   return {
-    updatedMap: { assignments: updatedAssignments, chunkAssignments, unassignedQueries },
+    updatedMap: { 
+      assignments: updatedAssignments, 
+      chunkAssignments, 
+      unassignedQueries,
+      intentTypes: currentMap.intentTypes, // Preserve intent types
+    },
     evictedQuery,
   };
 }
