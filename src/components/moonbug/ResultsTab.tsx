@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { BarChart3, ChevronLeft, ChevronRight, ChevronDown, ChevronUp, Copy, Download, Search, AlertCircle, FileJson, FileText, TreeDeciduous, List, Table, Target, Star, X, ArrowRight, CheckCircle2, ArrowUpDown } from 'lucide-react';
 import { DismissableTip } from '@/components/DismissableTip';
 import { Input } from '@/components/ui/input';
@@ -13,6 +13,7 @@ import { toast } from 'sonner';
 import { cn, stripLeadingHeadingCascade } from '@/lib/utils';
 import { formatScore, getScoreColorClass, getImprovementColorClass, formatImprovement, calculatePassageScore, getPassageScoreTier, getPassageScoreTierColorClass } from '@/lib/similarity';
 import { PassageScoreHero } from './PassageScoreHero';
+import { ChunkCard } from './ChunkCard';
 import { downloadCSV } from '@/lib/csv-export';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { 
@@ -252,6 +253,12 @@ export function ResultsTab({
     return computeQueryAssignments(scoreData, keywords, 0.3);
   }, [chunkScores, keywords, chunks]);
 
+  // Get assigned query for a chunk
+  const getAssignedQuery = (chunkIndex: number): string | undefined => {
+    const assignment = queryAssignments.chunkAssignments.find(ca => ca.chunkIndex === chunkIndex);
+    return assignment?.assignedQuery?.query;
+  };
+
   if (!hasResults) {
     return (
       <div className="flex-1 flex items-center justify-center p-4">
@@ -310,6 +317,35 @@ export function ResultsTab({
     
     return sorted;
   }, [chunksWithScores, searchQuery, scoreFilter, sortBy]);
+
+  // Keyboard navigation for list view
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (viewMode !== 'list' || filteredAndSortedChunks.length === 0) return;
+      
+      // Don't intercept if user is typing in an input
+      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
+      
+      const currentVisibleIndex = filteredAndSortedChunks.findIndex(c => c.originalIndex === selectedIndex);
+      
+      if (e.key === 'ArrowDown' || e.key === 'j') {
+        e.preventDefault();
+        const nextIndex = currentVisibleIndex + 1;
+        if (nextIndex < filteredAndSortedChunks.length) {
+          setSelectedIndex(filteredAndSortedChunks[nextIndex].originalIndex);
+        }
+      } else if (e.key === 'ArrowUp' || e.key === 'k') {
+        e.preventDefault();
+        const prevIndex = currentVisibleIndex - 1;
+        if (prevIndex >= 0) {
+          setSelectedIndex(filteredAndSortedChunks[prevIndex].originalIndex);
+        }
+      }
+    };
+    
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [viewMode, filteredAndSortedChunks, selectedIndex]);
 
   const handleCopy = () => {
     if (selectedChunk) {
@@ -673,7 +709,7 @@ export function ResultsTab({
           {/* Content */}
           <ScrollArea className="flex-1">
             {viewMode === 'list' ? (
-              <div className="p-2 space-y-0.5">
+              <div className="p-2 space-y-2">
                 {filteredAndSortedChunks.length === 0 ? (
                   <div className="text-center py-12">
                     <CheckCircle2 className="mx-auto h-12 w-12 text-green-500 mb-4" />
@@ -693,24 +729,22 @@ export function ResultsTab({
                     </button>
                   </div>
                 ) : (
-                  filteredAndSortedChunks.map(({ chunk, passageScore, originalIndex }) => {
-                    const tier = getPassageScoreTier(passageScore);
-                    const isActive = originalIndex === selectedIndex;
-                    return (
-                      <button 
-                        key={chunk.id} 
-                        onClick={() => handleSelectChunk(originalIndex)} 
-                        className={cn('tree-item w-full text-left', isActive && 'active')}
-                      >
-                        <span className="truncate flex-1 text-xs md:text-sm">
-                          {chunk.headingPath.length > 0 ? chunk.headingPath[chunk.headingPath.length - 1] : `Chunk ${chunk.id.replace('chunk-', '')}`}
-                        </span>
-                        <Badge variant="secondary" className={cn('text-[10px] px-1.5 py-0 h-4 shrink-0 font-mono', getPassageScoreTierColorClass(tier))}>
-                          {passageScore}
-                        </Badge>
-                      </button>
-                    );
-                  })
+                  filteredAndSortedChunks.map(({ chunk, passageScore, originalIndex }) => (
+                    <ChunkCard
+                      key={chunk.id}
+                      chunk={{
+                        id: chunk.id,
+                        index: originalIndex,
+                        headingPath: chunk.headingPath,
+                        score: passageScore,
+                        text: chunk.text,
+                        tokenEstimate: chunk.metadata.tokenEstimate,
+                        assignedQuery: getAssignedQuery(originalIndex),
+                      }}
+                      isSelected={originalIndex === selectedIndex}
+                      onClick={() => handleSelectChunk(originalIndex)}
+                    />
+                  ))
                 )}
               </div>
             ) : viewMode === 'structure' ? (
