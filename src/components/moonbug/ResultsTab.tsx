@@ -1,19 +1,18 @@
 import { useState, useMemo, useEffect } from 'react';
-import { BarChart3, ChevronLeft, ChevronRight, ChevronDown, ChevronUp, Copy, Download, Search, AlertCircle, FileJson, FileText, TreeDeciduous, List, Table, Target, Star, X, ArrowRight, CheckCircle2, ArrowUpDown } from 'lucide-react';
+import { BarChart3, ChevronLeft, ChevronRight, ChevronDown, Copy, Download, Search, AlertCircle, FileJson, FileText, TreeDeciduous, List, Table, Target, Star, ArrowRight, CheckCircle2, ArrowUpDown } from 'lucide-react';
 import { DismissableTip } from '@/components/DismissableTip';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
-import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet';
+import { Sheet, SheetContent } from '@/components/ui/sheet';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { toast } from 'sonner';
 import { cn, stripLeadingHeadingCascade } from '@/lib/utils';
-import { formatScore, getScoreColorClass, getImprovementColorClass, formatImprovement, calculatePassageScore, getPassageScoreTier, getPassageScoreTierColorClass } from '@/lib/similarity';
-import { PassageScoreHero } from './PassageScoreHero';
+import { formatScore, getScoreColorClass, calculatePassageScore, getPassageScoreTier, getPassageScoreTierColorClass } from '@/lib/similarity';
 import { ChunkCard } from './ChunkCard';
+import { ChunkDetailsPanel } from './ChunkDetailsPanel';
 import { downloadCSV } from '@/lib/csv-export';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { 
@@ -23,7 +22,6 @@ import {
   type QueryAssignmentMap,
   type ChunkScoreData,
 } from '@/lib/query-assignment';
-import { supabase } from '@/integrations/supabase/client';
 import type { LayoutAwareChunk, DocumentElement } from '@/lib/layout-chunker';
 import type { ChunkScore, AnalysisResult } from '@/hooks/useAnalysis';
 
@@ -434,154 +432,6 @@ export function ResultsTab({
 
   const tree = buildHeadingTree(elements, chunks, chunkScores);
 
-  // Detail panel content (shared between desktop and mobile sheet)
-  const DetailContent = () => (
-    <div className="p-4 md:p-6 space-y-6 md:space-y-8 min-w-0 overflow-hidden">
-      <DismissableTip tipId="results-score">
-        Passage Score predicts how likely this chunk is to be cited in AI search results. 75+ is competitive, 90+ is excellent.
-      </DismissableTip>
-
-      {/* Passage Score Hero */}
-      {selectedScore && (() => {
-        const keywordPassageScores = selectedScore.keywordScores.map(ks => 
-          calculatePassageScore(ks.scores.cosine, ks.scores.chamfer)
-        );
-        const avgPassageScore = Math.round(
-          keywordPassageScores.reduce((sum, ps) => sum + ps, 0) / keywordPassageScores.length
-        );
-        const avgCosine = selectedScore.keywordScores.reduce((sum, ks) => sum + ks.scores.cosine, 0) / selectedScore.keywordScores.length;
-        const avgChamfer = selectedScore.keywordScores.reduce((sum, ks) => sum + ks.scores.chamfer, 0) / selectedScore.keywordScores.length;
-        return (
-          <PassageScoreHero 
-            score={avgPassageScore} 
-            cosineScore={avgCosine}
-            chamferScore={avgChamfer}
-          />
-        );
-      })()}
-
-      {/* Heading Context */}
-      {selectedChunk?.headingPath.length > 0 && (
-        <div className="min-w-0 overflow-hidden">
-          <h4 className="text-label mb-3">Heading Path</h4>
-          <div className="flex items-center gap-2 text-sm text-muted-foreground flex-wrap overflow-x-auto">
-            {selectedChunk.headingPath.map((h, i) => (
-              <span key={i} className="flex items-center gap-2 shrink-0">
-                {i > 0 && <ChevronRight className="h-3 w-3 shrink-0" />}
-                <span className="truncate max-w-[200px]" title={h}>{h}</span>
-              </span>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {/* Content */}
-      <div>
-        <h4 className="text-label mb-3">Content</h4>
-        <pre className="bg-background border border-border rounded-md p-4 font-mono text-xs md:text-[13px] leading-relaxed text-foreground whitespace-pre-wrap break-words max-h-[300px] overflow-auto">
-          {selectedChunk?.textWithoutCascade || stripLeadingHeadingCascade(selectedChunk?.text || '')}
-        </pre>
-      </div>
-
-      {/* Metadata */}
-      <div>
-        <h4 className="text-label mb-3">Metadata</h4>
-        <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-2 text-xs md:text-[13px]">
-          <dt className="text-muted-foreground font-medium">Tokens</dt>
-          <dd className="text-foreground font-mono">
-            ~{selectedChunk?.metadata.tokenEstimate}
-          </dd>
-          <dt className="text-muted-foreground font-medium">Words</dt>
-          <dd className="text-foreground font-mono">
-            {selectedChunk?.metadata.wordCount}
-          </dd>
-          <dt className="text-muted-foreground font-medium">Has Cascade</dt>
-          <dd className="text-foreground font-mono">
-            {selectedChunk?.metadata.hasCascade ? 'Yes' : 'No'}
-          </dd>
-        </dl>
-      </div>
-
-      {/* Similarity Scores */}
-      {selectedScore && (
-        <div>
-          <h4 className="text-label mb-3">Similarity Scores by Algorithm</h4>
-          <div className="space-y-4">
-            {selectedScore.keywordScores.map(ks => {
-              const keywordPassageScore = calculatePassageScore(ks.scores.cosine, ks.scores.chamfer);
-              const keywordTier = getPassageScoreTier(keywordPassageScore);
-              return (
-                <div key={ks.keyword} className="p-3 md:p-4 bg-background border border-border rounded-lg space-y-3">
-                  <div className="flex items-center justify-between flex-wrap gap-2">
-                    <span className="text-xs md:text-sm font-medium text-foreground">
-                      "{ks.keyword}"
-                    </span>
-                    <Badge variant="secondary" className={cn("text-xs px-2 py-0.5 font-mono", getPassageScoreTierColorClass(keywordTier))}>
-                      Score: {keywordPassageScore}
-                    </Badge>
-                  </div>
-                  
-                  {/* Score Grid */}
-                  <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-2 md:gap-3">
-                    {/* Cosine Similarity */}
-                    <div className="space-y-1">
-                      <div className="text-[9px] md:text-[10px] uppercase tracking-wider text-muted-foreground font-medium">
-                        Cosine
-                      </div>
-                      <div className={cn("font-mono text-base md:text-lg font-semibold", getScoreColorClass(ks.scores.cosine))}>
-                        {formatScore(ks.scores.cosine)}
-                      </div>
-                    </div>
-
-                    {/* Chamfer Distance */}
-                    <div className="space-y-1">
-                      <div className="text-[9px] md:text-[10px] uppercase tracking-wider text-muted-foreground font-medium">
-                        Chamfer
-                      </div>
-                      <div className={cn("font-mono text-base md:text-lg font-semibold", getScoreColorClass(ks.scores.chamfer))}>
-                        {formatScore(ks.scores.chamfer)}
-                      </div>
-                    </div>
-
-                    {/* Euclidean Distance */}
-                    <div className="space-y-1">
-                      <div className="text-[9px] md:text-[10px] uppercase tracking-wider text-muted-foreground font-medium">
-                        Euclidean
-                      </div>
-                      <div className="font-mono text-base md:text-lg font-semibold text-foreground">
-                        {formatScore(ks.scores.euclidean)}
-                      </div>
-                    </div>
-
-                    {/* Manhattan Distance */}
-                    <div className="space-y-1">
-                      <div className="text-[9px] md:text-[10px] uppercase tracking-wider text-muted-foreground font-medium">
-                        Manhattan
-                      </div>
-                      <div className="font-mono text-base md:text-lg font-semibold text-foreground">
-                        {formatScore(ks.scores.manhattan)}
-                      </div>
-                    </div>
-
-                    {/* Dot Product */}
-                    <div className="space-y-1">
-                      <div className="text-[9px] md:text-[10px] uppercase tracking-wider text-muted-foreground font-medium">
-                        Dot Product
-                      </div>
-                      <div className="font-mono text-base md:text-lg font-semibold text-foreground">
-                        {formatScore(ks.scores.dotProduct)}
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-      )}
-    </div>
-  );
-
   return (
     <div className="flex-1 flex flex-col bg-background overflow-hidden">
       {/* Warning Banner */}
@@ -845,10 +695,10 @@ export function ResultsTab({
         </div>
 
         {/* Right: Detail Panel (Desktop only) */}
-        {!isMobile && (
+        {!isMobile && selectedChunk && (
           <div className="flex-1 flex flex-col overflow-hidden">
-            {/* Detail Header */}
-            <div className="h-14 px-6 border-b border-border flex items-center justify-between bg-surface shrink-0">
+            {/* Detail Header with Navigation */}
+            <div className="h-14 px-4 border-b border-border flex items-center justify-between bg-surface shrink-0">
               <div className="flex items-center gap-3">
                 <button 
                   onClick={() => setSelectedIndex(Math.max(0, selectedIndex - 1))} 
@@ -858,7 +708,7 @@ export function ResultsTab({
                   <ChevronLeft className="h-4 w-4" />
                 </button>
                 <span className="text-[13px] text-muted-foreground font-mono">
-                  Chunk {selectedIndex + 1} / {chunks.length}
+                  {selectedIndex + 1} / {chunks.length}
                 </span>
                 <button 
                   onClick={() => setSelectedIndex(Math.min(chunks.length - 1, selectedIndex + 1))} 
@@ -869,40 +719,40 @@ export function ResultsTab({
                 </button>
               </div>
 
-              <div className="flex items-center gap-1">
-                <button onClick={handleCopy} className="icon-button" title="Copy">
-                  <Copy className="h-4 w-4" />
-                </button>
-                <DropdownMenu>
-                  <DropdownMenuTrigger asChild>
-                    <button className="icon-button" title="Export">
-                      <Download className="h-4 w-4" />
-                    </button>
-                  </DropdownMenuTrigger>
-                  <DropdownMenuContent align="end" className="bg-elevated">
-                    <DropdownMenuItem onClick={exportJSON}>
-                      <FileJson className="h-4 w-4 mr-2" />
-                      Export as JSON
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <button className="icon-button" title="Export">
+                    <Download className="h-4 w-4" />
+                  </button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="bg-elevated">
+                  <DropdownMenuItem onClick={exportJSON}>
+                    <FileJson className="h-4 w-4 mr-2" />
+                    Export as JSON
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={exportMarkdown}>
+                    <FileText className="h-4 w-4 mr-2" />
+                    Export as Markdown
+                  </DropdownMenuItem>
+                  {result && (
+                    <DropdownMenuItem onClick={handleExportCSV}>
+                      <Table className="h-4 w-4 mr-2" />
+                      Export as CSV
                     </DropdownMenuItem>
-                    <DropdownMenuItem onClick={exportMarkdown}>
-                      <FileText className="h-4 w-4 mr-2" />
-                      Export as Markdown
-                    </DropdownMenuItem>
-                    {result && (
-                      <DropdownMenuItem onClick={handleExportCSV}>
-                        <Table className="h-4 w-4 mr-2" />
-                        Export as CSV
-                      </DropdownMenuItem>
-                    )}
-                  </DropdownMenuContent>
-                </DropdownMenu>
-              </div>
+                  )}
+                </DropdownMenuContent>
+              </DropdownMenu>
             </div>
 
-            {/* Detail Content */}
-            <ScrollArea className="flex-1">
-              <DetailContent />
-            </ScrollArea>
+            {/* New Chunk Details Panel */}
+            <ChunkDetailsPanel
+              chunk={selectedChunk}
+              chunkIndex={selectedIndex}
+              chunkScore={selectedScore}
+              totalChunks={chunks.length}
+              allQueries={keywords}
+              assignedQuery={getAssignedQuery(selectedIndex)}
+            />
           </div>
         )}
 
@@ -910,33 +760,30 @@ export function ResultsTab({
         {isMobile && (
           <Sheet open={mobileDetailOpen} onOpenChange={setMobileDetailOpen}>
             <SheetContent side="bottom" className="h-[85vh] p-0">
-              <div className="h-full flex flex-col">
-                {/* Header */}
-                <div className="h-14 px-4 border-b border-border flex items-center justify-between bg-surface shrink-0">
-                  <div className="flex items-center gap-2">
-                    <button 
-                      onClick={() => setSelectedIndex(Math.max(0, selectedIndex - 1))} 
-                      disabled={selectedIndex === 0} 
-                      className="icon-button"
-                    >
-                      <ChevronLeft className="h-4 w-4" />
-                    </button>
-                    <span className="text-xs text-muted-foreground font-mono">
-                      {selectedIndex + 1} / {chunks.length}
-                    </span>
-                    <button 
-                      onClick={() => setSelectedIndex(Math.min(chunks.length - 1, selectedIndex + 1))} 
-                      disabled={selectedIndex === chunks.length - 1} 
-                      className="icon-button"
-                    >
-                      <ChevronRight className="h-4 w-4" />
-                    </button>
-                  </div>
+              {selectedChunk && (
+                <div className="h-full flex flex-col">
+                  {/* Header */}
+                  <div className="h-14 px-4 border-b border-border flex items-center justify-between bg-surface shrink-0">
+                    <div className="flex items-center gap-2">
+                      <button 
+                        onClick={() => setSelectedIndex(Math.max(0, selectedIndex - 1))} 
+                        disabled={selectedIndex === 0} 
+                        className="icon-button"
+                      >
+                        <ChevronLeft className="h-4 w-4" />
+                      </button>
+                      <span className="text-xs text-muted-foreground font-mono">
+                        {selectedIndex + 1} / {chunks.length}
+                      </span>
+                      <button 
+                        onClick={() => setSelectedIndex(Math.min(chunks.length - 1, selectedIndex + 1))} 
+                        disabled={selectedIndex === chunks.length - 1} 
+                        className="icon-button"
+                      >
+                        <ChevronRight className="h-4 w-4" />
+                      </button>
+                    </div>
 
-                  <div className="flex items-center gap-1">
-                    <button onClick={handleCopy} className="icon-button" title="Copy">
-                      <Copy className="h-4 w-4" />
-                    </button>
                     <DropdownMenu>
                       <DropdownMenuTrigger asChild>
                         <button className="icon-button" title="Export">
@@ -961,13 +808,18 @@ export function ResultsTab({
                       </DropdownMenuContent>
                     </DropdownMenu>
                   </div>
-                </div>
 
-                {/* Content */}
-                <ScrollArea className="flex-1">
-                  <DetailContent />
-                </ScrollArea>
-              </div>
+                  {/* New Chunk Details Panel */}
+                  <ChunkDetailsPanel
+                    chunk={selectedChunk}
+                    chunkIndex={selectedIndex}
+                    chunkScore={selectedScore}
+                    totalChunks={chunks.length}
+                    allQueries={keywords}
+                    assignedQuery={getAssignedQuery(selectedIndex)}
+                  />
+                </div>
+              )}
             </SheetContent>
           </Sheet>
         )}
