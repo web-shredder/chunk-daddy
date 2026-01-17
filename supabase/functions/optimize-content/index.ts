@@ -644,66 +644,104 @@ ${contentContext ? `Content Context:\n${contentContext.slice(0, 500)}\n\n` : ''}
         const isFirstLevel = currentDepth === 0;
         const numToGenerate = isFirstLevel ? 6 : branch; // 6 intent types for level 1, then branch factor
         
-        const systemPrompt = isFirstLevel 
-          ? `You are an expert in how AI search systems decompose user queries.
+        // Level 1: Broader intent variations (chapter titles)
+        // Level 2+: More specific drill-down queries
+        const level1Temperature = 0.7;
+        const deeperLevelTemperature = 0.8;
+        
+        const level1SystemPrompt = `You are an expert in how AI search systems decompose user queries.
 
-Generate sub-queries that an AI search system would create internally to comprehensively answer the primary query.
+Generate sub-queries that represent the 6 MAJOR ANGLES someone might use to research this topic.
+
+CRITICAL: Level 1 queries must be BROAD INTENT VARIATIONS, not narrow sub-topics.
 
 GENERATE THESE 6 QUERY TYPES (one of each):
-1. FOLLOW_UP - What question naturally comes next after the basic answer?
-2. SPECIFICATION - A narrower, more specific version targeting a niche
-3. COMPARISON - X vs Y format against alternatives or competitors
-4. PROCESS - How to implement, use, or do something step by step
-5. DECISION - For someone ready to take action, questions to ask before committing
-6. PROBLEM - What problem, pain point, or challenge does this solve?
 
-CRITICAL QUERY FORMAT RULES:
-- Each query MUST be a COMPLETE, NATURAL sentence (typically 8-20 words)
-- Include VERBS and question forms (How, What, Why, When, Which)
-- Add CONTEXT qualifiers (budget, timeline, company size, industry, use case)
-- Example good: "How long does it typically take to implement an RPO solution for a mid-sized company?"
-- Example bad: "RPO implementation timeline" (too short, no context)
+1. FOLLOW_UP - What broad question naturally comes AFTER getting the basic answer?
+   Good: "What should I consider after selecting an RPO provider?"
+   Bad: "RPO contract renewal best practices" (too specific for L1)
 
-- Do NOT generate synonym swaps or keyword variations
-- Do NOT use short noun phrases - always full sentences
+2. SPECIFICATION - A version targeting a MAJOR audience segment (not a niche)
+   Good: "How do enterprise companies approach RPO provider selection?"
+   Bad: "RPO selection for Series A healthcare startups" (too narrow)
 
-OUTPUT JSON:
-{
-  "queries": [
-    {"query": "...", "intentType": "follow_up"},
-    {"query": "...", "intentType": "specification"},
-    {"query": "...", "intentType": "comparison"},
-    {"query": "...", "intentType": "process"},
-    {"query": "...", "intentType": "decision"},
-    {"query": "...", "intentType": "problem"}
-  ]
-}`
-          : `Generate ${numToGenerate} MORE SPECIFIC sub-queries that drill deeper into the parent query.
+3. COMPARISON - Compare against the PRIMARY alternative, not minor competitors
+   Good: "How does using an RPO compare to building an internal recruiting team?"
+   Bad: "RPO vs recruitment agencies for contract nurses" (too specific)
+
+4. PROCESS - The overall HOW-TO, not a specific sub-step
+   Good: "What's the process for evaluating and selecting an RPO partner?"
+   Bad: "How to negotiate SLAs in RPO contracts" (this is a sub-step)
+
+5. DECISION - The KEY factors for making this decision
+   Good: "What factors matter most when choosing an RPO provider?"
+   Bad: "How to evaluate RPO technology stack compatibility with Workday" (too detailed)
+
+6. PROBLEM - The MAIN pain point this solves, not edge cases
+   Good: "What hiring challenges does working with an RPO provider solve?"
+   Bad: "Can RPO help with compliance issues in federal hiring?" (too specific)
+
+QUERY FORMAT RULES:
+- Each query MUST be 8-20 words, a complete natural sentence
+- Include question words (How, What, Why, When, Which)
+- Keep context BROAD at this level (save specifics for deeper levels)
+
+Think of Level 1 as the 6 chapter titles of a comprehensive guide on this topic.
+
+Return JSON: { "queries": [{ "query": "...", "intentType": "follow_up|specification|comparison|process|decision|problem" }] }`;
+
+        const deeperLevelSystemPrompt = `You are an expert in how AI search systems decompose user queries.
+
+Generate ${numToGenerate} MORE SPECIFIC sub-queries that drill deeper into the parent query.
 
 Root topic: "${pq}"
 Parent query to expand: "${parentNode.query}"
 Current depth: Level ${currentDepth + 1}
 
-CRITICAL QUERY FORMAT RULES:
-- Each query MUST be a COMPLETE, NATURAL sentence (typically 8-20 words)
-- Include VERBS and question forms (How, What, Why, When, Which)
-- Add CONTEXT qualifiers (budget, timeline, company size, industry, use case, specific scenarios)
-- Example good: "What are the hidden costs of switching from in-house recruiting to an RPO provider?"
-- Example bad: "RPO hidden costs" (too short, no context)
+NOW YOU CAN GET SPECIFIC. Drill into:
+- Specific industries (healthcare, tech, manufacturing, retail, finance)
+- Specific company sizes (startup, SMB, mid-market, enterprise)
+- Specific scenarios (rapid scaling, seasonal hiring, executive search, high-volume)
+- Specific concerns (cost breakdown, timeline details, compliance requirements)
+- Specific geographies (if relevant)
+- Specific tools/integrations (ATS systems, HRIS platforms)
 
-- Each sub-query should be NARROWER and more specific than the parent
-- Include practical variants (specific industries, company sizes, scenarios)
-- Include "how to" and actionable variants
-- Do NOT repeat the parent query with minor rewording
-- Do NOT use short noun phrases
+QUERY FORMAT RULES:
+- Each query MUST be 8-20 words, a complete natural sentence
+- Include question words and CONTEXT qualifiers
+- Be MORE SPECIFIC than the parent query
+- Do NOT repeat the parent with minor rewording
 
-OUTPUT JSON:
-{
-  "queries": [
-    {"query": "...", "intentType": "specification"},
-    ...
-  ]
-}`;
+Examples of GOOD Level 2+ specificity:
+Parent: "What's the process for evaluating RPO partners?"
+Children:
+- "How long does a typical RPO vendor evaluation process take for mid-sized companies?"
+- "What questions should you ask RPO providers during the RFP process?"
+- "How do you evaluate an RPO provider's technology stack and ATS integrations?"
+
+Return JSON: { "queries": [{ "query": "...", "intentType": "specification|process|problem|comparison|follow_up|decision" }] }`;
+
+        const systemPrompt = isFirstLevel ? level1SystemPrompt : deeperLevelSystemPrompt;
+        
+        const level1UserPrompt = `Primary Query: "${pq}"
+
+Content Context: ${ctx?.slice(0, 500) || 'Not provided'}
+
+Generate 6 broad intent variations (one of each type: follow_up, specification, comparison, process, decision, problem).
+
+Remember: These should be the 6 MAJOR ANGLES for researching this topic, not narrow sub-topics.
+
+Respond with JSON.`;
+
+        const deeperUserPrompt = `Primary Query: "${pq}"
+Parent query: "${parentNode.query}"
+Parent intent type: ${parentNode.intentType || 'general'}
+
+Generate ${numToGenerate} specific sub-queries that drill deeper into the parent.
+
+These CAN and SHOULD be specific - include industries, company sizes, scenarios, or technical details as appropriate.
+
+Respond with JSON.`;
 
         try {
           const response = await fetch('https://api.openai.com/v1/chat/completions', {
@@ -716,13 +754,10 @@ OUTPUT JSON:
               model: 'gpt-5.2',
               messages: [
                 { role: 'system', content: systemPrompt },
-                { role: 'user', content: isFirstLevel 
-                  ? `Primary Query: "${pq}"\n\nContent Context: ${ctx?.slice(0, 500) || 'Not provided'}\n\nRespond with JSON.`
-                  : `Expand: "${parentNode.query}"\n\nRespond with JSON.`
-                }
+                { role: 'user', content: isFirstLevel ? level1UserPrompt : deeperUserPrompt }
               ],
               response_format: { type: 'json_object' },
-              temperature: 0.8,
+              temperature: isFirstLevel ? level1Temperature : deeperLevelTemperature,
             }),
           });
           
