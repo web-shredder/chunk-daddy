@@ -700,44 +700,54 @@ ${contentContext ? `Content Context:\n${contentContext.slice(0, 500)}\n\n` : ''}
         const numToGenerate = isFirstLevel ? 6 : branch;
         const actualLevel = currentDepth + 1;
         
-        // Level 1: 6 broad research angles
-        const level1SystemPrompt = `Generate 6 broad research angles for a topic.
+        // Level 1: Sub-queries that DIRECTLY ANSWER the primary query
+        const level1SystemPrompt = `You help answer questions by breaking them into retrievable sub-questions.
 
-LEVEL 1 RULES:
-- Ask about DIFFERENT ASPECTS of the topic
-- No narrow qualifiers (industry, geography, company size, etc.)
-- 6-12 words per query
-- Each query represents a major research angle
+PRIMARY QUERY: "${pq}"
 
-GENERATE 6 QUERIES (one each type):
+YOUR JOB: Generate 5-6 sub-queries that DIRECTLY HELP ANSWER the primary query.
 
-1. FOLLOW_UP: What naturally comes next after the basic answer?
-   Example: "What should you do after understanding why Live Nation is criticized?"
+CRITICAL RULE: Every sub-query must be something that, if answered, provides PART OF THE ANSWER to the primary query.
 
-2. SPECIFICATION: Who or what is most affected?
-   Example: "What are the main reasons fans dislike Live Nation?"
+EXAMPLE 1:
+Primary: "why is live nation hated?"
+GOOD sub-queries (each answers PART of "why"):
+- "What fee practices make people hate Live Nation?" (REASON: fees)
+- "What monopoly concerns drive hatred of Live Nation?" (REASON: antitrust)
+- "What customer service failures fuel Live Nation backlash?" (REASON: service)
+- "What high-profile incidents caused public outrage at Live Nation?" (REASON: incidents)
+- "How does Live Nation's market dominance hurt fans and artists?" (REASON: impact)
 
-3. COMPARISON: How does it compare to the main alternative?
-   Example: "How does Live Nation compare to other ticket sellers?"
+BAD sub-queries (don't answer "why"):
+- "What can consumers do to avoid Live Nation?" ❌ Different question
+- "How does Live Nation compare to StubHub?" ❌ Doesn't explain hatred
+- "What is Live Nation's business model?" ❌ Too broad, doesn't explain hatred
 
-4. PROCESS: How does the core mechanism work?
-   Example: "How does Live Nation set ticket prices and fees?"
+EXAMPLE 2:
+Primary: "how to choose an RPO provider"
+GOOD sub-queries (each helps with "how to choose"):
+- "What criteria matter most when evaluating RPO providers?" (HOW: criteria)
+- "What questions should you ask RPO vendors during selection?" (HOW: questions)
+- "What red flags indicate a bad RPO provider?" (HOW: warnings)
+- "How do you compare RPO pricing models?" (HOW: pricing)
+- "What does the RPO selection process look like?" (HOW: process)
 
-5. DECISION: What factors drive opinions or choices?
-   Example: "What factors shape public opinion about Live Nation?"
+BAD sub-queries:
+- "What is RPO?" ❌ Doesn't help choose
+- "Why do companies use RPO?" ❌ Different question
+- "What happens after you choose an RPO?" ❌ Different question
 
-6. PROBLEM: What specific problems are associated with this?
-   Example: "What problems do people associate with Live Nation?"
+THE TEST: Ask yourself "If I answer this sub-query, does it give me part of the answer to the primary query?"
+- YES → Include it
+- NO → Don't include it
+
+Generate 5-6 sub-queries. Each should explore a DIFFERENT ASPECT of answering the primary query.
+Keep queries 6-12 words each.
 
 Return JSON:
 {
   "queries": [
-    { "query": "...", "intentType": "follow_up" },
-    { "query": "...", "intentType": "specification" },
-    { "query": "...", "intentType": "comparison" },
-    { "query": "...", "intentType": "process" },
-    { "query": "...", "intentType": "decision" },
-    { "query": "...", "intentType": "problem" }
+    { "query": "...", "aspectAnswered": "brief description of what aspect this answers" }
   ]
 }`;
 
@@ -845,9 +855,9 @@ Return JSON:
 
 Content Context: ${ctx?.slice(0, 500) || 'Not provided'}
 
-Generate 6 broad research angles (one of each type: follow_up, specification, comparison, process, decision, problem).
+Generate 5-6 sub-queries that DIRECTLY HELP ANSWER the primary query.
 
-Each query should explore a different ASPECT of the topic, not add filters like geography or company size.
+Each sub-query should address a DIFFERENT ASPECT of the answer. Ask yourself: "If I answer this sub-query, does it provide part of the answer to the primary query?"
 
 Respond with JSON.`;
 
