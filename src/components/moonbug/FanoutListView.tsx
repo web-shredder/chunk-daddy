@@ -18,13 +18,13 @@ import {
 } from '@/components/ui/tooltip';
 import { 
   Trash2, 
-  Download, 
   Search,
   ListTree,
   Star,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import type { FanoutNode } from '@/lib/optimizer-types';
+import { ExportFanoutDialog } from './ExportFanoutDialog';
+import type { FanoutExportQuery } from '@/lib/export-fanout';
 
 interface FanoutQuery {
   id: string;
@@ -46,7 +46,6 @@ interface FanoutListViewProps {
   onDeselectAll: () => void;
   onDeleteSelected: () => void;
   onDeleteQuery: (id: string) => void;
-  onExport: () => void;
   showTreeView?: () => void;
   chunks?: Array<{ id: string; heading?: string }>;
   hasAnalysisResults?: boolean;
@@ -60,7 +59,6 @@ export function FanoutListView({
   onDeselectAll,
   onDeleteSelected,
   onDeleteQuery,
-  onExport,
   showTreeView,
   chunks,
   hasAnalysisResults = false,
@@ -164,10 +162,14 @@ export function FanoutListView({
           </SelectContent>
         </Select>
         
-        <Button variant="outline" size="sm" className="h-8 text-xs gap-1.5" onClick={onExport}>
-          <Download className="h-3.5 w-3.5" />
-          Export
-        </Button>
+        <ExportFanoutDialog
+          queries={queries.map(q => ({
+            ...q,
+            parentQuery: queries.find(p => p.id === q.parentId)?.query,
+            assignedChunkHeading: chunks?.[q.assignedChunkIndex ?? -1]?.heading,
+          } as FanoutExportQuery))}
+          primaryQuery={primaryQuery}
+        />
         
         {showTreeView && (
           <Button variant="outline" size="sm" className="h-8 text-xs gap-1.5" onClick={showTreeView}>
