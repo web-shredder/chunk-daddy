@@ -6,8 +6,34 @@ import { useApiKey } from "@/hooks/useApiKey";
 import { useAnalysis, type AnalysisResult } from "@/hooks/useAnalysis";
 import { useAuth } from "@/hooks/useAuth";
 import { useProjects } from "@/hooks/useProjects";
+import type { ProjectSummary } from "@/lib/project-types";
 import { parseMarkdown, createLayoutAwareChunks, type LayoutAwareChunk, type ChunkerOptions, type DocumentElement } from "@/lib/layout-chunker";
 import type { FullOptimizationResult } from "@/lib/optimizer-types";
+
+// Helper to escape regex special characters
+const escapeRegex = (str: string) => str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+// Generate unique project name based on primary query
+const generateUniqueProjectName = (primaryQuery: string, existingProjects: ProjectSummary[]): string => {
+  const baseNames = existingProjects.map(p => p.project_name);
+  
+  // Find all projects that match "Query" or "Query - #" pattern
+  const pattern = new RegExp(`^${escapeRegex(primaryQuery)}(?: - (\\d+))?$`, 'i');
+  const existingNumbers = baseNames
+    .map(name => {
+      const match = name.match(pattern);
+      if (match) return match[1] ? parseInt(match[1]) : 0;
+      return null;
+    })
+    .filter((n): n is number => n !== null);
+  
+  // Get next available number (start at 1)
+  const nextNumber = existingNumbers.length > 0 
+    ? Math.max(...existingNumbers) + 1 
+    : 1;
+  
+  return `${primaryQuery} - ${nextNumber}`;
+};
 const Index = () => {
   const navigate = useNavigate();
   const { isValid } = useApiKey();
@@ -44,6 +70,9 @@ const Index = () => {
   const [optimizedContent, setOptimizedContent] = useState<string>("");
   const [optimizationResult, setOptimizationResult] = useState<FullOptimizationResult | null>(null);
   
+  // Local project name for auto-naming before save
+  const [localProjectName, setLocalProjectName] = useState<string>('Untitled Project');
+  
   // Track if we should auto-navigate to results after analysis
   const shouldNavigateToResults = useRef(false);
 
@@ -63,6 +92,11 @@ const Index = () => {
 
   // Track project ID to detect actual project changes vs. saves
   const lastProjectIdRef = useRef<string | null>(null);
+  
+  // Sync localProjectName when project loads or changes
+  useEffect(() => {
+    setLocalProjectName(currentProject?.project_name || 'Untitled Project');
+  }, [currentProject?.id, currentProject?.project_name]);
   
   useEffect(() => {
     if (currentProject) {
@@ -126,9 +160,24 @@ const Index = () => {
   }, [keywords, chunkerOptions, result, optimizedContent, optimizationResult, markUnsaved]);
 
   const handleKeywordsChange = useCallback((newKeywords: string[]) => {
+    const previousPrimary = keywords[0];
+    const newPrimary = newKeywords[0];
+    
+    // Check if primary query was just set or changed
+    const primaryChanged = newPrimary && newPrimary !== previousPrimary;
+    const isUntitled = !localProjectName || 
+                       localProjectName === 'Untitled Project' ||
+                       localProjectName.startsWith('Untitled ');
+    
+    // Auto-name only for new/untitled projects when primary query is set
+    if (primaryChanged && isUntitled) {
+      const uniqueName = generateUniqueProjectName(newPrimary, projects);
+      setLocalProjectName(uniqueName);
+    }
+    
     setKeywords(newKeywords);
     markUnsaved(content, newKeywords, chunkerOptions, result, optimizedContent, optimizationResult);
-  }, [content, chunkerOptions, result, optimizedContent, optimizationResult, markUnsaved]);
+  }, [content, keywords, chunkerOptions, result, optimizedContent, optimizationResult, markUnsaved, localProjectName, projects]);
 
   const handleSettingsChange = useCallback((newOptions: ChunkerOptions) => {
     setChunkerOptions(newOptions);
@@ -150,12 +199,13 @@ const Index = () => {
     setLayoutChunks([]);
     setOptimizedContent("");
     setOptimizationResult(null);
+    setLocalProjectName('Untitled Project');
     setActiveTab('content');
   };
 
   const handleSave = async () => {
     await saveProject(
-      currentProject?.project_name || 'Untitled Project',
+      localProjectName,
       content,
       keywords,
       chunkerOptions,
@@ -195,6 +245,10 @@ const Index = () => {
 
   const handleRenameProject = (projectId: string, newName: string) => {
     renameProject(projectId, newName);
+    // Also update local name if renaming current project
+    if (projectId === currentProject?.id) {
+      setLocalProjectName(newName);
+    }
   };
 
   const handleDeleteProject = async (projectId: string) => {
@@ -241,7 +295,7 @@ const Index = () => {
   return (
     <div className="h-screen flex flex-col bg-background overflow-hidden">
       <TopBar
-        projectName={currentProject?.project_name || 'Untitled Project'}
+        projectName={localProjectName}
         projects={projects}
         currentProjectId={currentProject?.id}
         isLoading={projectsLoading}
