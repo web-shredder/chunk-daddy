@@ -25,6 +25,7 @@ import {
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger, DropdownMenuSeparator } from '@/components/ui/dropdown-menu';
 import { toast } from 'sonner';
@@ -33,6 +34,7 @@ import { MarkdownEditor } from '@/components/MarkdownEditor';
 import { formatScore, getScoreColorClass, formatImprovement, getImprovementColorClass, calculatePassageScore } from '@/lib/similarity';
 import { generateFormalTextReport } from '@/lib/report-generator';
 import { useIsMobile } from '@/hooks/use-mobile';
+import { ContentBriefCard } from '@/components/optimizer/ContentBriefCard';
 import type { FullOptimizationResult, ValidatedChunk, ChangeExplanation, FurtherOptimizationSuggestion, TradeOffConsideration } from '@/lib/optimizer-types';
 
 interface ReportTabProps {
@@ -137,6 +139,30 @@ export function ReportTab({
   const handleApplyEdits = () => {
     onApplyContent(editableContent);
     toast.success('Content updated');
+  };
+
+  const copyAllBriefs = () => {
+    if (!optimizationResult?.contentBriefs?.length) return;
+    
+    const markdown = `# Content Briefs\n\n` + optimizationResult.contentBriefs.map((brief, i) => `
+## Brief ${i + 1}: ${brief.suggestedHeading}
+
+**Target Query:** ${brief.targetQuery}  
+**Placement:** ${brief.placementDescription}  
+**Target Length:** ${brief.targetWordCount.min}-${brief.targetWordCount.max} words
+
+### Key Points
+${brief.keyPoints.map(p => `- [ ] ${p}`).join('\n')}
+
+### Draft Opening
+${brief.draftOpening}
+
+### Gap Analysis
+${brief.gapAnalysis}
+`).join('\n---\n');
+
+    navigator.clipboard.writeText(markdown);
+    toast.success(`${optimizationResult.contentBriefs.length} content briefs copied as markdown`);
   };
 
   const toggleChunk = (idx: number) => {
@@ -627,6 +653,43 @@ export function ReportTab({
                 </CollapsibleContent>
               </section>
             </Collapsible>
+          )}
+
+          {/* Content Briefs for Unhoused Queries */}
+          {optimizationResult?.contentBriefs && optimizationResult.contentBriefs.length > 0 && (
+            <Card className="border-2 border-dashed border-amber-300 dark:border-amber-600">
+              <CardHeader>
+                <div className="flex items-center justify-between flex-wrap gap-2">
+                  <div>
+                    <CardTitle className="flex items-center gap-2 text-base">
+                      <FileText className="w-5 h-5 text-amber-600" />
+                      New Content Recommended
+                    </CardTitle>
+                    <p className="text-sm text-muted-foreground mt-1">
+                      {optimizationResult.contentBriefs.length} queries need new sections
+                    </p>
+                  </div>
+                  <Button variant="outline" size="sm" onClick={copyAllBriefs}>
+                    <Copy className="w-4 h-4 mr-2" />
+                    Copy All Briefs
+                  </Button>
+                </div>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                {optimizationResult.contentBriefs.map((brief, index) => (
+                  <ContentBriefCard key={brief.targetQuery} brief={brief} index={index} />
+                ))}
+                
+                <div className="pt-4 border-t">
+                  <p className="text-sm text-muted-foreground mb-2">
+                    Written new content based on these briefs?
+                  </p>
+                  <Button variant="outline" onClick={onReanalyze}>
+                    Re-analyze with Updated Content
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
           )}
 
           {/* Optimized Content */}
