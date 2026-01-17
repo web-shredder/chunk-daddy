@@ -15,6 +15,7 @@ interface OptimizationRequest {
   type: 'analyze' | 'optimize' | 'optimize_focused' | 'explain' | 'suggest_keywords' | 'summarize' | 'generateContentBrief' | 'generate_fanout' | 'generate_fanout_tree' | 'deduplicate_fanout' | 'analyze_architecture';
   content: string;
   queries?: string[];
+  query?: string;  // Single query for generateContentBrief
   currentScores?: Record<string, number>;
   analysis?: any;
   validatedChanges?: any;
@@ -103,7 +104,7 @@ serve(async (req) => {
       );
     }
 
-    const { type, content, queries, currentScores, analysis, validatedChanges, chunkScoreData, queryAssignments, chunks, primaryQuery, contentContext, headings, chunkScores }: OptimizationRequest = await req.json();
+    const { type, content, queries, query, currentScores, analysis, validatedChanges, chunkScoreData, queryAssignments, chunks, primaryQuery, contentContext, maxDepth, branchFactor, similarityThreshold, headings, chunkScores }: OptimizationRequest = await req.json();
 
     console.log(`Processing ${type} request for content length: ${content?.length}, queries: ${queries?.length}`);
 
@@ -598,9 +599,11 @@ ${contentContext ? `Content Context:\n${contentContext.slice(0, 500)}\n\n` : ''}
       });
     
     } else if (type === 'generate_fanout_tree') {
-      // Multi-level fanout tree generation
-      const body = await req.clone().json();
-      const { primaryQuery: pq, contentContext: ctx, maxDepth = 2, branchFactor = 4 } = body;
+      // Multi-level fanout tree generation - use already-parsed body variables
+      const pq = primaryQuery;
+      const ctx = contentContext;
+      const depth = maxDepth ?? 2;
+      const branch = branchFactor ?? 4;
       
       if (!pq) {
         return new Response(
@@ -663,7 +666,7 @@ OUTPUT JSON:
           model: 'gpt-5.2',
           messages: [
             { role: 'system', content: level1SystemPrompt },
-            { role: 'user', content: `Primary Query: "${pq}"\n\nContent Context: ${ctx?.slice(0, 500) || 'Not provided'}` }
+            { role: 'user', content: `Primary Query: "${pq}"\n\nContent Context: ${ctx?.slice(0, 500) || 'Not provided'}\n\nRespond with JSON.` }
           ],
           response_format: { type: 'json_object' },
           temperature: 0.8,
@@ -695,8 +698,8 @@ OUTPUT JSON:
         };
         
         // Level 2: More specific variants
-        if (maxDepth >= 2) {
-          const level2SystemPrompt = `Generate ${branchFactor} MORE SPECIFIC sub-queries for the given query.
+        if ((maxDepth ?? 2) >= 2) {
+          const level2SystemPrompt = `Generate ${branchFactor ?? 4} MORE SPECIFIC sub-queries for the given query.
 
 Parent context: This is exploring "${pq}"
 Current query to expand: "${l1.query}"
@@ -729,7 +732,7 @@ OUTPUT JSON:
                 model: 'gpt-5.2',
                 messages: [
                   { role: 'system', content: level2SystemPrompt },
-                  { role: 'user', content: `Expand: "${l1.query}"` }
+                  { role: 'user', content: `Expand: "${l1.query}"\n\nRespond with JSON.` }
                 ],
                 response_format: { type: 'json_object' },
                 temperature: 0.8,
@@ -1237,11 +1240,10 @@ Be thorough but practical. Focus on issues that would meaningfully improve retri
 
     // For generateContentBrief, add targetQuery to the result
     if (type === 'generateContentBrief') {
-      const body = await req.clone().json();
       return new Response(
         JSON.stringify({ 
           result: {
-            targetQuery: body.query,
+            targetQuery: query,  // Use already-parsed query variable
             ...result
           }
         }),
