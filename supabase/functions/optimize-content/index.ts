@@ -12,7 +12,7 @@ interface QueryChunkAssignment {
 }
 
 interface OptimizationRequest {
-  type: 'analyze' | 'optimize' | 'optimize_focused' | 'explain' | 'suggest_keywords' | 'summarize' | 'generateContentBrief' | 'generate_fanout' | 'generate_fanout_tree' | 'deduplicate_fanout';
+  type: 'analyze' | 'optimize' | 'optimize_focused' | 'explain' | 'suggest_keywords' | 'summarize' | 'generateContentBrief' | 'generate_fanout' | 'generate_fanout_tree' | 'deduplicate_fanout' | 'analyze_architecture';
   content: string;
   queries?: string[];
   currentScores?: Record<string, number>;
@@ -26,6 +26,8 @@ interface OptimizationRequest {
   maxDepth?: number;
   branchFactor?: number;
   similarityThreshold?: number;
+  headings?: string[];
+  chunkScores?: any;
 }
 
 // Dynamic token limits by operation type - prevents truncation while optimizing costs
@@ -40,6 +42,7 @@ const maxTokensByType: Record<OptimizationRequest['type'], number> = {
   'generate_fanout': 4096,
   'generate_fanout_tree': 8192,
   'deduplicate_fanout': 2048,
+  'analyze_architecture': 8192,
 };
 
 // Helper function for cosine similarity
@@ -100,7 +103,7 @@ serve(async (req) => {
       );
     }
 
-    const { type, content, queries, currentScores, analysis, validatedChanges, chunkScoreData, queryAssignments, chunks, primaryQuery, contentContext }: OptimizationRequest = await req.json();
+    const { type, content, queries, currentScores, analysis, validatedChanges, chunkScoreData, queryAssignments, chunks, primaryQuery, contentContext, headings, chunkScores }: OptimizationRequest = await req.json();
 
     console.log(`Processing ${type} request for content length: ${content?.length}, queries: ${queries?.length}`);
 
@@ -982,6 +985,139 @@ Generate a content brief for a NEW section that would rank highly for this query
         }
       }];
       toolChoice = { type: "function", function: { name: "generate_content_brief" } };
+    
+    } else if (type === 'analyze_architecture') {
+      // Analyze document architecture for structural issues
+      if (!chunks || chunks.length === 0) {
+        return new Response(
+          JSON.stringify({ error: 'analyze_architecture requires chunks' }),
+          { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        );
+      }
+
+      // Build chunk summaries for the AI
+      const chunkSummaries = chunks.map((chunk: string, i: number) => {
+        const scores = chunkScores?.[i]?.scores || {};
+        const topQueries = Object.entries(scores)
+          .sort(([,a], [,b]) => (b as number) - (a as number))
+          .slice(0, 3)
+          .map(([q, s]) => `${q} (${((s as number) * 100).toFixed(0)}%)`);
+        
+        return {
+          index: i,
+          heading: headings?.[i] || '(no heading)',
+          preview: chunk.slice(0, 400).replace(/\n+/g, ' '),
+          wordCount: chunk.split(/\s+/).length,
+          topMatches: topQueries,
+        };
+      });
+
+      systemPrompt = `You are a content architecture analyst specializing in RAG optimization.
+
+Analyze this document's structure to identify issues that hurt retrieval performance. Think holistically about how chunks relate to each other, not just individual chunk quality.
+
+DOCUMENT CHUNKS:
+${chunkSummaries.map(c => `
+[Chunk ${c.index}] ${c.heading}
+Words: ${c.wordCount} | Top matches: ${c.topMatches.join(', ') || 'none'}
+Preview: "${c.preview}..."
+`).join('\n')}
+
+TARGET QUERIES:
+${(queries || []).map((q: string, i: number) => `${i + 1}. ${q}`).join('\n')}
+
+IDENTIFY THESE ISSUE TYPES:
+
+1. MISPLACED_CONTENT (high priority)
+   Content that belongs in a different section based on its topic.
+   Example: Pricing details appearing in the "What is X" definition section.
+   Look for: Topic keywords appearing in unexpected sections.
+
+2. REDUNDANCY (medium priority)
+   Same information stated in multiple chunks.
+   Example: The same definition appearing in chunks 3, 15, and 42.
+   Look for: Similar previews, repeated key phrases, duplicate statistics.
+
+3. BROKEN_ATOMICITY (high priority)
+   Chunks that reference external context and can't stand alone.
+   Example: "As mentioned above...", "This model...", "The previous section..."
+   Look for: Pronouns without clear referents, relative references.
+
+4. TOPIC_INCOHERENCE (medium priority)
+   Single chunks covering multiple unrelated topics.
+   Example: One chunk discussing both pricing AND implementation timelines.
+   Look for: Chunks with high scores for very different queries.
+
+5. COVERAGE_GAP (high priority)
+   Query clusters with no chunk scoring above 50%.
+   Example: No chunk addresses "contract negotiation" despite related queries.
+   Look for: Queries with all low scores across all chunks.
+
+6. ORPHANED_MENTION (low priority)
+   Topics mentioned briefly but never developed.
+   Example: "We also offer contingent RPO" with no further explanation.
+   Look for: Concepts appearing once without context.
+
+Be thorough but practical. Focus on issues that would meaningfully improve retrieval if fixed.`;
+
+      userPrompt = 'Analyze the document architecture and identify structural issues that hurt retrieval performance.';
+
+      tools = [{
+        type: "function",
+        function: {
+          name: "analyze_architecture",
+          description: "Analyze document architecture for structural issues",
+          parameters: {
+            type: "object",
+            properties: {
+              issues: {
+                type: "array",
+                items: {
+                  type: "object",
+                  properties: {
+                    id: { type: "string" },
+                    type: { type: "string", enum: ["MISPLACED_CONTENT", "REDUNDANCY", "BROKEN_ATOMICITY", "TOPIC_INCOHERENCE", "COVERAGE_GAP", "ORPHANED_MENTION"] },
+                    severity: { type: "string", enum: ["high", "medium", "low"] },
+                    chunkIndices: { type: "array", items: { type: "integer" } },
+                    description: { type: "string" },
+                    recommendation: { type: "string" },
+                    impact: { type: "string" },
+                    relatedQueries: { type: "array", items: { type: "string" } }
+                  },
+                  required: ["id", "type", "severity", "chunkIndices", "description", "recommendation", "impact"]
+                }
+              },
+              summary: {
+                type: "object",
+                properties: {
+                  totalIssues: { type: "integer" },
+                  highPriority: { type: "integer" },
+                  mediumPriority: { type: "integer" },
+                  lowPriority: { type: "integer" },
+                  architectureScore: { type: "integer", description: "0-100 score" },
+                  topRecommendation: { type: "string" }
+                },
+                required: ["totalIssues", "highPriority", "mediumPriority", "lowPriority", "architectureScore", "topRecommendation"]
+              },
+              chunkTopicMap: {
+                type: "array",
+                items: {
+                  type: "object",
+                  properties: {
+                    chunkIndex: { type: "integer" },
+                    primaryTopic: { type: "string" },
+                    secondaryTopics: { type: "array", items: { type: "string" } },
+                    isAtomicContent: { type: "boolean" }
+                  },
+                  required: ["chunkIndex", "primaryTopic", "secondaryTopics", "isAtomicContent"]
+                }
+              }
+            },
+            required: ["issues", "summary", "chunkTopicMap"]
+          }
+        }
+      }];
+      toolChoice = { type: "function", function: { name: "analyze_architecture" } };
     }
 
     const responseTools = (tools ?? []).map((t: any) => {

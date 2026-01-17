@@ -1,0 +1,1 @@
+export { ArchitectureReport } from './ArchitectureReport';
