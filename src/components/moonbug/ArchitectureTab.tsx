@@ -1,10 +1,11 @@
 import { useState } from 'react';
-import { Layers, Loader2, BarChart3 } from 'lucide-react';
+import { Layers, Loader2, Download } from 'lucide-react';
 import { toast } from 'sonner';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { supabase } from '@/integrations/supabase/client';
 import { ArchitectureReport } from '@/components/analysis/ArchitectureReport';
 import { calculatePassageScore } from '@/lib/similarity';
+import { downloadArchitectureCSV } from '@/lib/csv-export';
 import type { ArchitectureAnalysis } from '@/lib/optimizer-types';
 import type { LayoutAwareChunk } from '@/lib/layout-chunker';
 
@@ -155,18 +156,30 @@ export function ArchitectureTab({
             </span>
           )}
         </div>
-        <button 
-          onClick={handleAnalyzeArchitecture}
-          disabled={isAnalyzing}
-          className="btn-secondary text-xs flex items-center gap-1.5"
-        >
-          {isAnalyzing ? (
-            <Loader2 className="h-3 w-3 animate-spin" />
-          ) : (
-            <Layers className="h-3 w-3" />
-          )}
-          Re-analyze
-        </button>
+        <div className="flex items-center gap-2">
+          <button 
+            onClick={() => downloadArchitectureCSV(
+              architectureAnalysis, 
+              chunks.map(c => ({ text: c.text || String(c), headingPath: c.headingPath }))
+            )}
+            className="btn-secondary text-xs flex items-center gap-1.5"
+          >
+            <Download className="h-3 w-3" />
+            Export CSV
+          </button>
+          <button 
+            onClick={handleAnalyzeArchitecture}
+            disabled={isAnalyzing}
+            className="btn-secondary text-xs flex items-center gap-1.5"
+          >
+            {isAnalyzing ? (
+              <Loader2 className="h-3 w-3 animate-spin" />
+            ) : (
+              <Layers className="h-3 w-3" />
+            )}
+            Re-analyze
+          </button>
+        </div>
       </div>
 
       {/* Report Content */}
