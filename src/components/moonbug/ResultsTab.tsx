@@ -1,5 +1,5 @@
 import { useState, useMemo } from 'react';
-import { BarChart3, ChevronLeft, ChevronRight, ChevronDown, ChevronUp, Copy, Download, Search, AlertCircle, FileJson, FileText, TreeDeciduous, List, Table, Target, Star, X, ArrowRight, Layers, Loader2 } from 'lucide-react';
+import { BarChart3, ChevronLeft, ChevronRight, ChevronDown, ChevronUp, Copy, Download, Search, AlertCircle, FileJson, FileText, TreeDeciduous, List, Table, Target, Star, X, ArrowRight } from 'lucide-react';
 import { DismissableTip } from '@/components/DismissableTip';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
@@ -21,11 +21,9 @@ import {
   type QueryAssignmentMap,
   type ChunkScoreData,
 } from '@/lib/query-assignment';
-import { ArchitectureReport } from '@/components/analysis/ArchitectureReport';
 import { supabase } from '@/integrations/supabase/client';
 import type { LayoutAwareChunk, DocumentElement } from '@/lib/layout-chunker';
 import type { ChunkScore, AnalysisResult } from '@/hooks/useAnalysis';
-import type { ArchitectureAnalysis } from '@/lib/optimizer-types';
 
 interface ResultsTabProps {
   hasResults: boolean;
@@ -209,49 +207,9 @@ export function ResultsTab({
 }: ResultsTabProps) {
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedIndex, setSelectedIndex] = useState(0);
-  const [viewMode, setViewMode] = useState<'list' | 'structure' | 'assignments' | 'architecture'>('list');
+  const [viewMode, setViewMode] = useState<'list' | 'structure' | 'assignments'>('list');
   const [mobileDetailOpen, setMobileDetailOpen] = useState(false);
-  const [architectureAnalysis, setArchitectureAnalysis] = useState<ArchitectureAnalysis | null>(null);
-  const [isAnalyzingArchitecture, setIsAnalyzingArchitecture] = useState(false);
   const isMobile = useIsMobile();
-
-  // Handler to run architecture analysis
-  const handleAnalyzeArchitecture = async () => {
-    setIsAnalyzingArchitecture(true);
-    try {
-      // Build chunk scores in the format the API expects
-      const formattedChunkScores = chunkScores.map((cs, idx) => {
-        const scores: Record<string, number> = {};
-        cs.keywordScores.forEach(ks => {
-          const passageScore = calculatePassageScore(ks.scores.cosine, ks.scores.chamfer);
-          scores[ks.keyword] = passageScore / 100;
-        });
-        return { scores };
-      });
-
-      const { data, error } = await supabase.functions.invoke('optimize-content', {
-        body: {
-          type: 'analyze_architecture',
-          chunks: chunks.map(c => c.text || c),
-          queries: keywords,
-          chunkScores: formattedChunkScores,
-          headings: chunks.map(c => c.headingPath[c.headingPath.length - 1] || ''),
-        },
-      });
-      
-      if (error) throw error;
-      if (data?.result) {
-        setArchitectureAnalysis(data.result);
-        setViewMode('architecture');
-        toast.success(`Architecture analysis complete: ${data.result.issues?.length || 0} issues found`);
-      }
-    } catch (err) {
-      console.error('Architecture analysis failed:', err);
-      toast.error('Failed to analyze architecture');
-    } finally {
-      setIsAnalyzingArchitecture(false);
-    }
-  };
 
   // Compute query assignments for the assignments view
   const queryAssignments = useMemo(() => {
@@ -573,23 +531,6 @@ export function ResultsTab({
                 <Target className="h-3.5 w-3.5" />
                 <span className="hidden sm:inline">Queries</span>
               </button>
-              <button 
-                onClick={() => architectureAnalysis ? setViewMode('architecture') : handleAnalyzeArchitecture()} 
-                disabled={isAnalyzingArchitecture}
-                className={cn("flex-1 flex items-center justify-center gap-1 py-1.5 px-2 rounded-md text-xs transition-colors", viewMode === 'architecture' ? "bg-accent/20 text-accent" : "text-muted-foreground hover:text-foreground hover:bg-muted/50")}
-              >
-                {isAnalyzingArchitecture ? (
-                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                ) : (
-                  <Layers className="h-3.5 w-3.5" />
-                )}
-                <span className="hidden sm:inline">Arch</span>
-                {architectureAnalysis && architectureAnalysis.summary.totalIssues > 0 && (
-                  <Badge variant="destructive" className="text-[8px] px-1 py-0 h-3.5 ml-0.5">
-                    {architectureAnalysis.summary.totalIssues}
-                  </Badge>
-                )}
-              </button>
             </div>
             
             <div className="relative">
@@ -710,41 +651,6 @@ export function ResultsTab({
                   </div>
                 )}
               </div>
-            ) : viewMode === 'architecture' ? (
-              architectureAnalysis ? (
-                <ArchitectureReport 
-                  analysis={architectureAnalysis}
-                  onNavigateToChunk={(idx) => {
-                    setSelectedIndex(idx);
-                    setViewMode('list');
-                  }}
-                />
-              ) : (
-                <div className="flex flex-col items-center justify-center p-8 text-center">
-                  <Layers className="h-12 w-12 text-muted-foreground/30 mb-4" />
-                  <h3 className="text-sm font-medium text-foreground mb-2">Architecture Analysis</h3>
-                  <p className="text-xs text-muted-foreground mb-4 max-w-xs">
-                    Identifies structural issues across your document: misplaced content, redundancy, broken atomicity, and coverage gaps.
-                  </p>
-                  <button 
-                    onClick={handleAnalyzeArchitecture}
-                    disabled={isAnalyzingArchitecture}
-                    className="btn-secondary flex items-center gap-2"
-                  >
-                    {isAnalyzingArchitecture ? (
-                      <>
-                        <Loader2 className="h-4 w-4 animate-spin" />
-                        Analyzing...
-                      </>
-                    ) : (
-                      <>
-                        <Layers className="h-4 w-4" />
-                        Run Architecture Analysis
-                      </>
-                    )}
-                  </button>
-                </div>
-              )
             ) : null}
           </ScrollArea>
 
