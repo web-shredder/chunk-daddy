@@ -12,7 +12,7 @@ interface QueryChunkAssignment {
 }
 
 interface OptimizationRequest {
-  type: 'analyze' | 'optimize' | 'optimize_focused' | 'explain' | 'suggest_keywords' | 'summarize';
+  type: 'analyze' | 'optimize' | 'optimize_focused' | 'explain' | 'suggest_keywords' | 'summarize' | 'generateContentBrief';
   content: string;
   queries?: string[];
   currentScores?: Record<string, number>;
@@ -30,7 +30,8 @@ const maxTokensByType: Record<OptimizationRequest['type'], number> = {
   'optimize_focused': 16384, // Per-chunk focused optimization
   'explain': 4096,           // Short explanations
   'suggest_keywords': 2048,  // Just a keyword list
-  'summarize': 8192          // RAG explanations, suggestions, trade-offs
+  'summarize': 8192,         // RAG explanations, suggestions, trade-offs
+  'generateContentBrief': 4096, // Content brief generation
 };
 
 // Passage Score context to educate AI about the scoring system
@@ -533,6 +534,62 @@ For each Passage Score change, explain the impact on RAG retrieval. Note tier tr
         }
       }];
       toolChoice = { type: "function", function: { name: "generate_summary" } };
+    
+    } else if (type === 'generateContentBrief') {
+      // Generate content brief for unassigned queries
+      const body = await req.clone().json();
+      const { query, chunkSummaries } = body;
+      
+      if (!query || !chunkSummaries) {
+        return new Response(
+          JSON.stringify({ error: 'generateContentBrief requires query and chunkSummaries' }),
+          { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        );
+      }
+
+      systemPrompt = `You are a content strategist analyzing a document for content gaps.
+A user wants to rank for the query "${query}" but no existing section adequately covers this topic.
+
+Current document structure:
+${chunkSummaries.map((c: any) => `[Chunk ${c.index}] ${c.heading || 'No heading'}: "${c.preview}"`).join('\n')}
+
+Generate a content brief for a NEW section that would rank highly for this query.`;
+
+      userPrompt = `Generate a content brief for query: "${query}"`;
+
+      tools = [{
+        type: "function",
+        function: {
+          name: "generate_content_brief",
+          description: "Generate a content brief for a new section targeting the query",
+          parameters: {
+            type: "object",
+            properties: {
+              suggestedHeading: { type: "string", description: "Heading text matching document style" },
+              headingLevel: { type: "string", enum: ["h2", "h3", "h4"] },
+              placementDescription: { type: "string", description: "Where to place the new section" },
+              placementAfterChunkIndex: { type: ["integer", "null"], description: "Chunk index after which to place, or null" },
+              keyPoints: { 
+                type: "array", 
+                items: { type: "string" },
+                description: "4-6 key points to cover"
+              },
+              targetWordCount: { 
+                type: "object",
+                properties: {
+                  min: { type: "integer" },
+                  max: { type: "integer" }
+                },
+                required: ["min", "max"]
+              },
+              draftOpening: { type: "string", description: "2-3 sentence opening paragraph" },
+              gapAnalysis: { type: "string", description: "Why current content fails this query" }
+            },
+            required: ["suggestedHeading", "headingLevel", "placementDescription", "placementAfterChunkIndex", "keyPoints", "targetWordCount", "draftOpening", "gapAnalysis"]
+          }
+        }
+      }];
+      toolChoice = { type: "function", function: { name: "generate_content_brief" } };
     }
 
     const responseTools = (tools ?? []).map((t: any) => {
@@ -647,6 +704,20 @@ For each Passage Score change, explain the impact on RAG retrieval. Note tier tr
     }
     
     console.log(`${type} completed successfully`);
+
+    // For generateContentBrief, add targetQuery to the result
+    if (type === 'generateContentBrief') {
+      const body = await req.clone().json();
+      return new Response(
+        JSON.stringify({ 
+          result: {
+            targetQuery: body.query,
+            ...result
+          }
+        }),
+        { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
 
     return new Response(
       JSON.stringify({ result }),
