@@ -148,3 +148,33 @@ export interface FullOptimizationResult {
   // All original chunks for full document reconstruction
   allOriginalChunks: OriginalChunkInfo[];
 }
+
+// Types for query fanout tree
+export type FanoutIntentType = 'primary' | 'follow_up' | 'specification' | 'comparison' | 'process' | 'decision' | 'problem';
+
+export interface FanoutNode {
+  id: string;
+  query: string;
+  intentType: FanoutIntentType;
+  level: number;
+  parentId: string | null;
+  children: FanoutNode[];
+  isSelected: boolean;
+  isDuplicate?: boolean;
+  score?: number;
+  assignedChunkIndex?: number;
+}
+
+export interface FanoutTree {
+  root: FanoutNode;
+  totalNodes: number;
+  selectedNodes: number;
+  maxDepth: number;
+}
+
+export interface FanoutGenerationOptions {
+  maxDepth: number;
+  branchFactor: number;
+  deduplicate: boolean;
+  similarityThreshold: number;
+}

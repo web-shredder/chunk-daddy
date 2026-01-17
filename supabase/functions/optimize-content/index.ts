@@ -12,30 +12,53 @@ interface QueryChunkAssignment {
 }
 
 interface OptimizationRequest {
-  type: 'analyze' | 'optimize' | 'optimize_focused' | 'explain' | 'suggest_keywords' | 'summarize' | 'generateContentBrief' | 'generate_fanout';
+  type: 'analyze' | 'optimize' | 'optimize_focused' | 'explain' | 'suggest_keywords' | 'summarize' | 'generateContentBrief' | 'generate_fanout' | 'generate_fanout_tree' | 'deduplicate_fanout';
   content: string;
   queries?: string[];
   currentScores?: Record<string, number>;
   analysis?: any;
   validatedChanges?: any;
-  chunkScoreData?: any; // For summarize: original and optimized scores per chunk per query
-  queryAssignments?: QueryChunkAssignment[]; // For optimize_focused: which queries to optimize each chunk for
-  chunks?: string[]; // For optimize_focused: the pre-split chunks
-  primaryQuery?: string; // For generate_fanout
-  contentContext?: string; // For generate_fanout
+  chunkScoreData?: any;
+  queryAssignments?: QueryChunkAssignment[];
+  chunks?: string[];
+  primaryQuery?: string;
+  contentContext?: string;
+  maxDepth?: number;
+  branchFactor?: number;
+  similarityThreshold?: number;
 }
 
 // Dynamic token limits by operation type - prevents truncation while optimizing costs
 const maxTokensByType: Record<OptimizationRequest['type'], number> = {
-  'analyze': 8192,           // Structured analysis, moderate size
-  'optimize': 32768,         // Full rewritten content - largest output
-  'optimize_focused': 16384, // Per-chunk focused optimization
-  'explain': 4096,           // Short explanations
-  'suggest_keywords': 2048,  // Just a keyword list
-  'summarize': 8192,         // RAG explanations, suggestions, trade-offs
-  'generateContentBrief': 4096, // Content brief generation
-  'generate_fanout': 4096,   // Query fan-out generation
+  'analyze': 8192,
+  'optimize': 32768,
+  'optimize_focused': 16384,
+  'explain': 4096,
+  'suggest_keywords': 2048,
+  'summarize': 8192,
+  'generateContentBrief': 4096,
+  'generate_fanout': 4096,
+  'generate_fanout_tree': 8192,
+  'deduplicate_fanout': 2048,
 };
+
+// Helper function for cosine similarity
+function cosineSimilarity(a: number[], b: number[]): number {
+  let dotProduct = 0;
+  let normA = 0;
+  let normB = 0;
+  for (let i = 0; i < a.length; i++) {
+    dotProduct += a[i] * b[i];
+    normA += a[i] * a[i];
+    normB += b[i] * b[i];
+  }
+  return dotProduct / (Math.sqrt(normA) * Math.sqrt(normB));
+}
+
+// Generate unique ID
+function generateId(): string {
+  return Math.random().toString(36).substr(2, 9);
+}
 
 // Passage Score context to educate AI about the scoring system
 const PASSAGE_SCORE_CONTEXT = `
@@ -566,6 +589,254 @@ ${contentContext ? `Content Context:\n${contentContext.slice(0, 500)}\n\n` : ''}
       
       return new Response(JSON.stringify({
         suggestions: fanoutResult.queries || [],
+      }), {
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    
+    } else if (type === 'generate_fanout_tree') {
+      // Multi-level fanout tree generation
+      const body = await req.clone().json();
+      const { primaryQuery: pq, contentContext: ctx, maxDepth = 2, branchFactor = 4 } = body;
+      
+      if (!pq) {
+        return new Response(
+          JSON.stringify({ error: 'generate_fanout_tree requires primaryQuery' }),
+          { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        );
+      }
+      
+      console.log(`Generating fanout tree for "${pq}" with depth=${maxDepth}, branch=${branchFactor}`);
+      
+      // Root node
+      const root: any = {
+        id: generateId(),
+        query: pq,
+        intentType: 'primary',
+        level: 0,
+        parentId: null,
+        children: [],
+        isSelected: true,
+      };
+      
+      // Level 1: Intent-diverse queries
+      const level1SystemPrompt = `You are an expert in how AI search systems decompose user queries.
+
+Generate sub-queries that an AI search system would create internally to comprehensively answer the primary query.
+
+GENERATE THESE QUERY TYPES:
+1. FOLLOW_UP - What question comes next after the basic answer?
+2. SPECIFICATION - A narrower, more specific version
+3. COMPARISON - X vs Y format against alternatives  
+4. PROCESS - How to implement, use, or do something
+5. DECISION - For someone ready to take action
+6. PROBLEM - What problem or pain point does this solve?
+
+RULES:
+- Generate exactly 6 queries, one of each type
+- Each query must be genuinely different in intent
+- Use natural language (how real people search)
+- Do NOT generate synonym swaps or keyword variations
+
+OUTPUT JSON:
+{
+  "queries": [
+    {"query": "...", "intentType": "follow_up"},
+    {"query": "...", "intentType": "specification"},
+    {"query": "...", "intentType": "comparison"},
+    {"query": "...", "intentType": "process"},
+    {"query": "...", "intentType": "decision"},
+    {"query": "...", "intentType": "problem"}
+  ]
+}`;
+
+      const level1Response = await fetch('https://api.openai.com/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${OPENAI_API_KEY}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          model: 'gpt-4o',
+          messages: [
+            { role: 'system', content: level1SystemPrompt },
+            { role: 'user', content: `Primary Query: "${pq}"\n\nContent Context: ${ctx?.slice(0, 500) || 'Not provided'}` }
+          ],
+          response_format: { type: 'json_object' },
+          temperature: 0.8,
+        }),
+      });
+      
+      if (!level1Response.ok) {
+        const errorText = await level1Response.text();
+        console.error('Level 1 fanout error:', errorText);
+        throw new Error('Failed to generate level 1 queries');
+      }
+      
+      const level1Data = await level1Response.json();
+      const level1Result = JSON.parse(level1Data.choices[0]?.message?.content || '{"queries":[]}');
+      const level1Queries = level1Result.queries || [];
+      
+      console.log(`Generated ${level1Queries.length} level 1 queries`);
+      
+      // Build Level 1 nodes and generate Level 2
+      for (const l1 of level1Queries) {
+        const l1Node: any = {
+          id: generateId(),
+          query: l1.query,
+          intentType: l1.intentType || 'follow_up',
+          level: 1,
+          parentId: root.id,
+          children: [],
+          isSelected: true,
+        };
+        
+        // Level 2: More specific variants
+        if (maxDepth >= 2) {
+          const level2SystemPrompt = `Generate ${branchFactor} MORE SPECIFIC sub-queries for the given query.
+
+Parent context: This is exploring "${pq}"
+Current query to expand: "${l1.query}"
+
+RULES:
+- Each sub-query should be NARROWER than the parent
+- Include practical variants (specific industries, company sizes, scenarios)
+- Include "how to" and actionable variants
+- Do NOT repeat the parent query with minor rewording
+- Keep queries natural and searchable
+
+OUTPUT JSON:
+{
+  "queries": [
+    {"query": "...", "intentType": "specification"},
+    {"query": "...", "intentType": "specification"},
+    {"query": "...", "intentType": "specification"},
+    {"query": "...", "intentType": "specification"}
+  ]
+}`;
+
+          try {
+            const level2Response = await fetch('https://api.openai.com/v1/chat/completions', {
+              method: 'POST',
+              headers: {
+                'Authorization': `Bearer ${OPENAI_API_KEY}`,
+                'Content-Type': 'application/json',
+              },
+              body: JSON.stringify({
+                model: 'gpt-4o',
+                messages: [
+                  { role: 'system', content: level2SystemPrompt },
+                  { role: 'user', content: `Expand: "${l1.query}"` }
+                ],
+                response_format: { type: 'json_object' },
+                temperature: 0.8,
+              }),
+            });
+            
+            if (level2Response.ok) {
+              const level2Data = await level2Response.json();
+              const level2Result = JSON.parse(level2Data.choices[0]?.message?.content || '{"queries":[]}');
+              const level2Queries = level2Result.queries || [];
+              
+              for (const l2 of level2Queries.slice(0, branchFactor)) {
+                l1Node.children.push({
+                  id: generateId(),
+                  query: l2.query || l2,
+                  intentType: l2.intentType || 'specification',
+                  level: 2,
+                  parentId: l1Node.id,
+                  children: [],
+                  isSelected: true,
+                });
+              }
+            }
+          } catch (l2Err) {
+            console.warn('Level 2 generation failed for', l1.query, l2Err);
+          }
+        }
+        
+        root.children.push(l1Node);
+      }
+      
+      // Count nodes
+      const countNodes = (node: any): number => {
+        return 1 + node.children.reduce((sum: number, child: any) => sum + countNodes(child), 0);
+      };
+      
+      const tree = {
+        root,
+        totalNodes: countNodes(root),
+        selectedNodes: countNodes(root),
+        maxDepth,
+      };
+      
+      console.log(`Fanout tree generated with ${tree.totalNodes} total nodes`);
+      
+      return new Response(JSON.stringify({ tree }), {
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    
+    } else if (type === 'deduplicate_fanout') {
+      // Semantic deduplication of queries
+      const body = await req.clone().json();
+      const { queries: queryList, similarityThreshold = 0.85 } = body;
+      
+      if (!queryList || queryList.length === 0) {
+        return new Response(
+          JSON.stringify({ uniqueIndices: [], removedCount: 0, duplicatePairs: [] }),
+          { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        );
+      }
+      
+      console.log(`Deduplicating ${queryList.length} queries with threshold ${similarityThreshold}`);
+      
+      // Generate embeddings for all queries
+      const embeddingResponse = await fetch('https://api.openai.com/v1/embeddings', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${OPENAI_API_KEY}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          model: 'text-embedding-3-large',
+          input: queryList,
+        }),
+      });
+      
+      if (!embeddingResponse.ok) {
+        const errorText = await embeddingResponse.text();
+        console.error('Embedding error:', errorText);
+        throw new Error('Failed to generate embeddings for deduplication');
+      }
+      
+      const embeddingData = await embeddingResponse.json();
+      const embeddings = embeddingData.data.map((d: any) => d.embedding);
+      
+      // Compute pairwise similarity and find duplicates
+      const duplicatePairs: Array<{i: number, j: number, similarity: number}> = [];
+      
+      for (let i = 0; i < queryList.length; i++) {
+        for (let j = i + 1; j < queryList.length; j++) {
+          const similarity = cosineSimilarity(embeddings[i], embeddings[j]);
+          if (similarity > similarityThreshold) {
+            duplicatePairs.push({ i, j, similarity });
+          }
+        }
+      }
+      
+      // Determine which queries to remove (keep the one with lower index = more general/higher level)
+      const toRemove = new Set<number>();
+      for (const pair of duplicatePairs) {
+        toRemove.add(pair.j);
+      }
+      
+      const uniqueIndices = queryList.map((_: any, i: number) => i).filter((i: number) => !toRemove.has(i));
+      
+      console.log(`Deduplication complete: ${toRemove.size} duplicates found, ${uniqueIndices.length} unique queries`);
+      
+      return new Response(JSON.stringify({ 
+        uniqueIndices,
+        removedCount: toRemove.size,
+        duplicatePairs,
       }), {
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       });
