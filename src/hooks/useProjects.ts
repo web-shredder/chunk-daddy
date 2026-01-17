@@ -5,7 +5,7 @@ import { toast } from 'sonner';
 import type { ChunkDaddyProject, ProjectSummary } from '@/lib/project-types';
 import type { ChunkerOptions } from '@/lib/layout-chunker';
 import type { AnalysisResult } from '@/hooks/useAnalysis';
-import type { FullOptimizationResult } from '@/lib/optimizer-types';
+import type { FullOptimizationResult, ArchitectureAnalysis } from '@/lib/optimizer-types';
 
 interface ProjectState {
   currentProject: ChunkDaddyProject | null;
@@ -41,6 +41,7 @@ export function useProjects(options: UseProjectsOptions = {}) {
     results: AnalysisResult | null;
     optimizedContent: string | null;
     optimizationResult: FullOptimizationResult | null;
+    architectureAnalysis: ArchitectureAnalysis | null;
   } | null>(null);
 
   // Fetch user's projects
@@ -88,7 +89,8 @@ export function useProjects(options: UseProjectsOptions = {}) {
     results: AnalysisResult | null,
     existingId?: string,
     optimizedContent?: string | null,
-    optimizationResult?: FullOptimizationResult | null
+    optimizationResult?: FullOptimizationResult | null,
+    architectureAnalysis?: ArchitectureAnalysis | null
   ) => {
     if (!user) {
       toast.error('Please log in to save projects');
@@ -107,6 +109,7 @@ export function useProjects(options: UseProjectsOptions = {}) {
         results: results as unknown as any,
         optimized_content: optimizedContent || null,
         optimization_result: optimizationResult as unknown as any,
+        architecture_analysis: architectureAnalysis as unknown as any,
       };
 
       let savedProject: ChunkDaddyProject;
@@ -171,7 +174,8 @@ export function useProjects(options: UseProjectsOptions = {}) {
       data.results,
       project?.id,
       data.optimizedContent,
-      data.optimizationResult
+      data.optimizationResult,
+      data.architectureAnalysis
     );
   }, [state.currentProject, state.hasUnsavedChanges, saveProject]);
 
@@ -275,7 +279,8 @@ export function useProjects(options: UseProjectsOptions = {}) {
     settings: ChunkerOptions,
     results: AnalysisResult | null,
     optimizedContent?: string | null,
-    optimizationResult?: FullOptimizationResult | null
+    optimizationResult?: FullOptimizationResult | null,
+    architectureAnalysis?: ArchitectureAnalysis | null
   ) => {
     pendingData.current = { 
       content, 
@@ -283,7 +288,8 @@ export function useProjects(options: UseProjectsOptions = {}) {
       settings, 
       results, 
       optimizedContent: optimizedContent || null,
-      optimizationResult: optimizationResult || null
+      optimizationResult: optimizationResult || null,
+      architectureAnalysis: architectureAnalysis || null
     };
     setState(prev => ({ ...prev, hasUnsavedChanges: true }));
   }, []);

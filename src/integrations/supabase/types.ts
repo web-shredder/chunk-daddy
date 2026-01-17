@@ -16,6 +16,7 @@ export type Database = {
     Tables: {
       chunk_daddy_projects: {
         Row: {
+          architecture_analysis: Json | null
           content: string
           created_at: string
           id: string
@@ -29,6 +30,7 @@ export type Database = {
           user_id: string
         }
         Insert: {
+          architecture_analysis?: Json | null
           content: string
           created_at?: string
           id?: string
@@ -42,6 +44,7 @@ export type Database = {
           user_id: string
         }
         Update: {
+          architecture_analysis?: Json | null
           content?: string
           created_at?: string
           id?: string
