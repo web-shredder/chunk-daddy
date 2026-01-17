@@ -369,6 +369,7 @@ const Index = () => {
           onReanalyze={handleAnalyze}
           onSaveProject={handleSave}
           onOptimizationComplete={handleOptimizationComplete}
+          chunks={layoutChunks.map(c => c.text)}
         />
       )}
 
