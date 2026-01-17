@@ -1,6 +1,7 @@
-import { cn, stripLeadingHeadingCascade } from '@/lib/utils';
+import { cn, stripLeadingHeadingCascade, extractCascade } from '@/lib/utils';
 import type { ValidatedChunk } from '@/lib/optimizer-types';
-import { FileText, ArrowRight, Zap } from 'lucide-react';
+import { FileText, ArrowRight, Zap, ChevronRight, Minus } from 'lucide-react';
+import { Badge } from '@/components/ui/badge';
 import { calculatePassageScore, getPassageScoreTier, getPassageScoreTierBgClass, formatScore, formatImprovement, getImprovementColorClass } from '@/lib/similarity';
 
 interface DiffViewProps {
@@ -22,8 +23,8 @@ export function DiffView({ optimizedChunks, acceptedChanges, originalScores }: D
   return (
     <div className="space-y-4">
       {optimizedChunks.map((chunk, idx) => {
-        // Calculate score improvements
-        const origScores = originalScores?.[chunk.chunk_number];
+        // Calculate score improvements - use idx since originalScores is indexed by array position
+        const origScores = originalScores?.[idx];
         const newScores = chunk.scores;
         
         const origCosine = origScores?.cosine;
@@ -45,6 +46,10 @@ export function DiffView({ optimizedChunks, acceptedChanges, originalScores }: D
         const cosineImprovement = origCosine !== undefined && newCosine !== undefined
           ? ((newCosine - origCosine) / Math.max(origCosine, 0.001)) * 100
           : undefined;
+        
+        // Extract cascade for context display (not in diff)
+        const cascade = extractCascade(chunk.original_text);
+        const hasChanges = chunk.changes_applied.length > 0;
 
         return (
         <div 
@@ -140,6 +145,21 @@ export function DiffView({ optimizedChunks, acceptedChanges, originalScores }: D
             </div>
           )}
 
+          {/* Cascade Context (shown separately, not in diff) */}
+          {cascade && (
+            <div className="px-4 py-2 bg-muted/20 border-b flex items-center gap-2 text-xs">
+              <span className="text-muted-foreground font-medium">Section:</span>
+              <div className="flex items-center gap-1 text-muted-foreground">
+                {cascade.split('\n').filter(line => line.startsWith('#')).map((heading, i, arr) => (
+                  <span key={i} className="flex items-center gap-1">
+                    {i > 0 && <ChevronRight className="h-3 w-3" />}
+                    <span>{heading.replace(/^#+\s*/, '')}</span>
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
+
           {/* Before / After Panels */}
           <div className="grid md:grid-cols-2 divide-y md:divide-y-0 md:divide-x">
             {/* Original Panel */}
@@ -148,7 +168,9 @@ export function DiffView({ optimizedChunks, acceptedChanges, originalScores }: D
                 Before
               </h4>
               <div className="text-sm leading-relaxed whitespace-pre-wrap bg-destructive/5 rounded-md p-3">
-                {renderOriginalWithDeletions(chunk)}
+                {hasChanges ? renderOriginalWithDeletions(chunk) : (
+                  <span className="text-muted-foreground italic">No changes needed</span>
+                )}
               </div>
             </div>
 
@@ -156,13 +178,12 @@ export function DiffView({ optimizedChunks, acceptedChanges, originalScores }: D
             <div className="p-4 space-y-2">
               <h4 className="text-xs font-medium text-muted-foreground uppercase tracking-wide flex items-center gap-2">
                 After
-                <ArrowRight className="h-3 w-3" />
+                {hasChanges && <ArrowRight className="h-3 w-3" />}
               </h4>
               <div className="text-sm leading-relaxed whitespace-pre-wrap bg-green-500/5 rounded-md p-3">
-                {chunk.heading && (
-                  <span className="font-semibold text-primary block mb-2">{chunk.heading}</span>
+                {hasChanges ? renderOptimizedWithAdditions(chunk, acceptedChanges) : (
+                  <span className="text-muted-foreground italic">Content unchanged</span>
                 )}
-                {renderOptimizedWithAdditions(chunk, acceptedChanges)}
               </div>
             </div>
           </div>
@@ -251,7 +272,8 @@ function renderOriginalWithDeletions(chunk: ValidatedChunk) {
 }
 
 function renderOptimizedWithAdditions(chunk: ValidatedChunk, acceptedChanges: Set<string>) {
-  let text = chunk.optimized_text;
+  // Strip cascade from optimized text for consistent comparison
+  let text = stripLeadingHeadingCascade(chunk.optimized_text);
   const parts: React.ReactNode[] = [];
   let lastIndex = 0;
 
