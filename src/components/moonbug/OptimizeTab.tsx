@@ -25,6 +25,8 @@ import type { FullOptimizationResult, ContentBrief } from '@/lib/optimizer-types
 import type { ChunkScore } from '@/hooks/useAnalysis';
 import { supabase } from '@/integrations/supabase/client';
 
+type OptimizeViewState = 'assignment' | 'optimizing' | 'review';
+
 interface OptimizeTabProps {
   hasResults: boolean;
   content: string;
@@ -36,9 +38,20 @@ interface OptimizeTabProps {
   onSaveProject?: () => void;
   onOptimizationComplete?: (result: FullOptimizationResult, finalContent: string) => void;
   chunks?: string[];
+  // Lifted state props
+  viewState: OptimizeViewState;
+  onViewStateChange: (state: OptimizeViewState) => void;
+  optimizationResult: FullOptimizationResult | null;
+  onOptimizationResultChange: (result: FullOptimizationResult | null) => void;
+  optimizedContent: string;
+  onOptimizedContentChange: (content: string) => void;
+  acceptedChunks: Set<number>;
+  onAcceptedChunksChange: (chunks: Set<number>) => void;
+  rejectedChunks: Set<number>;
+  onRejectedChunksChange: (chunks: Set<number>) => void;
+  editedChunks: Map<number, string>;
+  onEditedChunksChange: (chunks: Map<number, string>) => void;
 }
-
-type OptimizeViewState = 'assignment' | 'optimizing' | 'review';
 
 export function OptimizeTab({
   hasResults,
@@ -51,17 +64,21 @@ export function OptimizeTab({
   onSaveProject,
   onOptimizationComplete,
   chunks: providedChunks,
+  // Lifted state
+  viewState,
+  onViewStateChange: setViewState,
+  optimizationResult,
+  onOptimizationResultChange: setOptimizationResult,
+  optimizedContent,
+  onOptimizedContentChange: setOptimizedContent,
+  acceptedChunks,
+  onAcceptedChunksChange: setAcceptedChunks,
+  rejectedChunks,
+  onRejectedChunksChange: setRejectedChunks,
+  editedChunks,
+  onEditedChunksChange: setEditedChunks,
 }: OptimizeTabProps) {
-  const [viewState, setViewState] = useState<OptimizeViewState>('assignment');
-  const [optimizationResult, setOptimizationResult] = useState<FullOptimizationResult | null>(null);
-  const [optimizedContent, setOptimizedContent] = useState<string>('');
-  
-  // Review state
-  const [acceptedChunks, setAcceptedChunks] = useState<Set<number>>(new Set());
-  const [rejectedChunks, setRejectedChunks] = useState<Set<number>>(new Set());
-  const [editedChunks, setEditedChunks] = useState<Map<number, string>>(new Map());
-  
-  // Content brief generation state
+  // Content brief generation state (local - not critical to persist)
   const [generatedBriefs, setGeneratedBriefs] = useState<ContentBrief[]>([]);
   
   const { step, progress, error, result, optimize, reset } = useOptimizer();
@@ -264,37 +281,29 @@ export function OptimizeTab({
   };
 
   const handleAcceptChunk = (chunkIndex: number) => {
-    setRejectedChunks(prev => {
-      const next = new Set(prev);
-      next.delete(chunkIndex);
-      return next;
-    });
-    setAcceptedChunks(prev => {
-      const next = new Set(prev);
-      next.add(chunkIndex);
-      return next;
-    });
+    const newRejected = new Set(rejectedChunks);
+    newRejected.delete(chunkIndex);
+    setRejectedChunks(newRejected);
+    
+    const newAccepted = new Set(acceptedChunks);
+    newAccepted.add(chunkIndex);
+    setAcceptedChunks(newAccepted);
   };
 
   const handleRejectChunk = (chunkIndex: number) => {
-    setAcceptedChunks(prev => {
-      const next = new Set(prev);
-      next.delete(chunkIndex);
-      return next;
-    });
-    setRejectedChunks(prev => {
-      const next = new Set(prev);
-      next.add(chunkIndex);
-      return next;
-    });
+    const newAccepted = new Set(acceptedChunks);
+    newAccepted.delete(chunkIndex);
+    setAcceptedChunks(newAccepted);
+    
+    const newRejected = new Set(rejectedChunks);
+    newRejected.add(chunkIndex);
+    setRejectedChunks(newRejected);
   };
 
   const handleEditChunk = (chunkIndex: number, newText: string) => {
-    setEditedChunks(prev => {
-      const next = new Map(prev);
-      next.set(chunkIndex, newText);
-      return next;
-    });
+    const newEdited = new Map(editedChunks);
+    newEdited.set(chunkIndex, newText);
+    setEditedChunks(newEdited);
     // Mark as accepted when edited
     handleAcceptChunk(chunkIndex);
   };
