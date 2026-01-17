@@ -2,15 +2,15 @@ import { useState, useMemo } from 'react';
 import { 
   ChevronRight, ChevronDown, ChevronUp, Copy, Edit, 
   AlertCircle, AlertTriangle, Info, CheckCircle2, 
-  Zap, Calculator, Target, FileText, Lightbulb
+  Zap, Calculator, Target, FileText, Lightbulb, 
+  TrendingUp, Star, Loader2
 } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { cn, stripLeadingHeadingCascade } from '@/lib/utils';
-import { calculatePassageScore, getPassageScoreTier } from '@/lib/similarity';
+import { calculatePassageScore } from '@/lib/similarity';
 import { toast } from 'sonner';
 import type { LayoutAwareChunk } from '@/lib/layout-chunker';
 import type { ChunkScore } from '@/hooks/useAnalysis';
@@ -23,6 +23,8 @@ interface ChunkDetailsPanelProps {
   allQueries: string[];
   assignedQuery?: string;
   onEditContent?: () => void;
+  onReassignQuery?: (newQuery: string) => void;
+  perQueryScores?: Record<string, number>; // query -> passageScore (0-100)
 }
 
 // Strip markdown formatting
@@ -433,6 +435,144 @@ function ActionsSection({
   );
 }
 
+// ============ RELATED QUERIES SECTION ============
+function RelatedQueriesSection({ 
+  currentScore,
+  assignedQuery,
+  allQueries,
+  perQueryScores,
+  onReassignQuery 
+}: { 
+  currentScore: number;
+  assignedQuery?: string;
+  allQueries: string[];
+  perQueryScores?: Record<string, number>;
+  onReassignQuery?: (query: string) => void;
+}) {
+  const [isReassigning, setIsReassigning] = useState<string | null>(null);
+  
+  // Calculate query similarities with deltas
+  const querySimilarities = useMemo(() => {
+    if (!perQueryScores || Object.keys(perQueryScores).length === 0) {
+      return [];
+    }
+    
+    return Object.entries(perQueryScores)
+      .map(([query, score]) => ({
+        query,
+        score,
+        isCurrent: query === assignedQuery,
+        scoreDelta: score - currentScore,
+      }))
+      .sort((a, b) => b.score - a.score)
+      .slice(0, 5);
+  }, [perQueryScores, assignedQuery, currentScore]);
+  
+  const handleReassign = async (query: string) => {
+    if (!onReassignQuery) return;
+    
+    setIsReassigning(query);
+    try {
+      onReassignQuery(query);
+      toast.success(`Reassigned to: "${query}"`);
+    } finally {
+      setIsReassigning(null);
+    }
+  };
+  
+  if (querySimilarities.length === 0) {
+    return null;
+  }
+  
+  const hasBetterMatch = querySimilarities.some(q => !q.isCurrent && q.scoreDelta > 10);
+  
+  return (
+    <div className="p-4 border-t border-border space-y-3">
+      <div>
+        <h4 className="text-sm font-medium flex items-center gap-2">
+          <Target className="h-4 w-4 text-muted-foreground" />
+          Related Queries
+        </h4>
+        <p className="text-xs text-muted-foreground mt-0.5">
+          How this chunk scores against other queries. Click to reassign.
+        </p>
+      </div>
+      
+      <div className="space-y-2">
+        {querySimilarities.map(({ query, score, scoreDelta, isCurrent }) => (
+          <button
+            key={query}
+            onClick={() => !isCurrent && handleReassign(query)}
+            disabled={isCurrent || isReassigning === query || !onReassignQuery}
+            className={cn(
+              "w-full p-3 rounded-lg text-sm transition-all text-left",
+              isCurrent 
+                ? "bg-primary/10 border-2 border-primary cursor-default" 
+                : "border border-border hover:border-primary/50 hover:bg-muted/50 cursor-pointer",
+              isReassigning === query && "opacity-50 cursor-wait",
+              !onReassignQuery && !isCurrent && "cursor-not-allowed opacity-60"
+            )}
+          >
+            <div className="flex items-center justify-between gap-2">
+              <div className="flex items-center gap-2 min-w-0">
+                {isCurrent && <Star className="h-3.5 w-3.5 text-primary shrink-0" />}
+                {isReassigning === query && <Loader2 className="h-3.5 w-3.5 animate-spin shrink-0" />}
+                <span className="truncate text-foreground">{stripMarkdown(query)}</span>
+              </div>
+              
+              <div className="flex items-center gap-2 shrink-0">
+                {/* Score badge */}
+                <span className={cn(
+                  "px-2 py-0.5 rounded text-xs font-mono font-medium",
+                  score >= 75 ? "bg-blue-500/10 text-blue-600" :
+                  score >= 60 ? "bg-yellow-500/10 text-yellow-600" :
+                  score >= 40 ? "bg-orange-500/10 text-orange-600" :
+                  "bg-red-500/10 text-red-600"
+                )}>
+                  {score}
+                </span>
+                
+                {/* Score delta indicator */}
+                {!isCurrent && scoreDelta !== 0 && (
+                  <span className={cn(
+                    "text-xs font-mono font-medium",
+                    scoreDelta > 0 ? "text-green-600" : "text-red-500"
+                  )}>
+                    {scoreDelta > 0 ? "+" : ""}{scoreDelta}
+                  </span>
+                )}
+              </div>
+            </div>
+            
+            {/* Status labels */}
+            <div className="flex items-center gap-2 mt-1.5 text-[10px]">
+              {isCurrent && (
+                <span className="text-primary font-medium">Current</span>
+              )}
+              {!isCurrent && scoreDelta > 10 && (
+                <span className="flex items-center gap-1 text-green-600">
+                  <TrendingUp className="h-3 w-3" />
+                  Better match
+                </span>
+              )}
+            </div>
+          </button>
+        ))}
+      </div>
+      
+      {/* Helpful hint */}
+      {hasBetterMatch && (
+        <div className="flex items-start gap-2 p-2 rounded-lg border border-border text-xs text-muted-foreground">
+          <Lightbulb className="h-3.5 w-3.5 shrink-0 mt-0.5 text-yellow-500" />
+          <span>
+            One or more queries would significantly improve this chunk's score. Click to reassign.
+          </span>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ============ CONTENT SECTION ============
 function ContentSection({ chunk }: { chunk: LayoutAwareChunk }) {
   const [isExpanded, setIsExpanded] = useState(false);
@@ -484,6 +624,8 @@ export function ChunkDetailsPanel({
   allQueries,
   assignedQuery,
   onEditContent,
+  onReassignQuery,
+  perQueryScores,
 }: ChunkDetailsPanelProps) {
   
   // Calculate passage score
@@ -538,20 +680,29 @@ export function ChunkDetailsPanel({
           />
         )}
         
-        {/* Section 3: Diagnostic Analysis */}
+        {/* Section 3: Related Queries (Actionable) */}
+        <RelatedQueriesSection
+          currentScore={passageScore}
+          assignedQuery={assignedQuery}
+          allQueries={allQueries}
+          perQueryScores={perQueryScores}
+          onReassignQuery={onReassignQuery}
+        />
+        
+        {/* Section 4: Diagnostic Analysis */}
         <DiagnosticSection 
           chunk={chunk}
           passageScore={passageScore}
           assignedQuery={assignedQuery}
         />
         
-        {/* Section 4: Quick Actions */}
+        {/* Section 5: Quick Actions */}
         <ActionsSection 
           chunk={chunk}
           onEditContent={onEditContent}
         />
         
-        {/* Section 5: Full Content */}
+        {/* Section 6: Full Content */}
         <ContentSection chunk={chunk} />
       </ScrollArea>
     </div>

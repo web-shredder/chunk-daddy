@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect } from 'react';
+import { useState, useMemo, useEffect, useCallback } from 'react';
 import { BarChart3, ChevronLeft, ChevronRight, ChevronDown, Copy, Download, Search, AlertCircle, FileJson, FileText, TreeDeciduous, List, Table, Target, Star, ArrowRight, CheckCircle2, ArrowUpDown } from 'lucide-react';
 import { DismissableTip } from '@/components/DismissableTip';
 import { Input } from '@/components/ui/input';
@@ -17,6 +17,7 @@ import { downloadCSV } from '@/lib/csv-export';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { 
   computeQueryAssignments, 
+  reassignQuery,
   formatScorePercent,
   getScoreColorClass as getAssignmentScoreColorClass,
   type QueryAssignmentMap,
@@ -228,13 +229,11 @@ export function ResultsTab({
   const problemCount = chunksWithScores.filter(c => c.passageScore < 60).length;
   const goodCount = chunksWithScores.filter(c => c.passageScore >= 75).length;
 
-  // Compute query assignments for the assignments view
-  const queryAssignments = useMemo(() => {
-    if (!chunkScores || chunkScores.length === 0 || keywords.length === 0) {
-      return { assignments: [], chunkAssignments: [], unassignedQueries: [] } as QueryAssignmentMap;
-    }
-
-    const scoreData: ChunkScoreData[] = chunkScores.map((cs, idx) => {
+  // Build chunk score data for query assignment calculations
+  const chunkScoreData = useMemo((): ChunkScoreData[] => {
+    if (!chunkScores || chunkScores.length === 0) return [];
+    
+    return chunkScores.map((cs, idx) => {
       const scores: Record<string, number> = {};
       cs.keywordScores.forEach(ks => {
         const passageScore = calculatePassageScore(ks.scores.cosine, ks.scores.chamfer);
@@ -247,15 +246,58 @@ export function ResultsTab({
         scores,
       };
     });
+  }, [chunkScores, chunks]);
 
-    return computeQueryAssignments(scoreData, keywords, 0.3);
-  }, [chunkScores, keywords, chunks]);
+  // Initial computed query assignments
+  const initialQueryAssignments = useMemo(() => {
+    if (chunkScoreData.length === 0 || keywords.length === 0) {
+      return { assignments: [], chunkAssignments: [], unassignedQueries: [] } as QueryAssignmentMap;
+    }
+    return computeQueryAssignments(chunkScoreData, keywords, 0.3);
+  }, [chunkScoreData, keywords]);
+
+  // State for query assignments (allows manual reassignment)
+  const [queryAssignments, setQueryAssignments] = useState<QueryAssignmentMap>(initialQueryAssignments);
+  
+  // Update state when initial assignments change (e.g., after re-analysis)
+  useEffect(() => {
+    setQueryAssignments(initialQueryAssignments);
+  }, [initialQueryAssignments]);
 
   // Get assigned query for a chunk
-  const getAssignedQuery = (chunkIndex: number): string | undefined => {
+  const getAssignedQuery = useCallback((chunkIndex: number): string | undefined => {
     const assignment = queryAssignments.chunkAssignments.find(ca => ca.chunkIndex === chunkIndex);
     return assignment?.assignedQuery?.query;
-  };
+  }, [queryAssignments]);
+
+  // Get per-query scores for a chunk (for the RelatedQueriesSection)
+  const getPerQueryScores = useCallback((chunkIndex: number): Record<string, number> => {
+    const scoreData = chunkScoreData[chunkIndex];
+    if (!scoreData) return {};
+    
+    // Convert from 0-1 to 0-100 for display
+    const scores: Record<string, number> = {};
+    Object.entries(scoreData.scores).forEach(([query, score]) => {
+      scores[query] = Math.round(score * 100);
+    });
+    return scores;
+  }, [chunkScoreData]);
+
+  // Handle query reassignment
+  const handleReassignQuery = useCallback((chunkIndex: number, newQuery: string) => {
+    const { updatedMap, evictedQuery } = reassignQuery(
+      queryAssignments,
+      newQuery,
+      chunkIndex,
+      chunkScoreData
+    );
+    
+    setQueryAssignments(updatedMap);
+    
+    if (evictedQuery) {
+      toast.info(`Displaced query "${evictedQuery}" from chunk ${chunkIndex + 1}`);
+    }
+  }, [queryAssignments, chunkScoreData]);
 
   if (!hasResults) {
     return (
@@ -752,6 +794,8 @@ export function ResultsTab({
               totalChunks={chunks.length}
               allQueries={keywords}
               assignedQuery={getAssignedQuery(selectedIndex)}
+              onReassignQuery={(newQuery) => handleReassignQuery(selectedIndex, newQuery)}
+              perQueryScores={getPerQueryScores(selectedIndex)}
             />
           </div>
         )}
@@ -817,6 +861,8 @@ export function ResultsTab({
                     totalChunks={chunks.length}
                     allQueries={keywords}
                     assignedQuery={getAssignedQuery(selectedIndex)}
+                    onReassignQuery={(newQuery) => handleReassignQuery(selectedIndex, newQuery)}
+                    perQueryScores={getPerQueryScores(selectedIndex)}
                   />
                 </div>
               )}
