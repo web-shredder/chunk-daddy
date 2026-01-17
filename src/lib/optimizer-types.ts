@@ -123,6 +123,15 @@ export interface ContentBrief {
   gapAnalysis: string;
 }
 
+// Original chunk metadata for full document reconstruction
+export interface OriginalChunkInfo {
+  index: number;
+  text: string;
+  textWithoutCascade: string;
+  heading: string | null;
+  headingPath: string[];
+}
+
 export interface FullOptimizationResult {
   analysis: ContentAnalysis;
   optimizedChunks: ValidatedChunk[];
@@ -136,4 +145,6 @@ export interface FullOptimizationResult {
   optimizedFullScores?: Record<number, Record<string, FullScoreMetrics>>;
   // Content briefs for unassigned queries
   contentBriefs: ContentBrief[];
+  // All original chunks for full document reconstruction
+  allOriginalChunks: OriginalChunkInfo[];
 }

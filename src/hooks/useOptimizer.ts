@@ -12,6 +12,7 @@ import type {
   ChunkScoreSummary,
   QueryScoreDetail,
   ContentBrief,
+  OriginalChunkInfo,
 } from '@/lib/optimizer-types';
 import type { QueryAssignmentMap, ChunkAssignment } from '@/lib/query-assignment';
 
@@ -391,6 +392,26 @@ export function useOptimizer() {
         });
       });
 
+      // Build allOriginalChunks from ALL chunks for full document reconstruction
+      const allOriginalChunks: OriginalChunkInfo[] = (chunks || []).map((text, index) => {
+        const { cascade, body } = extractCascade(text);
+        
+        // Extract heading lines from cascade
+        const headingLines = cascade.match(/#{1,6}\s+[^\n]+/g) || [];
+        const headingPath = headingLines.map(h => h.replace(/^#{1,6}\s+/, '').trim());
+        
+        // The most specific (last) heading
+        const heading = headingPath.length > 0 ? headingPath[headingPath.length - 1] : null;
+        
+        return {
+          index,
+          text,
+          textWithoutCascade: body,
+          heading,
+          headingPath,
+        };
+      });
+
       const fullResult: FullOptimizationResult = {
         analysis,
         optimizedChunks: validatedChunks,
@@ -402,6 +423,7 @@ export function useOptimizer() {
         originalFullScores: originalScoresMap,
         optimizedFullScores: optimizedScoresMap,
         contentBriefs,
+        allOriginalChunks,
       };
 
       setState({
