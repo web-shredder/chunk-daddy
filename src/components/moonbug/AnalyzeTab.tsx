@@ -152,7 +152,7 @@ Return exactly 24 diverse related queries. Do not limit word count - queries can
 
   if (!hasChunks) {
     return (
-      <div className="flex-1 flex items-center justify-center">
+      <div className="flex-1 flex items-center justify-center p-4">
         <div className="empty-state">
           <Microscope size={48} strokeWidth={1} />
           <h3>Chunk your content first</h3>
@@ -169,8 +169,8 @@ Return exactly 24 diverse related queries. Do not limit word count - queries can
   const selectedCount = expandedQueries.filter(q => q.selected).length;
 
   return (
-    <div className="flex-1 overflow-auto p-6 bg-background">
-      <div className="max-w-5xl mx-auto grid md:grid-cols-2 gap-6">
+    <div className="flex-1 overflow-auto p-4 md:p-6 bg-background">
+      <div className="max-w-5xl mx-auto grid md:grid-cols-2 gap-4 md:gap-6">
         {/* Left: Queries */}
         <div className="panel">
           <div className="panel-header">
@@ -182,7 +182,7 @@ Return exactly 24 diverse related queries. Do not limit word count - queries can
           </DismissableTip>
 
           {/* Add Query Input */}
-          <div className="flex gap-2">
+          <div className="flex flex-col sm:flex-row gap-2">
             <Input
               value={newQuery}
               onChange={(e) => setNewQuery(e.target.value)}
@@ -195,26 +195,28 @@ Return exactly 24 diverse related queries. Do not limit word count - queries can
               placeholder="Enter search query..."
               className="flex-1 moonbug-input"
             />
-            <button
-              onClick={addQuery}
-              disabled={!newQuery.trim()}
-              className="btn-secondary"
-            >
-              <Plus className="h-4 w-4" />
-            </button>
-            <button
-              onClick={handleGenerateFanout}
-              disabled={!newQuery.trim() || isGenerating}
-              className="btn-secondary gap-1.5"
-              title="Generate related query variations"
-            >
-              {isGenerating ? (
-                <Loader2 className="h-4 w-4 animate-spin" />
-              ) : (
-                <Sparkles className="h-4 w-4" />
-              )}
-              <span className="hidden sm:inline text-xs">Run Fanout</span>
-            </button>
+            <div className="flex gap-2">
+              <button
+                onClick={addQuery}
+                disabled={!newQuery.trim()}
+                className="btn-secondary flex-1 sm:flex-none"
+              >
+                <Plus className="h-4 w-4" />
+              </button>
+              <button
+                onClick={handleGenerateFanout}
+                disabled={!newQuery.trim() || isGenerating}
+                className="btn-secondary gap-1.5 flex-1 sm:flex-none"
+                title="Generate related query variations"
+              >
+                {isGenerating ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <Sparkles className="h-4 w-4" />
+                )}
+                <span className="text-xs">Run Fanout</span>
+              </button>
+            </div>
           </div>
 
           {/* Fanout Expanded Queries */}

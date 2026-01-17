@@ -1,5 +1,6 @@
 import { FileText, Microscope, BarChart3, Sparkles, FileBarChart, Loader2, Check, Save } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { useIsMobile } from '@/hooks/use-mobile';
 
 export type TabId = 'content' | 'analyze' | 'results' | 'optimize' | 'report';
 
@@ -54,6 +55,8 @@ export function TabBar({
   lastSaved,
   onSave,
 }: TabBarProps) {
+  const isMobile = useIsMobile();
+
   const getTabDisabled = (tabId: TabId): boolean => {
     if (tabId === 'analyze') return !hasContent;
     if (tabId === 'results') return !hasAnalysis;
@@ -63,7 +66,7 @@ export function TabBar({
   };
 
   return (
-    <div className="h-11 bg-background border-b border-border flex items-center px-6 gap-1 shrink-0">
+    <div className="h-11 bg-background border-b border-border flex items-center px-2 md:px-6 gap-0.5 md:gap-1 shrink-0 overflow-x-auto">
       {tabs.map((tab) => {
         const Icon = tab.icon;
         const isActive = activeTab === tab.id;
@@ -75,16 +78,16 @@ export function TabBar({
             onClick={() => !isDisabled && onTabChange(tab.id)}
             disabled={isDisabled}
             className={cn(
-              'relative flex items-center gap-2 px-4 py-2 rounded-md',
-              'border-none bg-transparent text-sm font-medium',
-              'cursor-pointer transition-all duration-150',
+              'relative flex items-center gap-1.5 md:gap-2 px-2 md:px-4 py-2 rounded-md',
+              'border-none bg-transparent text-xs md:text-sm font-medium',
+              'cursor-pointer transition-all duration-150 shrink-0',
               isActive && 'text-primary',
               !isActive && !isDisabled && 'text-muted-foreground hover:bg-white/[0.05] hover:text-foreground',
               isDisabled && 'opacity-40 cursor-not-allowed'
             )}
           >
             <Icon className="h-4 w-4" />
-            <span>{tab.label}</span>
+            <span className={cn(isMobile && 'sr-only')}>{tab.label}</span>
             {isActive && (
               <span className="absolute bottom-[-1px] left-0 right-0 h-[2px] bg-primary" />
             )}
@@ -93,19 +96,19 @@ export function TabBar({
       })}
 
       {/* Status */}
-      <div className="ml-auto flex items-center gap-4 text-xs text-muted-foreground">
+      <div className="ml-auto flex items-center gap-2 md:gap-4 text-xs text-muted-foreground shrink-0">
         {isAnalyzing && (
           <span className="flex items-center gap-1.5 text-primary">
             <Loader2 className="h-3 w-3 animate-spin" />
-            Analyzing...
+            <span className="hidden sm:inline">Analyzing...</span>
           </span>
         )}
         
-        {!isAnalyzing && hasContent && (
+        {!isAnalyzing && hasContent && !isMobile && (
           <span>{wordCount} words</span>
         )}
 
-        {lastSaved && (
+        {lastSaved && !isMobile && (
           <span className="flex items-center gap-1">
             {hasUnsavedChanges ? (
               <>
@@ -132,7 +135,7 @@ export function TabBar({
             ) : (
               <Save className="h-3 w-3" />
             )}
-            Save
+            <span className="hidden sm:inline">Save</span>
           </button>
         )}
       </div>

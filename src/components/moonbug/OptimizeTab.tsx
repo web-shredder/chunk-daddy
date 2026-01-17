@@ -105,7 +105,7 @@ export function OptimizeTab({
 
   if (!hasResults) {
     return (
-      <div className="flex-1 flex items-center justify-center">
+      <div className="flex-1 flex items-center justify-center p-4">
         <div className="empty-state">
           <Sparkles size={48} strokeWidth={1} />
           <h3>Run analysis first</h3>
@@ -278,18 +278,18 @@ export function OptimizeTab({
   // Optimizing view
   if (viewState === 'optimizing') {
     return (
-      <div className="flex-1 flex items-center justify-center">
-        <div className="max-w-md w-full p-8 space-y-6 text-center">
-          <Loader2 className="h-12 w-12 animate-spin text-accent mx-auto" />
+      <div className="flex-1 flex items-center justify-center p-4">
+        <div className="max-w-md w-full p-6 md:p-8 space-y-6 text-center">
+          <Loader2 className="h-10 w-10 md:h-12 md:w-12 animate-spin text-accent mx-auto" />
           <div>
-            <h3 className="text-lg font-semibold mb-2">{getStepLabel()}</h3>
-            <p className="text-sm text-muted-foreground">
+            <h3 className="text-base md:text-lg font-semibold mb-2">{getStepLabel()}</h3>
+            <p className="text-xs md:text-sm text-muted-foreground">
               Optimizing each chunk for its assigned queries
             </p>
           </div>
           <Progress value={progress} className="w-full" />
           {error && (
-            <div className="text-sm text-destructive bg-destructive/10 p-3 rounded-md">
+            <div className="text-xs md:text-sm text-destructive bg-destructive/10 p-3 rounded-md">
               {error}
               <Button variant="ghost" size="sm" onClick={handleReset} className="ml-2">
                 Try Again
@@ -305,19 +305,20 @@ export function OptimizeTab({
   if (viewState === 'review' && optimizationResult) {
     return (
       <div className="flex-1 flex flex-col overflow-hidden">
-        <div className="h-14 px-6 border-b border-border flex items-center justify-between bg-surface shrink-0">
-          <div className="flex items-center gap-3">
+        <div className="h-12 md:h-14 px-4 md:px-6 border-b border-border flex items-center justify-between bg-surface shrink-0">
+          <div className="flex items-center gap-2 md:gap-3">
             <button onClick={handleReset} className="icon-button" title="Back to assignments">
               <ArrowLeft className="h-4 w-4" />
             </button>
-            <h3 className="text-sm font-medium text-foreground flex items-center gap-2">
+            <h3 className="text-xs md:text-sm font-medium text-foreground flex items-center gap-2">
               <Sparkles className="h-4 w-4 text-accent" />
-              Review Optimizations
+              <span className="hidden sm:inline">Review Optimizations</span>
+              <span className="sm:hidden">Review</span>
             </h3>
           </div>
         </div>
         
-        <div className="flex-1 overflow-hidden p-6">
+        <div className="flex-1 overflow-hidden p-4 md:p-6">
           <ChunkReviewPanel
             chunks={optimizationResult.optimizedChunks}
             explanations={optimizationResult.explanations}
@@ -343,14 +344,14 @@ export function OptimizeTab({
   return (
     <div className="flex-1 overflow-auto">
       <ScrollArea className="h-full">
-        <div className="p-6 max-w-5xl mx-auto">
+        <div className="p-4 md:p-6 max-w-5xl mx-auto">
           <div className="panel">
             <div className="panel-header">
-              <h3 className="flex items-center gap-2">
-                <Target className="h-5 w-5 text-accent" />
+              <h3 className="flex items-center gap-2 text-sm md:text-base">
+                <Target className="h-4 w-4 md:h-5 md:w-5 text-accent" />
                 Query-to-Chunk Assignment
               </h3>
-              <p className="text-sm text-muted-foreground mt-1">
+              <p className="text-xs md:text-sm text-muted-foreground mt-1">
                 Each query will optimize its best-matching chunk. Review assignments before running optimization.
               </p>
             </div>
@@ -362,10 +363,10 @@ export function OptimizeTab({
             </DismissableTip>
 
             {queryAssignments.assignments.length === 0 ? (
-              <div className="text-center py-12 text-muted-foreground">
-                <Target className="h-12 w-12 mx-auto mb-3 opacity-30" />
-                <p>No query assignments could be computed.</p>
-                <p className="text-sm mt-2">
+              <div className="text-center py-8 md:py-12 text-muted-foreground">
+                <Target className="h-10 w-10 md:h-12 md:w-12 mx-auto mb-3 opacity-30" />
+                <p className="text-sm md:text-base">No query assignments could be computed.</p>
+                <p className="text-xs md:text-sm mt-2">
                   This usually means the analysis hasn't been run yet or no queries were provided.
                 </p>
                 <Button variant="secondary" className="mt-4" onClick={onGoToAnalyze}>
