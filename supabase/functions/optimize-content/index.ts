@@ -637,45 +637,58 @@ ${contentContext ? `Content Context:\n${contentContext.slice(0, 500)}\n\n` : ''}
       // Intent types to rotate through at different levels
       const intentTypes = ['follow_up', 'specification', 'comparison', 'process', 'decision', 'problem'];
       
-      // Qualifier counting for validation
-      function countQualifiers(query: string): number {
-        const qualifierPatterns = [
-          // Industries
-          /\b(healthcare|tech|technology|manufacturing|retail|finance|banking|pharma|legal|hospitality)\b/gi,
-          // Company sizes
-          /\b(startup|startups|smb|mid-market|midmarket|enterprise|small business|large organization)\b/gi,
-          // Timelines
-          /\b(\d+\s*(days?|weeks?|months?)|quickly|rapidly|fast|within)\b/gi,
-          // Tools
-          /\b(workday|greenhouse|lever|ats|hris|salesforce|sap|oracle|icims|taleo)\b/gi,
-          // Geographic
-          /\b(us|usa|europe|european|global|regional|domestic|international|america|uk|asia)\b/gi,
-          // Specific roles
-          /\b(nurses?|engineers?|developers?|executives?|contractors?|clinical|technical)\b/gi,
-          // Compliance
-          /\b(hipaa|gdpr|soc2|eeoc|compliance|regulatory|credentialing)\b/gi,
-          // Scenarios
-          /\b(high-volume|high volume|seasonal|remote|hybrid|rapid scaling|executive search)\b/gi,
-        ];
-        
-        let count = 0;
-        qualifierPatterns.forEach(pattern => {
-          const matches = query.match(pattern);
-          if (matches) count += matches.length;
-        });
-        
-        return count;
-      }
-      
+      // Word count validation
       function countWords(query: string): number {
         return query.trim().split(/\s+/).length;
       }
       
+      function validateQueryLength(query: string, level: number): { valid: boolean; issue: string | null } {
+        const wordCount = countWords(query);
+        
+        const limits: Record<number, { min: number; max: number }> = {
+          1: { min: 6, max: 12 },
+          2: { min: 8, max: 15 },
+          3: { min: 10, max: 18 },
+        };
+        
+        const limit = limits[Math.min(level, 3)];
+        
+        if (wordCount < limit.min) {
+          return { valid: false, issue: `Too short: ${wordCount} words (min ${limit.min})` };
+        }
+        if (wordCount > limit.max) {
+          return { valid: false, issue: `Too long: ${wordCount} words (max ${limit.max})` };
+        }
+        
+        return { valid: true, issue: null };
+      }
+      
+      // Check that L2 queries explore different dimensions, not variations of the same thing
+      function checkQueryDiversity(queries: string[]): { diverse: boolean; warning: string | null } {
+        const wordSets = queries.map(q => new Set(q.toLowerCase().split(/\s+/).filter(w => w.length > 3)));
+        
+        for (let i = 0; i < wordSets.length; i++) {
+          for (let j = i + 1; j < wordSets.length; j++) {
+            const intersection = [...wordSets[i]].filter(w => wordSets[j].has(w));
+            const similarity = intersection.length / Math.min(wordSets[i].size, wordSets[j].size);
+            
+            if (similarity > 0.6) {
+              return { 
+                diverse: false, 
+                warning: `Queries ${i+1} and ${j+1} are too similar (${Math.round(similarity*100)}% overlap)` 
+              };
+            }
+          }
+        }
+        
+        return { diverse: true, warning: null };
+      }
+      
       // Temperature by level
       function getTemperatureForLevel(level: number): number {
-        if (level === 1) return 0.5;  // Very controlled for L1
-        if (level === 2) return 0.65; // Slightly more variety
-        return 0.8; // More variety for deep levels
+        if (level === 1) return 0.6;  // Controlled for L1
+        if (level === 2) return 0.7;  // More variety for dimensions
+        return 0.8; // Most variety for deep specifics
       }
 
       // Recursive child generation function
@@ -684,52 +697,37 @@ ${contentContext ? `Content Context:\n${contentContext.slice(0, 500)}\n\n` : ''}
         
         const isFirstLevel = currentDepth === 0;
         const isSecondLevel = currentDepth === 1;
-        const numToGenerate = isFirstLevel ? 6 : branch; // 6 intent types for level 1, then branch factor
-        const actualLevel = currentDepth + 1; // Human-readable level (1-indexed)
+        const numToGenerate = isFirstLevel ? 6 : branch;
+        const actualLevel = currentDepth + 1;
         
-        // Level 1: ZERO qualifiers, 6-12 words
+        // Level 1: 6 broad research angles
         const level1SystemPrompt = `Generate 6 broad research angles for a topic.
 
 LEVEL 1 RULES:
-- ZERO qualifiers allowed (no industry, size, timeline, geography, tools, roles)
+- Ask about DIFFERENT ASPECTS of the topic
+- No narrow qualifiers (industry, geography, company size, etc.)
 - 6-12 words per query
-- Must be generic enough to apply to ANY reader
+- Each query represents a major research angle
 
-QUALIFIERS (FORBIDDEN at L1):
-Industries: healthcare, tech, manufacturing, retail, finance, legal, pharma
-Sizes: startup, SMB, mid-market, enterprise, small business, large
-Timelines: days, weeks, months, quickly, rapidly, fast, within
-Geography: US, Europe, global, regional, domestic, international
-Tools: Workday, Greenhouse, ATS, HRIS, Salesforce, specific software
-Roles: nurses, engineers, executives, contractors, clinical, technical
-Scenarios: high-volume, seasonal, remote, hybrid, rapid scaling
-Compliance: HIPAA, GDPR, SOC2, EEOC, regulatory, credentialing
+GENERATE 6 QUERIES (one each type):
 
-GENERATE 6 QUERIES (one each):
+1. FOLLOW_UP: What naturally comes next after the basic answer?
+   Example: "What should you do after understanding why Live Nation is criticized?"
 
-1. FOLLOW_UP (what comes next?)
-   ✅ "What should you do after choosing an RPO provider?" (9 words, 0 qualifiers)
-   ❌ "What should healthcare companies do after selecting an RPO?" (has industry)
+2. SPECIFICATION: Who or what is most affected?
+   Example: "What are the main reasons fans dislike Live Nation?"
 
-2. SPECIFICATION (broad audience, no specifics)
-   ✅ "How do large organizations typically use RPO?" (8 words, 0 qualifiers)
-   ❌ "How do enterprise tech companies use RPO?" (has size + industry)
+3. COMPARISON: How does it compare to the main alternative?
+   Example: "How does Live Nation compare to other ticket sellers?"
 
-3. COMPARISON (main alternative only)
-   ✅ "How does RPO compare to in-house recruiting?" (8 words, 0 qualifiers)
-   ❌ "How does RPO compare to staffing agencies for tech roles?" (has industry)
+4. PROCESS: How does the core mechanism work?
+   Example: "How does Live Nation set ticket prices and fees?"
 
-4. PROCESS (overall how-to)
-   ✅ "What is the process for implementing RPO?" (8 words, 0 qualifiers)
-   ❌ "How do companies implement RPO within 90 days?" (has timeline)
+5. DECISION: What factors drive opinions or choices?
+   Example: "What factors shape public opinion about Live Nation?"
 
-5. DECISION (key factors)
-   ✅ "What factors matter when choosing an RPO provider?" (8 words, 0 qualifiers)
-   ❌ "What compliance factors matter for healthcare RPO?" (has industry + compliance)
-
-6. PROBLEM (main pain point)
-   ✅ "What hiring challenges does RPO help solve?" (7 words, 0 qualifiers)
-   ❌ "How does RPO solve high-volume seasonal hiring?" (has scenario)
+6. PROBLEM: What specific problems are associated with this?
+   Example: "What problems do people associate with Live Nation?"
 
 Return JSON:
 {
@@ -743,37 +741,45 @@ Return JSON:
   ]
 }`;
 
-        // Level 2: 1-2 qualifiers, 8-14 words
-        const level2SystemPrompt = `Generate specific sub-queries by adding 1-2 qualifiers to the parent.
+        // Level 2: Drill into DIFFERENT DIMENSIONS of the parent
+        const level2SystemPrompt = `Generate sub-queries that explore SPECIFIC DIMENSIONS of the parent query.
 
 Parent query: "${parentNode.query}"
-Root topic: "${pq}"
 
 LEVEL 2 RULES:
-- Add 1-2 qualifiers (pick from: industry, company size, scenario, geography)
-- 8-14 words per query
-- Each query adds specificity the parent lacked
+- Each sub-query explores a DIFFERENT FACET or DIMENSION of the parent
+- Don't just add "in the US" or "for enterprises" - that's lazy and useless
+- Ask about specific ASPECTS: fees, policies, mechanisms, stakeholders, timelines, causes, effects
+- 8-15 words per query
 
-QUALIFIER OPTIONS (pick 1-2 per query):
-- Industry: healthcare, tech, manufacturing, retail, finance
-- Size: startup, mid-market, enterprise
-- Scenario: high-volume, seasonal, rapid scaling, executive search
-- Geography: US, Europe, global
+WHAT "DRILLING DOWN" MEANS:
 
-EXAMPLES:
-Parent: "What is the process for implementing RPO?"
-Children (1-2 qualifiers each):
-- "How do healthcare organizations implement RPO?" (1: industry)
-- "How do mid-market companies implement RPO?" (1: size)
-- "How do enterprise tech companies implement RPO?" (2: size + industry)
+Parent: "How does Live Nation compare to other ticket sellers?"
+GOOD L2 (explores dimensions):
+- "How do Live Nation's service fees compare to other ticket platforms?" (FEES dimension)
+- "How does Live Nation's refund and cancellation policy compare to competitors?" (POLICY dimension)  
+- "How does Live Nation's market dominance compare to independent ticket sellers?" (MARKET SHARE dimension)
+- "How does the Live Nation checkout experience compare to other platforms?" (UX dimension)
 
-DO NOT:
-- Add 3+ qualifiers (save for L3)
-- Add timeline specifics yet (save for L3)
-- Add tool names yet (save for L3)
-- Exceed 14 words
+BAD L2 (just appends filters):
+- "How does Live Nation compare to other ticket sellers in the US?" ❌
+- "How does Live Nation compare to other ticket sellers for concerts?" ❌
+- "How does enterprise Live Nation compare globally?" ❌
 
-Generate ${numToGenerate} queries.
+Parent: "What problems do people associate with Live Nation?"
+GOOD L2:
+- "What fee-related problems do people associate with Live Nation?" (FEES)
+- "What customer service problems do people report with Live Nation?" (SERVICE)
+- "What competition and monopoly concerns surround Live Nation?" (ANTITRUST)
+- "What problems do artists and venues have with Live Nation?" (STAKEHOLDER)
+
+BAD L2:
+- "What problems do US people associate with Live Nation?" ❌
+- "What problems do enterprise customers associate with Live Nation?" ❌
+
+THINK: What are the 3-4 specific ASPECTS someone researching this parent query would want to explore?
+
+Generate ${numToGenerate} queries that each explore a DIFFERENT dimension.
 
 Return JSON:
 {
@@ -782,34 +788,39 @@ Return JSON:
   ]
 }`;
 
-        // Level 3+: 2-3 qualifiers, 10-16 words
-        const level3PlusSystemPrompt = `Generate highly specific sub-queries by adding 2-3 qualifiers to the parent.
+        // Level 3+: Add CONCRETE SPECIFICS to the dimension
+        const level3PlusSystemPrompt = `Generate highly specific sub-queries that drill even deeper into the parent's dimension.
 
 Parent query: "${parentNode.query}"
 Root topic: "${pq}"
-Current depth: Level ${actualLevel}
 
 LEVEL 3+ RULES:
-- Add 2-3 qualifiers total (building on parent's qualifiers)
-- 10-16 words per query
-- Can now include: timelines, specific tools, compliance, role types
+- Parent already focused on a dimension (fees, policy, stakeholder, etc.)
+- Now add CONCRETE SPECIFICS: exact mechanisms, real examples, named entities, specific scenarios
+- Can include: specific fee types, named competitors, regulatory bodies, time periods, specific events
+- 10-18 words per query
 
-QUALIFIER OPTIONS (pick 2-3 total, including any from parent):
-- Industry: healthcare, tech, manufacturing, retail, finance
-- Size: startup, mid-market, enterprise
-- Scenario: high-volume, seasonal, rapid scaling
-- Geography: US, Europe, global
-- Timeline: 30 days, 90 days, 6 months (NOW ALLOWED)
-- Tools: Workday, Greenhouse, specific ATS (NOW ALLOWED)
-- Compliance: HIPAA, GDPR, SOC2 (NOW ALLOWED)
-- Roles: clinical, technical, executive (NOW ALLOWED)
+WHAT "DEEPER DRILLING" MEANS:
 
-EXAMPLES:
-Parent (L2): "How do healthcare organizations implement RPO?"
-Children (L3, 2-3 qualifiers):
-- "How do healthcare organizations implement RPO within 90 days?" (industry + timeline)
-- "How do enterprise healthcare systems implement RPO with HIPAA compliance?" (size + industry + compliance)
-- "How do US healthcare companies integrate RPO with Workday?" (geography + industry + tool)
+Parent (L2): "How do Live Nation's service fees compare to other ticket platforms?"
+GOOD L3 (adds concrete specifics):
+- "Why are Live Nation's dynamic pricing fees higher than StubHub or SeatGeek?"
+- "How did Live Nation's fee structure change after the Taylor Swift Eras Tour backlash?"
+- "What percentage of ticket price goes to Live Nation fees versus artist payment?"
+- "How do Live Nation's 'facility charges' compare to fees at independent venues?"
+
+Parent (L2): "What competition and monopoly concerns surround Live Nation?"
+GOOD L3:
+- "What did the DOJ lawsuit allege about Live Nation's anti-competitive practices?"
+- "How does Live Nation's venue ownership create conflicts of interest for touring artists?"
+- "What market share does Live Nation control in US arena and amphitheater bookings?"
+- "How do Live Nation's exclusive artist contracts limit competition in concert promotion?"
+
+NOW you can add specifics like:
+- Named entities (Taylor Swift, DOJ, StubHub, specific venues)
+- Time references (after 2022, since the merger)
+- Specific mechanisms (dynamic pricing, facility charges, exclusive contracts)
+- Concrete numbers or percentages where relevant
 
 Generate ${numToGenerate} queries.
 
@@ -834,9 +845,9 @@ Return JSON:
 
 Content Context: ${ctx?.slice(0, 500) || 'Not provided'}
 
-Generate 6 broad intent variations (one of each type: follow_up, specification, comparison, process, decision, problem).
+Generate 6 broad research angles (one of each type: follow_up, specification, comparison, process, decision, problem).
 
-CRITICAL: Each query must have ZERO qualifiers and be 6-12 words.
+Each query should explore a different ASPECT of the topic, not add filters like geography or company size.
 
 Respond with JSON.`;
 
@@ -844,7 +855,9 @@ Respond with JSON.`;
 Parent query: "${parentNode.query}"
 Parent intent type: ${parentNode.intentType || 'general'}
 
-Generate ${numToGenerate} sub-queries with 1-2 qualifiers each, 8-14 words.
+Generate ${numToGenerate} sub-queries that each explore a DIFFERENT DIMENSION of the parent.
+
+DO NOT just add "in the US" or "for enterprises" - explore substantive facets like fees, policies, stakeholders, mechanisms, causes, effects.
 
 Respond with JSON.`;
 
@@ -852,7 +865,7 @@ Respond with JSON.`;
 Parent query: "${parentNode.query}"
 Parent intent type: ${parentNode.intentType || 'general'}
 
-Generate ${numToGenerate} highly specific sub-queries with 2-3 qualifiers each, 10-16 words.
+Generate ${numToGenerate} highly specific sub-queries with CONCRETE SPECIFICS: named entities, exact mechanisms, specific events, real examples.
 
 Respond with JSON.`;
 
@@ -893,14 +906,23 @@ Respond with JSON.`;
           const result = JSON.parse(data.choices[0]?.message?.content || '{"queries":[]}');
           const queries = result.queries || [];
           
-          // Log with qualifier counts for debugging
+          // Log with word counts and validation
           console.log(`Generated ${queries.length} queries at L${actualLevel} for "${parentNode.query.slice(0, 40)}..."`);
           queries.forEach((q: any) => {
             const qText = q.query || q;
-            const qualCount = countQualifiers(qText);
+            const validation = validateQueryLength(qText, actualLevel);
             const wordCount = countWords(qText);
-            console.log(`  L${actualLevel}: "${qText}" (${wordCount} words, ${qualCount} qualifiers)`);
+            console.log(`  L${actualLevel}: "${qText}" (${wordCount} words${validation.issue ? `, ${validation.issue}` : ''})`);
           });
+          
+          // Check diversity for L2
+          if (isSecondLevel && queries.length > 1) {
+            const queryTexts = queries.map((q: any) => q.query || q);
+            const diversity = checkQueryDiversity(queryTexts);
+            if (!diversity.diverse) {
+              console.warn(`  ⚠️ L2 diversity warning: ${diversity.warning}`);
+            }
+          }
           
           // Build child nodes
           const childPromises: Promise<void>[] = [];
