@@ -178,6 +178,12 @@ CONSTRAINTS:
 - Keep professional tone
 - Minimize repetition
 
+OUTPUT RULES:
+- Return ONLY the optimized body/paragraph content
+- Do NOT include any markdown headings (# ## ### etc.) in your output
+- The section heading context is provided for your understanding only
+- Your optimized_text must start with actual content, not a heading
+
 Show specific changes and predict Passage Score impact.`;
 
       userPrompt = `Original Content:
@@ -274,18 +280,39 @@ CONSTRAINTS:
 - Maintain natural, readable prose
 - Preserve original meaning and facts
 - Keep professional tone
-- Minimize repetition`;
+- Minimize repetition
+
+OUTPUT RULES:
+- Return ONLY the optimized body/paragraph content in optimized_text
+- Do NOT include any markdown headings (# ## ### etc.) in your optimized_text output
+- The section heading context is provided for your understanding only - do not repeat it in your output
+- Your optimized_text must start with actual paragraph content, not a heading
+- We will reconstruct headings separately - you just provide the body text`;
 
       // Build the focused prompt with chunk-query assignments
+      // Separate cascade context from body content so AI knows not to include headings
       const chunkAssignmentDetails = queryAssignments.map((assignment) => {
         const chunkText = chunks[assignment.chunkIndex] || '';
+        
+        // Separate cascade context from body content
+        // The chunk.text format is: "# H1\n\n## H2\n\nBody content..."
+        const headingMatch = chunkText.match(/^((?:#{1,6}\s+[^\n]+\n+)+)/);
+        const cascadeContext = headingMatch ? headingMatch[1].trim() : '';
+        const bodyContent = headingMatch ? chunkText.slice(headingMatch[0].length).trim() : chunkText;
+
         return `
 CHUNK ${assignment.chunkIndex + 1}:
+
+SECTION CONTEXT (for your understanding, do NOT include in output):
+${cascadeContext || '(No heading context)'}
+
+BODY CONTENT TO OPTIMIZE:
 """
-${chunkText}
+${bodyContent}
 """
+
 ASSIGNED QUERIES (optimize ONLY for these): 
-${assignment.queries.map((q, i) => `  ${i + 1}. "${q}"`).join('\n')}
+${assignment.queries.map((q: string, i: number) => `  ${i + 1}. "${q}"`).join('\n')}
 `;
       }).join('\n---\n');
 
