@@ -152,9 +152,14 @@ export function useOptimizer() {
       }
 
       setState(prev => ({ ...prev, step: 'scoring', progress: 50 }));
-      const chunkTexts = optimization.optimized_chunks.map(
-        chunk => (chunk.heading ? chunk.heading + '\n\n' : '') + chunk.optimized_text
-      );
+      
+      // Prepare chunk texts for scoring - strip any AI-added headings from optimized_text
+      const chunkTexts = optimization.optimized_chunks.map(chunk => {
+        let bodyText = chunk.optimized_text;
+        // Remove leading markdown headings the AI might have included
+        bodyText = bodyText.replace(/^(#{1,6}\s+[^\n]+\n+)+/, '').trim();
+        return (chunk.heading ? chunk.heading + '\n\n' : '') + bodyText;
+      });
       const originalTexts = optimization.optimized_chunks.map(chunk => chunk.original_text);
 
       const allTexts = [...chunkTexts, ...originalTexts, ...queries];

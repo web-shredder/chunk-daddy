@@ -274,7 +274,10 @@ CONSTRAINTS:
 - Maintain natural, readable prose
 - Preserve original meaning and facts
 - Keep professional tone
-- Minimize repetition`;
+- Minimize repetition
+- Do NOT add, modify, or repeat section headings - only optimize the body content
+- The heading structure will be preserved separately by the system
+- Your optimized_text should contain ONLY paragraph/body content, NO markdown headings (no # ## ### etc)`;
 
       // Build the focused prompt with chunk-query assignments
       const chunkAssignmentDetails = queryAssignments.map((assignment) => {
