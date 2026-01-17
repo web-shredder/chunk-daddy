@@ -35,13 +35,13 @@ export function QueryAssignmentPreview({
   isOptimizing = false,
 }: QueryAssignmentPreviewProps) {
   const handleReassign = (query: string, newChunkIndex: string) => {
-    const updated = reassignQuery(
+    const { updatedMap } = reassignQuery(
       assignmentMap, 
       query, 
       parseInt(newChunkIndex, 10),
       chunkScores
     );
-    onAssignmentChange(updated);
+    onAssignmentChange(updatedMap);
   };
 
   return (
@@ -68,68 +68,69 @@ export function QueryAssignmentPreview({
 
       <ScrollArea className="h-[400px] pr-4">
         <div className="space-y-3">
-          {assignmentMap.chunkAssignments.map((chunkAssignment) => (
-            <Card key={chunkAssignment.chunkIndex} className="bg-surface border-border">
-              <CardHeader className="py-3 px-4">
-                <div className="flex items-center justify-between">
-                  <CardTitle className="text-sm font-medium">
-                    Chunk {chunkAssignment.chunkIndex + 1}
-                    {chunkAssignment.chunkHeading && (
-                      <span className="text-muted-foreground ml-2">
-                        — {chunkAssignment.chunkHeading}
-                      </span>
-                    )}
-                  </CardTitle>
-                  <Badge variant="outline" className="text-xs">
-                    {chunkAssignment.assignedQueries.length} queries
-                  </Badge>
-                </div>
-              </CardHeader>
-              <CardContent className="py-2 px-4 space-y-2">
-                <p className="text-xs text-muted-foreground line-clamp-2 mb-3">
-                  {chunkAssignment.chunkPreview}
-                </p>
-                
-                <div className="space-y-2">
-                  {chunkAssignment.assignedQueries.map((assignment) => (
-                    <div 
-                      key={assignment.query}
-                      className="flex items-center justify-between py-2 px-3 bg-muted/30 rounded-md"
-                    >
-                      <div className="flex items-center gap-2 flex-1 min-w-0">
-                        {assignment.isPrimary && (
-                          <Star className="h-3.5 w-3.5 text-yellow-500 shrink-0" />
-                        )}
-                        <span className="text-sm truncate">{assignment.query}</span>
-                      </div>
-                      
-                      <div className="flex items-center gap-3">
-                        <span className={`text-sm font-mono ${getScoreColorClass(assignment.score)}`}>
-                          {formatScorePercent(assignment.score)}
+          {assignmentMap.chunkAssignments
+            .filter(ca => ca.assignedQuery)
+            .map((chunkAssignment) => (
+              <Card key={chunkAssignment.chunkIndex} className="bg-surface border-border">
+                <CardHeader className="py-3 px-4">
+                  <div className="flex items-center justify-between">
+                    <CardTitle className="text-sm font-medium">
+                      Chunk {chunkAssignment.chunkIndex + 1}
+                      {chunkAssignment.chunkHeading && (
+                        <span className="text-muted-foreground ml-2">
+                          — {chunkAssignment.chunkHeading}
                         </span>
+                      )}
+                    </CardTitle>
+                    <Badge variant="outline" className="text-xs">
+                      1 query
+                    </Badge>
+                  </div>
+                </CardHeader>
+                <CardContent className="py-2 px-4 space-y-2">
+                  <p className="text-xs text-muted-foreground line-clamp-2 mb-3">
+                    {chunkAssignment.chunkPreview}
+                  </p>
+                  
+                  {chunkAssignment.assignedQuery && (
+                    <div className="space-y-2">
+                      <div 
+                        className="flex items-center justify-between py-2 px-3 bg-muted/30 rounded-md"
+                      >
+                        <div className="flex items-center gap-2 flex-1 min-w-0">
+                          {chunkAssignment.assignedQuery.isPrimary && (
+                            <Star className="h-3.5 w-3.5 text-yellow-500 shrink-0" />
+                          )}
+                          <span className="text-sm truncate">{chunkAssignment.assignedQuery.query}</span>
+                        </div>
                         
-                        <Select
-                          value={assignment.assignedChunkIndex.toString()}
-                          onValueChange={(value) => handleReassign(assignment.query, value)}
-                        >
-                          <SelectTrigger className="w-24 h-7 text-xs">
-                            <SelectValue />
-                          </SelectTrigger>
-                          <SelectContent>
-                            {chunkScores.map((chunk, idx) => (
-                              <SelectItem key={idx} value={idx.toString()}>
-                                Chunk {idx + 1}
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
+                        <div className="flex items-center gap-3">
+                          <span className={`text-sm font-mono ${getScoreColorClass(chunkAssignment.assignedQuery.score)}`}>
+                            {formatScorePercent(chunkAssignment.assignedQuery.score)}
+                          </span>
+                          
+                          <Select
+                            value={chunkAssignment.assignedQuery.assignedChunkIndex.toString()}
+                            onValueChange={(value) => handleReassign(chunkAssignment.assignedQuery!.query, value)}
+                          >
+                            <SelectTrigger className="w-24 h-7 text-xs">
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {chunkScores.map((chunk, idx) => (
+                                <SelectItem key={idx} value={idx.toString()}>
+                                  Chunk {idx + 1}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </div>
                       </div>
                     </div>
-                  ))}
-                </div>
-              </CardContent>
-            </Card>
-          ))}
+                  )}
+                </CardContent>
+              </Card>
+            ))}
 
           {/* Unassigned queries warning */}
           {assignmentMap.unassignedQueries.length > 0 && (

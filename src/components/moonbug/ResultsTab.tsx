@@ -612,23 +612,25 @@ export function ResultsTab({
                           Chunk {ca.chunkIndex + 1}
                           {ca.chunkHeading && <span className="text-muted-foreground ml-1 hidden sm:inline">— {ca.chunkHeading}</span>}
                         </span>
-                        <Badge variant="outline" className="text-[10px]">
-                          {ca.assignedQueries.length} queries
-                        </Badge>
+                        {ca.assignedQuery && (
+                          <Badge variant="outline" className="text-[10px]">
+                            1 query
+                          </Badge>
+                        )}
                       </div>
-                      <div className="space-y-1">
-                        {ca.assignedQueries.map((qa) => (
-                          <div key={qa.query} className="flex items-center justify-between text-xs py-1 px-2 bg-background/50 rounded">
+                      {ca.assignedQuery && (
+                        <div className="space-y-1">
+                          <div className="flex items-center justify-between text-xs py-1 px-2 bg-background/50 rounded">
                             <span className="flex items-center gap-1.5 truncate">
-                              {qa.isPrimary && <Star className="h-3 w-3 text-yellow-500 shrink-0" />}
-                              <span className="truncate">{qa.query}</span>
+                              {ca.assignedQuery.isPrimary && <Star className="h-3 w-3 text-yellow-500 shrink-0" />}
+                              <span className="truncate">{ca.assignedQuery.query}</span>
                             </span>
-                            <span className={cn("font-mono shrink-0 ml-2", getAssignmentScoreColorClass(qa.score))}>
-                              {formatScorePercent(qa.score)}
+                            <span className={cn("font-mono shrink-0 ml-2", getAssignmentScoreColorClass(ca.assignedQuery.score))}>
+                              {formatScorePercent(ca.assignedQuery.score)}
                             </span>
                           </div>
-                        ))}
-                      </div>
+                        </div>
+                      )}
                     </div>
                   ))
                 )}

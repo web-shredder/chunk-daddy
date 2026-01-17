@@ -225,10 +225,12 @@ export function OptimizeTab({
 
     const report = {
       exportedAt: new Date().toISOString(),
-      queryAssignments: queryAssignments.chunkAssignments.map(ca => ({
-        chunkIndex: ca.chunkIndex,
-        queries: ca.assignedQueries.map(q => q.query),
-      })),
+      queryAssignments: queryAssignments.chunkAssignments
+        .filter(ca => ca.assignedQuery)
+        .map(ca => ({
+          chunkIndex: ca.chunkIndex,
+          queries: [ca.assignedQuery!.query],
+        })),
       originalContent: optimizationResult.originalContent,
       optimizedContent,
       chunks: optimizationResult.optimizedChunks.map((chunk, idx) => ({
