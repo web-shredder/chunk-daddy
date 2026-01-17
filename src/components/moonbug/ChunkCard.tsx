@@ -1,6 +1,7 @@
+import { useMemo } from 'react';
 import { cn, stripLeadingHeadingCascade } from '@/lib/utils';
 import { Badge } from '@/components/ui/badge';
-import { FileText, Hash, Zap } from 'lucide-react';
+import { FileText, Hash, Zap, ChevronRight } from 'lucide-react';
 
 interface ChunkCardProps {
   chunk: {
@@ -25,13 +26,54 @@ function getScoreTier(score: number) {
   return { label: 'Poor', bgColor: 'bg-red-500', textColor: 'text-red-600', borderColor: 'border-l-red-500' };
 }
 
+// Strip markdown formatting
+function stripMarkdown(text: string): string {
+  return text
+    .replace(/\*\*(.+?)\*\*/g, '$1')
+    .replace(/\*(.+?)\*/g, '$1')
+    .replace(/#{1,6}\s+/g, '')
+    .replace(/`(.+?)`/g, '$1')
+    .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
+    .trim();
+}
+
 export function ChunkCard({ chunk, isSelected, onClick }: ChunkCardProps) {
   const tier = getScoreTier(chunk.score);
-  const headingDisplay = chunk.headingPath.length > 0 
-    ? chunk.headingPath[chunk.headingPath.length - 1] 
-    : `Chunk ${chunk.index + 1}`;
-  const fullPath = chunk.headingPath.join(' › ');
-  const bodyPreview = stripLeadingHeadingCascade(chunk.text).slice(0, 120);
+  
+  // Build breadcrumb from headingPath (show last 2-3 levels max)
+  const breadcrumb = useMemo(() => {
+    if (chunk.headingPath && chunk.headingPath.length > 0) {
+      const cleaned = chunk.headingPath.map(h => stripMarkdown(h));
+      
+      if (cleaned.length <= 3) {
+        return cleaned;
+      }
+      
+      // First + ellipsis + last 2 for long paths
+      return [cleaned[0], '…', ...cleaned.slice(-2)];
+    }
+    return [];
+  }, [chunk.headingPath]);
+  
+  // Get first few words of chunk body as differentiator title
+  const chunkTitle = useMemo(() => {
+    const body = stripLeadingHeadingCascade(chunk.text);
+    const cleaned = stripMarkdown(body);
+    const words = cleaned.split(/\s+/).filter(Boolean).slice(0, 8).join(' ');
+    return words.length > 60 ? words.slice(0, 60) + '…' : words + '…';
+  }, [chunk.text]);
+  
+  // Body preview (more content after title)
+  const bodyPreview = useMemo(() => {
+    const body = stripLeadingHeadingCascade(chunk.text);
+    const cleaned = stripMarkdown(body);
+    // Skip first 8 words (used in title) and get next portion
+    const words = cleaned.split(/\s+/).filter(Boolean);
+    const remaining = words.slice(8, 28).join(' ');
+    return remaining.length > 0 ? remaining + '…' : '';
+  }, [chunk.text]);
+
+  const assignedQueryClean = chunk.assignedQuery ? stripMarkdown(chunk.assignedQuery) : undefined;
   
   return (
     <button
@@ -43,18 +85,30 @@ export function ChunkCard({ chunk, isSelected, onClick }: ChunkCardProps) {
         isSelected && "ring-2 ring-accent bg-accent/5"
       )}
     >
-      {/* Header Row */}
+      {/* Breadcrumb */}
+      {breadcrumb.length > 0 && (
+        <div className="flex items-center gap-1 text-[10px] text-muted-foreground mb-1.5 overflow-hidden">
+          {breadcrumb.map((crumb, idx) => (
+            <span key={idx} className="flex items-center gap-1 shrink-0">
+              {idx > 0 && <ChevronRight className="h-2.5 w-2.5 opacity-50" />}
+              <span className={cn(
+                "truncate",
+                idx === breadcrumb.length - 1 ? "max-w-[150px]" : "max-w-[100px]"
+              )} title={crumb}>
+                {crumb}
+              </span>
+            </span>
+          ))}
+        </div>
+      )}
+      
+      {/* Header Row: Chunk Title + Score */}
       <div className="flex items-start justify-between gap-2 mb-1.5">
-        {/* Left: Heading */}
+        {/* Left: Chunk preview as title */}
         <div className="flex-1 min-w-0">
-          <h4 className="text-sm font-medium text-foreground truncate" title={fullPath || headingDisplay}>
-            {headingDisplay}
+          <h4 className="text-sm font-medium text-foreground line-clamp-1" title={chunkTitle}>
+            {chunkTitle}
           </h4>
-          {chunk.headingPath.length > 1 && (
-            <p className="text-[10px] text-muted-foreground truncate" title={fullPath}>
-              {chunk.headingPath.slice(0, -1).join(' › ')}
-            </p>
-          )}
         </div>
         
         {/* Right: Score badge */}
@@ -74,21 +128,25 @@ export function ChunkCard({ chunk, isSelected, onClick }: ChunkCardProps) {
       </div>
       
       {/* Assigned Query */}
-      {chunk.assignedQuery && (
+      {assignedQueryClean && (
         <div className="mb-1.5">
-          <Badge variant="secondary" className="text-[10px] px-1.5 py-0 h-4 bg-accent/10 text-accent">
-            <Zap className="h-2.5 w-2.5 mr-1" />
-            {chunk.assignedQuery.length > 40 
-              ? chunk.assignedQuery.slice(0, 40) + '...' 
-              : chunk.assignedQuery}
+          <Badge variant="secondary" className="text-[10px] px-1.5 py-0 h-4 bg-accent/10 text-accent max-w-full">
+            <Zap className="h-2.5 w-2.5 mr-1 shrink-0" />
+            <span className="truncate">
+              {assignedQueryClean.length > 50 
+                ? assignedQueryClean.slice(0, 50) + '…' 
+                : assignedQueryClean}
+            </span>
           </Badge>
         </div>
       )}
       
       {/* Body Preview */}
-      <p className="text-xs text-muted-foreground line-clamp-2 mb-2 leading-relaxed">
-        {bodyPreview}{bodyPreview.length >= 120 ? '...' : ''}
-      </p>
+      {bodyPreview && (
+        <p className="text-xs text-muted-foreground line-clamp-2 mb-2 leading-relaxed">
+          {bodyPreview}
+        </p>
+      )}
       
       {/* Footer: Metadata */}
       <div className="flex items-center gap-2 text-[10px] text-muted-foreground/70">
