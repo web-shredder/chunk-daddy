@@ -638,7 +638,7 @@ export function ResultsTab({
                 {queryAssignments.unassignedQueries.length > 0 && (
                   <div className="p-3 rounded-lg border border-yellow-500/30 bg-yellow-500/10">
                     <div className="text-xs text-yellow-600 font-medium mb-2">
-                      Unassigned Queries ({queryAssignments.unassignedQueries.length})
+                      Content Gaps ({queryAssignments.unassignedQueries.length})
                     </div>
                     <div className="space-y-1">
                       {queryAssignments.unassignedQueries.map((q) => (

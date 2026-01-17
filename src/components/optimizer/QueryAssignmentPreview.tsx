@@ -132,18 +132,18 @@ export function QueryAssignmentPreview({
               </Card>
             ))}
 
-          {/* Unassigned queries warning */}
+          {/* Queries needing new content */}
           {assignmentMap.unassignedQueries.length > 0 && (
             <Card className="bg-yellow-500/10 border-yellow-500/30">
               <CardHeader className="py-3 px-4">
                 <CardTitle className="text-sm font-medium text-yellow-500 flex items-center gap-2">
                   <AlertCircle className="h-4 w-4" />
-                  Unassigned Queries
+                  Queries Needing New Content
                 </CardTitle>
               </CardHeader>
               <CardContent className="py-2 px-4">
                 <p className="text-xs text-muted-foreground mb-2">
-                  These queries didn't score well against any chunk. Consider adding relevant content or manually assigning them.
+                  These queries have no viable chunk match. Generate content briefs or force-assign to existing chunks.
                 </p>
                 <div className="space-y-2">
                   {assignmentMap.unassignedQueries.map((query) => (
