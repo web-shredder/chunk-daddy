@@ -193,15 +193,7 @@ export function OptimizeTab({
         
         setOptimizationResult(result);
         const fullContent = result.optimizedChunks
-          .map(chunk => {
-            // Strip any heading lines the AI might have included at the start of optimized_text
-            let bodyText = chunk.optimized_text;
-            // Remove leading markdown headings (# ## ### etc) that AI might have repeated
-            bodyText = bodyText.replace(/^(#{1,6}\s+[^\n]+\n+)+/, '').trim();
-            
-            // Reconstruct with proper heading
-            return (chunk.heading ? `## ${chunk.heading}\n\n` : '') + bodyText;
-          })
+          .map(chunk => (chunk.heading ? `## ${chunk.heading}\n\n` : '') + chunk.optimized_text)
           .join('\n\n');
         setOptimizedContent(fullContent);
         
@@ -264,10 +256,7 @@ export function OptimizeTab({
       if (editedChunks.has(idx)) {
         return editedChunks.get(idx)!;
       }
-      // Strip any heading lines the AI might have included
-      let bodyText = chunk.optimized_text;
-      bodyText = bodyText.replace(/^(#{1,6}\s+[^\n]+\n+)+/, '').trim();
-      return (chunk.heading ? `## ${chunk.heading}\n\n` : '') + bodyText;
+      return (chunk.heading ? `## ${chunk.heading}\n\n` : '') + chunk.optimized_text;
     });
 
     const finalContent = finalChunks.join('\n\n');

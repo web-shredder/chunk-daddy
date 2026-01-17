@@ -152,20 +152,12 @@ export function useOptimizer() {
       }
 
       setState(prev => ({ ...prev, step: 'scoring', progress: 50 }));
-      
-      // Prepare texts for scoring - use body content ONLY for both (no headings)
-      // This ensures fair comparison between original and optimized content
-      const optimizedTexts = optimization.optimized_chunks.map(chunk => {
-        // Remove any leading headings from optimized_text
-        return chunk.optimized_text.replace(/^(#{1,6}\s+[^\n]+\n+)+/, '').trim();
-      });
-      
-      const originalTexts = optimization.optimized_chunks.map(chunk => {
-        // Remove any leading headings from original_text for consistent scoring
-        return chunk.original_text.replace(/^(#{1,6}\s+[^\n]+\n+)+/, '').trim();
-      });
+      const chunkTexts = optimization.optimized_chunks.map(
+        chunk => (chunk.heading ? chunk.heading + '\n\n' : '') + chunk.optimized_text
+      );
+      const originalTexts = optimization.optimized_chunks.map(chunk => chunk.original_text);
 
-      const allTexts = [...optimizedTexts, ...originalTexts, ...queries];
+      const allTexts = [...chunkTexts, ...originalTexts, ...queries];
 
       // Filter out empty texts and track their original indices
       const textsWithIndices = allTexts.map((text, idx) => ({ text, idx }))
@@ -182,14 +174,14 @@ export function useOptimizer() {
       });
 
       // Reconstruct embeddings with proper indices
-      const chunkEmbeddings = optimizedTexts.map((_, idx) => ({
+      const chunkEmbeddings = chunkTexts.map((_, idx) => ({
         embedding: embeddingMap.get(idx) || []
       }));
       const originalEmbeddings = originalTexts.map((_, idx) => ({
-        embedding: embeddingMap.get(optimizedTexts.length + idx) || []
+        embedding: embeddingMap.get(chunkTexts.length + idx) || []
       }));
       const queryEmbeddings = queries.map((_, idx) => ({
-        embedding: embeddingMap.get(optimizedTexts.length + originalTexts.length + idx) || []
+        embedding: embeddingMap.get(chunkTexts.length + originalTexts.length + idx) || []
       }));
 
       setState(prev => ({ ...prev, progress: 70 }));
