@@ -6,34 +6,18 @@ import { useApiKey } from "@/hooks/useApiKey";
 import { useAnalysis, type AnalysisResult } from "@/hooks/useAnalysis";
 import { useAuth } from "@/hooks/useAuth";
 import { useProjects } from "@/hooks/useProjects";
-import type { ProjectSummary } from "@/lib/project-types";
 import { parseMarkdown, createLayoutAwareChunks, type LayoutAwareChunk, type ChunkerOptions, type DocumentElement } from "@/lib/layout-chunker";
 import type { FullOptimizationResult } from "@/lib/optimizer-types";
-
-// Helper to escape regex special characters
-const escapeRegex = (str: string) => str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-
-// Generate unique project name based on primary query
-const generateUniqueProjectName = (primaryQuery: string, existingProjects: ProjectSummary[]): string => {
-  const baseNames = existingProjects.map(p => p.project_name);
-  
-  // Find all projects that match "Query" or "Query - #" pattern
-  const pattern = new RegExp(`^${escapeRegex(primaryQuery)}(?: - (\\d+))?$`, 'i');
-  const existingNumbers = baseNames
-    .map(name => {
-      const match = name.match(pattern);
-      if (match) return match[1] ? parseInt(match[1]) : 0;
-      return null;
-    })
-    .filter((n): n is number => n !== null);
-  
-  // Get next available number (start at 1)
-  const nextNumber = existingNumbers.length > 0 
-    ? Math.max(...existingNumbers) + 1 
-    : 1;
-  
-  return `${primaryQuery} - ${nextNumber}`;
-};
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 const Index = () => {
   const navigate = useNavigate();
   const { isValid } = useApiKey();
@@ -70,8 +54,12 @@ const Index = () => {
   const [optimizedContent, setOptimizedContent] = useState<string>("");
   const [optimizationResult, setOptimizationResult] = useState<FullOptimizationResult | null>(null);
   
-  // Local project name for auto-naming before save
+  // Local project name
   const [localProjectName, setLocalProjectName] = useState<string>('Untitled Project');
+  
+  // New project dialog state
+  const [showNewProjectDialog, setShowNewProjectDialog] = useState(false);
+  const [pendingProjectName, setPendingProjectName] = useState('');
   
   // Track if we should auto-navigate to results after analysis
   const shouldNavigateToResults = useRef(false);
@@ -160,24 +148,9 @@ const Index = () => {
   }, [keywords, chunkerOptions, result, optimizedContent, optimizationResult, markUnsaved]);
 
   const handleKeywordsChange = useCallback((newKeywords: string[]) => {
-    const previousPrimary = keywords[0];
-    const newPrimary = newKeywords[0];
-    
-    // Check if primary query was just set or changed
-    const primaryChanged = newPrimary && newPrimary !== previousPrimary;
-    const isUntitled = !localProjectName || 
-                       localProjectName === 'Untitled Project' ||
-                       localProjectName.startsWith('Untitled ');
-    
-    // Auto-name only for new/untitled projects when primary query is set
-    if (primaryChanged && isUntitled) {
-      const uniqueName = generateUniqueProjectName(newPrimary, projects);
-      setLocalProjectName(uniqueName);
-    }
-    
     setKeywords(newKeywords);
     markUnsaved(content, newKeywords, chunkerOptions, result, optimizedContent, optimizationResult);
-  }, [content, keywords, chunkerOptions, result, optimizedContent, optimizationResult, markUnsaved, localProjectName, projects]);
+  }, [content, chunkerOptions, result, optimizedContent, optimizationResult, markUnsaved]);
 
   const handleSettingsChange = useCallback((newOptions: ChunkerOptions) => {
     setChunkerOptions(newOptions);
@@ -190,6 +163,13 @@ const Index = () => {
   };
 
   const handleNewProject = () => {
+    setPendingProjectName('');
+    setShowNewProjectDialog(true);
+  };
+  
+  const confirmNewProject = () => {
+    if (!pendingProjectName.trim()) return;
+    
     newProject();
     setContent("");
     setKeywords([]);
@@ -199,8 +179,9 @@ const Index = () => {
     setLayoutChunks([]);
     setOptimizedContent("");
     setOptimizationResult(null);
-    setLocalProjectName('Untitled Project');
+    setLocalProjectName(pendingProjectName.trim());
     setActiveTab('content');
+    setShowNewProjectDialog(false);
   };
 
   const handleSave = async () => {
@@ -390,6 +371,42 @@ const Index = () => {
           onSaveProject={handleSave}
         />
       )}
+
+      {/* New Project Dialog */}
+      <Dialog open={showNewProjectDialog} onOpenChange={setShowNewProjectDialog}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Create New Project</DialogTitle>
+            <DialogDescription>
+              Give your project a name to get started.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="py-4">
+            <Input
+              value={pendingProjectName}
+              onChange={(e) => setPendingProjectName(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && pendingProjectName.trim()) {
+                  confirmNewProject();
+                }
+              }}
+              placeholder="e.g., RPO Content Analysis"
+              autoFocus
+            />
+          </div>
+          <DialogFooter>
+            <Button variant="ghost" onClick={() => setShowNewProjectDialog(false)}>
+              Cancel
+            </Button>
+            <Button 
+              onClick={confirmNewProject} 
+              disabled={!pendingProjectName.trim()}
+            >
+              Create Project
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 };
