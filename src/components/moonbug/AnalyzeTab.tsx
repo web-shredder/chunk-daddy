@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Plus, X, Play, Loader2, Microscope, Sparkles, Check, Network, ChevronRight, ChevronDown } from 'lucide-react';
+import { Plus, X, Play, Loader2, Microscope, Sparkles, Check, Network, ChevronRight, ChevronDown, List, ListTree } from 'lucide-react';
 import { DismissableTip } from '@/components/DismissableTip';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -11,11 +11,14 @@ import { Badge } from '@/components/ui/badge';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Button } from '@/components/ui/button';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
 import type { ChunkerOptions } from '@/lib/layout-chunker';
 import type { FanoutNode, FanoutTree, FanoutIntentType } from '@/lib/optimizer-types';
 import { cn } from '@/lib/utils';
+import { FanoutListView } from './FanoutListView';
+import { ExportFanoutDialog } from './ExportFanoutDialog';
 
 // Fanout tree node types for recursive display
 interface ExpandedQuery {
@@ -75,6 +78,7 @@ export function AnalyzeTab({
   const [fanoutDepth, setFanoutDepth] = useState(3);
   const [fanoutBranch, setFanoutBranch] = useState(3);
   const [fanoutMode, setFanoutMode] = useState<'simple' | 'tree'>('tree');
+  const [fanoutViewMode, setFanoutViewMode] = useState<'tree' | 'list'>('tree');
   const addQuery = () => {
     if (newQuery.trim() && !keywords.includes(newQuery.trim())) {
       onKeywordsChange([...keywords, newQuery.trim()]);
@@ -338,27 +342,83 @@ export function AnalyzeTab({
               <div className="flex items-center justify-between p-3 border-b border-accent/20">
                 <div className="flex items-center gap-2">
                   <Network className="h-4 w-4 text-accent" />
-                  <span className="text-sm font-medium">Query Fanout Tree</span>
+                  <span className="text-sm font-medium">Query Fanout</span>
                   <Badge variant="secondary" className="text-[10px]">
                     {fanoutTree.selectedNodes} / {fanoutTree.totalNodes}
                   </Badge>
                 </div>
-                <div className="flex items-center gap-1">
-                  <button onClick={() => setAllSelected(true)} className="text-xs text-primary hover:underline">
-                    All
-                  </button>
-                  <span className="text-muted-foreground text-xs">|</span>
-                  <button onClick={() => setAllSelected(false)} className="text-xs text-muted-foreground hover:text-foreground">
-                    None
-                  </button>
+                <div className="flex items-center gap-2">
+                  {/* View Mode Toggle */}
+                  <div className="flex items-center border border-border rounded-md overflow-hidden">
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className={cn("h-7 px-2 rounded-none", fanoutViewMode === 'tree' && "bg-muted")}
+                      onClick={() => setFanoutViewMode('tree')}
+                    >
+                      <ListTree className="h-3.5 w-3.5" />
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className={cn("h-7 px-2 rounded-none", fanoutViewMode === 'list' && "bg-muted")}
+                      onClick={() => setFanoutViewMode('list')}
+                    >
+                      <List className="h-3.5 w-3.5" />
+                    </Button>
+                  </div>
+                  {/* Export Dialog */}
+                  <ExportFanoutDialog
+                    queries={flattenTree(fanoutTree.root).map(node => ({
+                      id: node.id,
+                      query: node.query,
+                      intentType: node.intentType,
+                      level: node.level,
+                      parentId: node.parentId,
+                      isSelected: node.isSelected,
+                    }))}
+                    primaryQuery={fanoutTree.root.query}
+                  />
+                  {/* Select All/None */}
+                  <div className="flex items-center gap-1">
+                    <button onClick={() => setAllSelected(true)} className="text-xs text-primary hover:underline">
+                      All
+                    </button>
+                    <span className="text-muted-foreground text-xs">|</span>
+                    <button onClick={() => setAllSelected(false)} className="text-xs text-muted-foreground hover:text-foreground">
+                      None
+                    </button>
+                  </div>
                 </div>
               </div>
               
-              <ScrollArea className="h-[300px]">
-                <div className="p-2">
-                  <FanoutNodeDisplay node={fanoutTree.root} onToggle={toggleNodeSelection} />
+              {fanoutViewMode === 'tree' ? (
+                <ScrollArea className="h-[300px]">
+                  <div className="p-2">
+                    <FanoutNodeDisplay node={fanoutTree.root} onToggle={toggleNodeSelection} />
+                  </div>
+                </ScrollArea>
+              ) : (
+                <div className="p-3">
+                  <FanoutListView
+                    queries={flattenTree(fanoutTree.root).map(node => ({
+                      id: node.id,
+                      query: node.query,
+                      intentType: node.intentType,
+                      level: node.level,
+                      parentId: node.parentId,
+                      isSelected: node.isSelected,
+                    }))}
+                    primaryQuery={fanoutTree.root.query}
+                    onToggleSelect={(id) => toggleNodeSelection(id, !flattenTree(fanoutTree.root).find(n => n.id === id)?.isSelected)}
+                    onSelectAll={() => setAllSelected(true)}
+                    onDeselectAll={() => setAllSelected(false)}
+                    onDeleteSelected={() => {/* Not implemented for tree mode */}}
+                    onDeleteQuery={() => {/* Not implemented for tree mode */}}
+                    showTreeView={() => setFanoutViewMode('tree')}
+                  />
                 </div>
-              </ScrollArea>
+              )}
               
               <div className="flex items-center gap-2 p-3 border-t border-accent/20">
                 <button onClick={applyTreeQueries} className="btn-primary flex-1 h-8 text-sm">
