@@ -351,6 +351,8 @@ const Index = () => {
           isChunking={false}
           wordCount={wordCount}
           tokenCount={tokenCount}
+          chunkerOptions={chunkerOptions}
+          onOptionsChange={handleSettingsChange}
         />
       )}
 
