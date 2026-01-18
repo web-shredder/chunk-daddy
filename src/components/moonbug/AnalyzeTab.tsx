@@ -258,8 +258,8 @@ export function AnalyzeTab({
   const canAnalyze = keywords.some(k => k.trim()) && !isAnalyzing;
   const selectedCount = expandedQueries.filter(q => q.selected).length;
   return <div className="flex-1 overflow-auto p-4 md:p-6 bg-background">
-      <div className="max-w-5xl mx-auto grid md:grid-cols-2 gap-4 md:gap-6">
-        {/* Left: Queries */}
+      <div className="max-w-4xl mx-auto">
+        {/* Queries */}
         <div className="panel">
           <div className="panel-header">
             <h3>Queries</h3>
@@ -450,58 +450,6 @@ export function AnalyzeTab({
             </div>}
         </div>
 
-        {/* Right: Settings */}
-        <div className="panel">
-          <div className="panel-header">
-            <h3>Chunking Settings</h3>
-          </div>
-
-          <div className="space-y-6">
-            {/* Max Chunk Size */}
-            <div className="space-y-3">
-              <div className="flex justify-between items-center">
-                <Label className="text-sm font-medium">Max chunk size</Label>
-                <span className="text-xs text-muted-foreground font-mono">
-                  {chunkerOptions.maxChunkSize} tokens
-                </span>
-              </div>
-              <Slider value={[chunkerOptions.maxChunkSize]} onValueChange={([value]) => onOptionsChange({
-              ...chunkerOptions,
-              maxChunkSize: value
-            })} min={128} max={1024} step={64} className="w-full" />
-            </div>
-
-            {/* Chunk Overlap */}
-            <div className="space-y-3">
-              <div className="flex justify-between items-center">
-                <Label className="text-sm font-medium">Chunk overlap</Label>
-                <span className="text-xs text-muted-foreground font-mono">
-                  {chunkerOptions.chunkOverlap} tokens
-                </span>
-              </div>
-              <Slider value={[chunkerOptions.chunkOverlap]} onValueChange={([value]) => onOptionsChange({
-              ...chunkerOptions,
-              chunkOverlap: value
-            })} min={0} max={128} step={8} className="w-full" />
-            </div>
-
-            {/* Heading Cascade */}
-            <div className="space-y-2">
-              <div className="flex items-center justify-between">
-                <div className="space-y-0.5">
-                  <Label className="text-sm font-medium">Heading cascade</Label>
-                  <p className="text-xs text-muted-foreground">
-                    Prepend parent headings to each chunk
-                  </p>
-                </div>
-                <Switch checked={chunkerOptions.cascadeHeadings} onCheckedChange={checked => onOptionsChange({
-                ...chunkerOptions,
-                cascadeHeadings: checked
-              })} />
-              </div>
-            </div>
-          </div>
-        </div>
       </div>
     </div>;
 }
