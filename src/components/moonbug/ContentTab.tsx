@@ -1,5 +1,16 @@
-import { ChevronRight, Loader2 } from 'lucide-react';
+import { useState } from 'react';
+import { ChevronRight, Loader2, Settings2 } from 'lucide-react';
 import { MarkdownEditor } from '@/components/MarkdownEditor';
+import { ChunkingSettings } from '@/components/ChunkingSettings';
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+} from '@/components/ui/dialog';
+import { Button } from '@/components/ui/button';
+import type { ChunkerOptions } from '@/lib/layout-chunker';
 
 interface ContentTabProps {
   content: string;
@@ -8,6 +19,8 @@ interface ContentTabProps {
   isChunking: boolean;
   wordCount: number;
   tokenCount: number;
+  chunkerOptions: ChunkerOptions;
+  onOptionsChange: (options: ChunkerOptions) => void;
 }
 
 export function ContentTab({
@@ -16,9 +29,21 @@ export function ContentTab({
   onChunk,
   isChunking,
   wordCount,
-  tokenCount
+  tokenCount,
+  chunkerOptions,
+  onOptionsChange
 }: ContentTabProps) {
+  const [showSettingsDialog, setShowSettingsDialog] = useState(false);
   const hasContent = content.trim().length > 0;
+  
+  const handleChunkClick = () => {
+    setShowSettingsDialog(true);
+  };
+  
+  const handleConfirmChunk = () => {
+    setShowSettingsDialog(false);
+    onChunk();
+  };
 
   if (!hasContent) {
     return (
@@ -69,7 +94,7 @@ The chunker will respect your heading hierarchy and create semantically coherent
         </span>
         
         <button 
-          onClick={onChunk} 
+          onClick={handleChunkClick} 
           disabled={!hasContent || isChunking} 
           className="btn-primary w-full sm:w-auto"
         >
@@ -86,6 +111,37 @@ The chunker will respect your heading hierarchy and create semantically coherent
           )}
         </button>
       </div>
+      
+      {/* Chunking Settings Dialog */}
+      <Dialog open={showSettingsDialog} onOpenChange={setShowSettingsDialog}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Settings2 className="h-5 w-5 text-primary" />
+              Chunking Settings
+            </DialogTitle>
+          </DialogHeader>
+          
+          <div className="py-4">
+            <ChunkingSettings
+              content={content}
+              options={chunkerOptions}
+              onChange={onOptionsChange}
+              hideCard={true}
+            />
+          </div>
+          
+          <DialogFooter className="gap-2 sm:gap-0">
+            <Button variant="outline" onClick={() => setShowSettingsDialog(false)}>
+              Cancel
+            </Button>
+            <Button onClick={handleConfirmChunk} className="gap-2">
+              Chunk It, Daddy
+              <ChevronRight className="h-4 w-4" />
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
