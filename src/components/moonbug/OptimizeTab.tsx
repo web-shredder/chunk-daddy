@@ -1,20 +1,14 @@
 import { useState, useMemo } from 'react';
 import { 
   Sparkles, 
-  Copy, 
-  FileJson, 
   ArrowLeft,
   Target,
   Loader2,
-  Wrench,
 } from 'lucide-react';
-import { Badge } from '@/components/ui/badge';
-import { DismissableTip } from '@/components/DismissableTip';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Button } from '@/components/ui/button';
 import { Progress } from '@/components/ui/progress';
 import { toast } from 'sonner';
-import { QueryAssignmentPreview } from '@/components/optimizer/QueryAssignmentPreview';
 import { ChunkReviewPanel } from '@/components/optimizer/ChunkReviewPanel';
 import { OptimizationPlanPanel } from './OptimizationPlanPanel';
 import { useOptimizer } from '@/hooks/useOptimizer';
@@ -37,10 +31,7 @@ interface OptimizeTabProps {
   currentScores?: ChunkScore[];
   onApplyOptimization: (optimizedContent: string) => void;
   onGoToAnalyze: () => void;
-  onReanalyze: () => void;
-  onSaveProject?: () => void;
   onOptimizationComplete?: (result: FullOptimizationResult, finalContent: string) => void;
-  chunks?: string[];
   // Architecture tasks from Architecture tab
   selectedArchitectureTasks?: ArchitectureTask[];
   // Lifted state props
@@ -65,10 +56,7 @@ export function OptimizeTab({
   currentScores,
   onApplyOptimization,
   onGoToAnalyze,
-  onReanalyze,
-  onSaveProject,
   onOptimizationComplete,
-  chunks: providedChunks,
   selectedArchitectureTasks = [],
   // Lifted state
   viewState,
@@ -91,7 +79,7 @@ export function OptimizeTab({
   const [applyArchitecture, setApplyArchitecture] = useState(true);
   const [generateBriefs, setGenerateBriefs] = useState(true);
   
-  const { step, progress, error, result, optimize, reset } = useOptimizer();
+  const { step, progress, error, optimize, reset } = useOptimizer();
 
   // Compute query assignments from current scores
   const { assignmentMap, chunkScores, chunkTexts } = useMemo(() => {
@@ -139,10 +127,11 @@ export function OptimizeTab({
     return queryAssignments.chunkAssignments.map(ca => ({
       chunkIndex: ca.chunkIndex,
       chunkHeading: ca.chunkHeading || '',
+      chunkPreview: chunkTexts[ca.chunkIndex]?.slice(0, 150) || '',
       assignedQuery: ca.assignedQuery?.query || null,
       currentScore: ca.assignedQuery ? Math.round(ca.assignedQuery.score * 100) : 0,
     }));
-  }, [queryAssignments.chunkAssignments]);
+  }, [queryAssignments.chunkAssignments, chunkTexts]);
 
   // Architecture tasks summary display
   const hasArchitectureTasks = selectedArchitectureTasks.length > 0;
@@ -542,13 +531,76 @@ export function OptimizeTab({
     );
   }
 
-  // Assignment view (default)
+  // Handle query reassignment from the plan panel
+  const handleQueryReassign = (chunkIndex: number, newQuery: string | null) => {
+    setQueryAssignments(prev => {
+      const newChunkAssignments = prev.chunkAssignments.map(ca => {
+        if (ca.chunkIndex === chunkIndex) {
+          if (newQuery) {
+            // Find the score for this query
+            const scoreData = chunkScores.find(cs => cs.chunkIndex === chunkIndex);
+            const score = scoreData?.scores[newQuery] || 0;
+            const queryIndex = keywords.indexOf(newQuery);
+            const newAssignment: import('@/lib/query-assignment').QueryAssignment = {
+              query: newQuery,
+              assignedChunkIndex: chunkIndex,
+              score,
+              isPrimary: queryIndex === 0,
+              intentType: prev.intentTypes[newQuery],
+            };
+            return {
+              ...ca,
+              assignedQuery: newAssignment,
+            };
+          } else {
+            return { ...ca, assignedQuery: null };
+          }
+        }
+        return ca;
+      });
+
+      // Update assignments array
+      const newAssignments = newChunkAssignments
+        .filter(ca => ca.assignedQuery)
+        .map(ca => ca.assignedQuery!);
+
+      // Update unassigned queries
+      const assignedQueries = new Set(newAssignments.map(a => a.query));
+      const newUnassignedQueries = keywords.filter(q => !assignedQueries.has(q));
+
+      return {
+        ...prev,
+        assignments: newAssignments,
+        chunkAssignments: newChunkAssignments,
+        unassignedQueries: newUnassignedQueries,
+      };
+    });
+  };
+
+  // Handle architecture task toggle from plan panel
+  const handleArchitectureTaskToggle = (taskId: string) => {
+    // This would need to be passed up to Index.tsx to update the architectureTasks state
+    // For now, we'll just log it since the actual toggle happens in ArchitectureTab
+    console.log('Toggle architecture task:', taskId);
+  };
+
+  // Assignment view (default) - now just the consolidated plan panel
   return (
     <div className="flex-1 overflow-auto">
       <ScrollArea className="h-full">
-        <div className="p-4 md:p-6 max-w-5xl mx-auto space-y-6">
-          {/* Optimization Plan Panel */}
-          {queryAssignments.assignments.length > 0 && (
+        <div className="p-4 md:p-6 max-w-3xl mx-auto">
+          {queryAssignments.assignments.length === 0 ? (
+            <div className="text-center py-12 text-muted-foreground">
+              <Target className="h-12 w-12 mx-auto mb-3 opacity-30" />
+              <p className="text-base">No query assignments could be computed.</p>
+              <p className="text-sm mt-2">
+                This usually means the analysis hasn't been run yet or no queries were provided.
+              </p>
+              <Button variant="secondary" className="mt-4" onClick={onGoToAnalyze}>
+                Go to Analyze
+              </Button>
+            </div>
+          ) : (
             <OptimizationPlanPanel
               chunkAssignments={planChunkAssignments}
               selectedArchitectureTasks={selectedArchitectureTasks}
@@ -557,49 +609,15 @@ export function OptimizeTab({
               generateBriefs={generateBriefs}
               onToggleArchitecture={setApplyArchitecture}
               onToggleBriefs={setGenerateBriefs}
+              onArchitectureTaskToggle={handleArchitectureTaskToggle}
+              onQueryReassign={handleQueryReassign}
+              allQueries={keywords}
+              isOptimizing={step !== 'idle' && step !== 'complete' && step !== 'error'}
+              optimizationStep={getStepLabel()}
+              optimizationProgress={progress}
+              onOptimize={handleStartOptimization}
             />
           )}
-
-          <div className="panel">
-            <div className="panel-header">
-              <h3 className="flex items-center gap-2 text-sm md:text-base">
-                <Target className="h-4 w-4 md:h-5 md:w-5 text-accent" />
-                Query-to-Chunk Assignment
-              </h3>
-              <p className="text-xs md:text-sm text-muted-foreground mt-1">
-                Each query will optimize its best-matching chunk. Review assignments before running optimization.
-              </p>
-            </div>
-
-            <DismissableTip tipId="optimize-assignment-intro">
-              <strong>Focused Optimization:</strong> Instead of trying to stuff all keywords everywhere, 
-              each chunk will only be optimized for its assigned queries. This creates natural, focused content 
-              that scores higher on Passage Score.
-            </DismissableTip>
-
-            {queryAssignments.assignments.length === 0 ? (
-              <div className="text-center py-8 md:py-12 text-muted-foreground">
-                <Target className="h-10 w-10 md:h-12 md:w-12 mx-auto mb-3 opacity-30" />
-                <p className="text-sm md:text-base">No query assignments could be computed.</p>
-                <p className="text-xs md:text-sm mt-2">
-                  This usually means the analysis hasn't been run yet or no queries were provided.
-                </p>
-                <Button variant="secondary" className="mt-4" onClick={onGoToAnalyze}>
-                  Go to Analyze
-                </Button>
-              </div>
-            ) : (
-              <QueryAssignmentPreview
-                assignmentMap={queryAssignments}
-                chunkScores={chunkScores}
-                onAssignmentChange={handleAssignmentChange}
-                onConfirm={handleStartOptimization}
-                isOptimizing={step !== 'idle' && step !== 'complete' && step !== 'error'}
-                onGenerateBrief={handleGenerateBrief}
-                generatedBriefs={generatedBriefs}
-              />
-            )}
-          </div>
         </div>
       </ScrollArea>
     </div>

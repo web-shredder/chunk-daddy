@@ -426,10 +426,7 @@ const Index = () => {
           currentScores={result?.chunkScores}
           onApplyOptimization={handleApplyOptimization}
           onGoToAnalyze={() => setActiveTab('analyze')}
-          onReanalyze={handleAnalyze}
-          onSaveProject={handleSave}
           onOptimizationComplete={handleOptimizationComplete}
-          chunks={layoutChunks.map(c => c.text)}
           // Architecture tasks
           selectedArchitectureTasks={architectureTasks.filter(t => t.isSelected)}
           // Lifted state props
