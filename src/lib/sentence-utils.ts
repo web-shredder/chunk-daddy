@@ -13,134 +13,53 @@ export interface Sentence {
  * Handles standard prose, markdown, and list-based content.
  */
 export function splitIntoSentences(text: string): Sentence[] {
-  if (!text || text.trim().length === 0) return [];
+  if (!text?.trim()) return [];
   
-  let segments: string[] = [];
-  let usedStrategy = 'none';
+  // Simple approach: split on sentence endings (. ! ?) OR newlines
+  // This handles both prose and markdown naturally
+  const segments = text
+    .split(/(?<=[.!?])\s+|\n+/)
+    .map(s => s.trim())
+    .filter(s => s.length > 0);
   
-  // Detect if content is markdown-structured
-  const isMarkdown = text.includes('**') || text.includes('- ') || /^\d+\./m.test(text) || text.includes('\n\n');
+  // Filter out very short fragments (< 2 words) but keep reasonable ones
+  const validSegments = segments.filter(s => {
+    const wordCount = s.split(/\s+/).filter(w => w.length > 0).length;
+    return wordCount >= 2;
+  });
   
-  // Strategy 0: Markdown-structure splitting (PRIMARY for markdown content)
-  if (isMarkdown) {
-    const structuralSegments = text
-      // Split on numbered list items like "1. **" or "2. **"
-      .split(/(?=\d+\.\s+\*\*)/)
-      // Also split on bullet points with bold
-      .flatMap(segment => segment.split(/(?=[-*•]\s+\*\*)/))
-      // Also split on double newlines
-      .flatMap(segment => segment.split(/\n\n+/))
-      // Also split on single newlines followed by bullets or numbers
-      .flatMap(segment => segment.split(/\n(?=[-*•]\s)/))
-      .flatMap(segment => segment.split(/\n(?=\d+\.\s)/))
-      .map(s => s.trim())
-      .filter(s => s.length > 10);
-    
-    console.log('🔬 [SENTENCE-SPLIT] Strategy 0 (markdown-structure):', {
-      inputLength: text.length,
-      segments: structuralSegments.length,
-      preview: structuralSegments.slice(0, 3).map(s => s.substring(0, 50) + '...'),
-    });
-    
-    if (structuralSegments.length > 1) {
-      segments = structuralSegments;
-      usedStrategy = 'markdown-structure';
-    }
-  }
+  console.log('🔬 [SENTENCE-SPLIT] Simple split:', {
+    inputLength: text.length,
+    rawSegments: segments.length,
+    validSegments: validSegments.length,
+    previews: validSegments.slice(0, 3).map(s => s.substring(0, 50))
+  });
   
-  // Strategy 1: Standard sentence boundaries (if markdown didn't work)
-  if (segments.length <= 1) {
-    // Pre-process: protect numbered list periods from being treated as sentence ends
-    const protectedText = text.replace(/(\d+)\.\s+/g, '$1⏸ ');
-    const sentenceRegex = /[^.!?]*[.!?]+(?:\s|$)/g;
-    const matches = protectedText.match(sentenceRegex);
-    
-    console.log('🔬 [SENTENCE-SPLIT] Strategy 1 (regex):', {
-      inputLength: text.length,
-      matchesFound: matches?.length || 0,
-    });
-    
-    if (matches && matches.length > 1) {
-      // Restore protected characters
-      segments = matches
-        .map(m => m.replace(/(\d+)⏸/g, '$1.').trim())
-        .filter(m => m.length > 0);
-      usedStrategy = 'sentence-regex';
-    }
-  }
-  
-  // Strategy 2: Split on any newlines (for content without clear sentence markers)
-  if (segments.length <= 1) {
-    const lines = text.split(/\n+/).filter(s => s.trim().length > 10);
-    
-    console.log('🔬 [SENTENCE-SPLIT] Strategy 2 (newline):', {
-      previousSegments: segments.length,
-      lineCount: lines.length,
-    });
-    
-    if (lines.length > 1) {
-      segments = lines.map(s => s.trim());
-      usedStrategy = 'newline-split';
-    }
-  }
-  
-  // Fallback: treat whole text as one sentence
-  if (segments.length === 0) {
-    const wordCount = text.trim().split(/\s+/).length;
-    console.log('🔬 [SENTENCE-SPLIT] Fallback: single sentence', { wordCount });
+  // If splitting produced nothing useful, treat whole text as one unit
+  if (validSegments.length === 0) {
     return [{
       text: text.trim(),
       index: 0,
       charStart: 0,
       charEnd: text.length,
-      wordCount,
+      wordCount: text.split(/\s+/).length
     }];
   }
   
-  // Build sentence objects with metadata
-  let charPos = 0;
-  const beforeFilter = segments.map((segment, index) => {
-    const trimmed = segment.trim();
-    // Clean up markdown artifacts but preserve content
-    const cleaned = trimmed
-      .replace(/^[-*•]\s*/, '') // Remove leading bullet points
-      .replace(/^\d+\.\s*/, '') // Remove leading numbered list markers
-      .replace(/^#+\s*/, '') // Remove heading markers
-      .trim();
-    
-    const start = text.indexOf(segment, charPos);
-    const end = start + segment.length;
-    charPos = Math.max(charPos, end);
-    
-    const wordCount = cleaned.split(/\s+/).filter(w => w.length > 0).length;
+  let currentIndex = 0;
+  return validSegments.map((segment, index) => {
+    const startIndex = text.indexOf(segment, currentIndex);
+    const endIndex = startIndex + segment.length;
+    currentIndex = Math.max(currentIndex, endIndex);
     
     return {
-      text: cleaned,
+      text: segment,
       index,
-      charStart: start >= 0 ? start : 0,
-      charEnd: end,
-      wordCount,
+      charStart: startIndex >= 0 ? startIndex : 0,
+      charEnd: endIndex,
+      wordCount: segment.split(/\s+/).filter(w => w.length > 0).length
     };
   });
-  
-  // Log what we're about to filter
-  console.log('🔬 [SENTENCE-SPLIT] Pre-filter:', beforeFilter.map(s => ({
-    text: s.text.substring(0, 40),
-    wordCount: s.wordCount,
-  })));
-  
-  // Filter with relaxed criteria
-  const result = beforeFilter.filter(s => s.wordCount >= 2 && s.text.length > 5);
-  
-  console.log('🔬 [SENTENCE-SPLIT] Final:', {
-    strategy: usedStrategy,
-    beforeFilter: beforeFilter.length,
-    afterFilter: result.length,
-    filtered: beforeFilter.length - result.length,
-    sentences: result.map(s => s.text.substring(0, 40) + '...'),
-  });
-  
-  return result;
 }
 
 /**

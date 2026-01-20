@@ -217,12 +217,29 @@ export function useAnalysis() {
         console.log('🔬 [useAnalysis] SENTENCE-LEVEL CHAMFER ENABLED');
         
         // 1. Split chunks into sentences (use textWithoutCascade for cleaner segmentation)
+        // Then prepend cascade context to each sentence for better semantic matching
         const chunkSentenceData = chunkTexts.map((text, idx) => {
           const textToSplit = noCascadeTexts ? noCascadeTexts[idx] : text;
-          const sentences = getSentenceTexts(textToSplit).slice(0, maxSentencesPerChunk);
+          const rawSentences = getSentenceTexts(textToSplit).slice(0, maxSentencesPerChunk);
+          
+          // Get cascade from layout chunk if available
+          const cascade = layoutChunks?.[idx]?.headingPath?.join(' > ') || '';
+          
+          // Prepend cascade to each sentence for context
+          const sentencesWithCascade = rawSentences.map(sentence => 
+            cascade ? `${cascade}: ${sentence}` : sentence
+          );
+          
+          console.log('🔬 [SENTENCE-EMBED] With cascade:', {
+            chunkIndex: idx,
+            cascade: cascade || '(none)',
+            originalSentences: rawSentences.length,
+            sampleWithCascade: sentencesWithCascade[0]?.substring(0, 80)
+          });
+          
           return {
             chunkIndex: idx,
-            sentences,
+            sentences: sentencesWithCascade,
           };
         });
 
