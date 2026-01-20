@@ -1,8 +1,4 @@
-// Sentence and clause segmentation utilities for sentence-level Chamfer scoring
-
-// VERSION CHECK - If you see this in console, the latest code is running
-const SENTENCE_UTILS_VERSION = 'v2-simplified-2024-01-20';
-console.log('🔴 [SENTENCE-UTILS] Loaded version:', SENTENCE_UTILS_VERSION);
+// Sentence and clause segmentation utilities
 
 export interface Sentence {
   text: string;
@@ -17,14 +13,6 @@ export interface Sentence {
  * Handles standard prose, markdown, and list-based content.
  */
 export function splitIntoSentences(text: string): Sentence[] {
-  // Show exactly what we're receiving, including hidden characters
-  console.log('🔴 [SPLIT-INPUT] Raw text analysis:', {
-    length: text?.length,
-    newlineCount: (text?.match(/\n/g) || []).length,
-    periodCount: (text?.match(/\./g) || []).length,
-    first100: text?.substring(0, 100).replace(/\n/g, '↵'),
-  });
-
   if (!text?.trim()) return [];
   
   // Simple approach: split on sentence endings (. ! ?) OR newlines
@@ -38,13 +26,6 @@ export function splitIntoSentences(text: string): Sentence[] {
   const validSegments = segments.filter(s => {
     const wordCount = s.split(/\s+/).filter(w => w.length > 0).length;
     return wordCount >= 2;
-  });
-  
-  console.log('🔬 [SENTENCE-SPLIT] Simple split:', {
-    inputLength: text.length,
-    rawSegments: segments.length,
-    validSegments: validSegments.length,
-    previews: validSegments.slice(0, 3).map(s => s.substring(0, 50))
   });
   
   // If splitting produced nothing useful, treat whole text as one unit
@@ -139,6 +120,5 @@ export function estimateSentenceEmbeddingCount(
  * Get sentence texts from text (convenience function)
  */
 export function getSentenceTexts(text: string): string[] {
-  console.log('🔍 [SENTENCE] getSentenceTexts called, length:', text?.length || 0);
   return splitIntoSentences(text).map(s => s.text);
 }

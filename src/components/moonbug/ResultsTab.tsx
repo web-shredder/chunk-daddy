@@ -25,7 +25,7 @@ import {
   type ChunkScoreData,
 } from '@/lib/query-assignment';
 import type { LayoutAwareChunk, DocumentElement } from '@/lib/layout-chunker';
-import type { ChunkScore, AnalysisResult } from '@/hooks/useAnalysis';
+import type { ChunkScore, AnalysisResult, CoverageEntry } from '@/hooks/useAnalysis';
 import type { FanoutIntentType } from '@/lib/optimizer-types';
 
 interface ResultsTabProps {
@@ -688,6 +688,50 @@ export function ResultsTab({
               </div>
             ) : viewMode === 'assignments' ? (
               <div className="p-2 space-y-2">
+                {/* Document Coverage Summary */}
+                {result?.coverageMap && result.coverageSummary && (
+                  <div className="p-3 rounded-lg border border-border bg-muted/30">
+                    <div className="flex items-center justify-between mb-3">
+                      <h4 className="text-xs font-medium">Query Coverage</h4>
+                      <div className="flex items-center gap-1.5 text-[10px]">
+                        <span className="text-emerald-600 dark:text-emerald-400">✓ {result.coverageSummary.covered}</span>
+                        <span className="text-amber-600 dark:text-amber-400">⚠ {result.coverageSummary.weak}</span>
+                        <span className="text-rose-500">✗ {result.coverageSummary.gaps}</span>
+                      </div>
+                    </div>
+                    
+                    {/* Coverage table */}
+                    <div className="space-y-1 max-h-48 overflow-y-auto">
+                      {result.coverageMap.map((entry: CoverageEntry, idx: number) => (
+                        <div 
+                          key={idx} 
+                          className="flex items-center gap-2 text-xs py-1 px-2 bg-background/50 rounded hover:bg-background/80 cursor-pointer"
+                          onClick={() => handleSelectChunk(entry.bestChunkIndex)}
+                        >
+                          <span className={cn(
+                            "w-4 text-center shrink-0",
+                            entry.status === 'covered' && "text-emerald-600 dark:text-emerald-400",
+                            entry.status === 'weak' && "text-amber-600 dark:text-amber-400",
+                            entry.status === 'gap' && "text-rose-500"
+                          )}>
+                            {entry.status === 'covered' ? '✓' : entry.status === 'weak' ? '⚠' : '✗'}
+                          </span>
+                          <span className="flex-1 truncate text-muted-foreground">{entry.query}</span>
+                          <ArrowRight className="h-3 w-3 text-muted-foreground/50 shrink-0" />
+                          <span className="w-20 truncate text-muted-foreground">{entry.bestChunkHeading}</span>
+                          <span className="w-8 text-right font-mono shrink-0">{Math.round(entry.score)}</span>
+                        </div>
+                      ))}
+                    </div>
+                    
+                    {/* Document Chamfer Score */}
+                    <div className="mt-3 pt-2 border-t border-border flex items-center justify-between text-xs">
+                      <span className="text-muted-foreground">Document Coverage</span>
+                      <span className="font-mono font-semibold">{Math.round((result.documentChamfer || 0) * 100)}%</span>
+                    </div>
+                  </div>
+                )}
+
                 {/* Query Assignments View */}
                 <DismissableTip tipId="results-query-assignments">
                   This shows which chunk best matches each query. The Optimize tab uses these assignments to focus rewrites.

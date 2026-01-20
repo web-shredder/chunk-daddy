@@ -1,15 +1,16 @@
 import { useState, useCallback } from 'react';
-import { generateEmbeddings, generateSentenceEmbeddingsBatch, type EmbeddingResult } from '@/lib/embeddings';
+import { generateEmbeddings, type EmbeddingResult } from '@/lib/embeddings';
 import { 
-  calculateAllMetrics, 
-  calculateAllMetricsWithSentenceChamfer,
-  calculateSentenceChamfer,
+  cosineSimilarity,
+  chamferSimilarity,
+  euclideanDistance,
+  manhattanDistance,
+  dotProduct,
+  calculatePassageScore,
   calculateImprovement, 
   type SimilarityScores,
-  type SentenceMatch
 } from '@/lib/similarity';
-import { chunkContent, type Chunk, type ChunkingStrategy } from '@/lib/chunking';
-import { splitIntoSentences, splitQueryIntoClauses, getSentenceTexts } from '@/lib/sentence-utils';
+import { chunkContent, type ChunkingStrategy } from '@/lib/chunking';
 import type { LayoutAwareChunk, ChunkerOptions } from '@/lib/layout-chunker';
 
 export interface KeywordScore {
@@ -39,6 +40,15 @@ export interface ImprovementResult {
   chamferImprovement: number;
 }
 
+// Coverage entry for each query showing which chunk best covers it
+export interface CoverageEntry {
+  query: string;
+  bestChunkIndex: number;
+  bestChunkHeading: string;
+  score: number; // Cosine score as percentage (0-100)
+  status: 'covered' | 'weak' | 'gap';
+}
+
 export interface AnalysisResult {
   originalScores: OriginalScore | null;
   chunkScores: ChunkScore[];
@@ -46,12 +56,14 @@ export interface AnalysisResult {
   optimizedScores: ChunkScore[] | null;
   improvements: ImprovementResult[] | null;
   timestamp: Date;
-  // Sentence-level analysis metadata
-  usedSentenceChamfer?: boolean;
-  sentenceStats?: {
-    totalChunkSentences: number;
-    totalQueryClauses: number;
-    avgSentencesPerChunk: number;
+  // Document-level metrics (Path 5)
+  documentChamfer?: number;
+  coverageMap?: CoverageEntry[];
+  coverageSummary?: {
+    covered: number;
+    weak: number;
+    gaps: number;
+    totalQueries: number;
   };
 }
 
@@ -63,8 +75,6 @@ export interface UseAnalysisOptions {
   fixedChunkSize?: number;
   layoutChunks?: LayoutAwareChunk[];
   chunkerOptions?: ChunkerOptions;
-  useSentenceChamfer?: boolean; // Enable sentence-level Chamfer (default: true)
-  maxSentencesPerChunk?: number; // Limit sentences per chunk for cost control (default: 20)
 }
 
 export function useAnalysis() {
@@ -82,8 +92,6 @@ export function useAnalysis() {
       fixedChunkSize, 
       layoutChunks, 
       chunkerOptions,
-      useSentenceChamfer = true, // Default to true
-      maxSentencesPerChunk = 20 
     } = options;
 
     if (!content.trim()) {
@@ -151,8 +159,12 @@ export function useAnalysis() {
         textsToEmbed.push(...optimizedChunks.map(c => c.text));
       }
 
-      // DIAGNOSTIC: Log what's being embedded
-      console.log('📝 [useAnalysis] textsToEmbed breakdown:', {
+      // Warn if too few queries for meaningful coverage analysis
+      if (validKeywords.length < 3) {
+        console.warn('⚠️ Document Chamfer works best with 3+ queries for meaningful coverage analysis');
+      }
+
+      console.log('📊 [PATH-5] Embedding breakdown:', {
         totalTexts: textsToEmbed.length,
         originalContent: 1,
         chunks: chunkTexts.length,
@@ -160,8 +172,6 @@ export function useAnalysis() {
         noCascadeTexts: noCascadeTexts?.length || 0,
         optimizedChunks: optimizedChunks?.length || 0,
       });
-      console.log('📝 [useAnalysis] First chunk text (truncated):', chunkTexts[0]?.substring(0, 200) + '...');
-      console.log('📝 [useAnalysis] Embedding mode: Each chunk as ONE string (not split into sentences yet)');
 
       setProgress(15);
 
@@ -190,165 +200,51 @@ export function useAnalysis() {
         ? optimizedChunks.map(() => embeddings[embeddingIndex++])
         : null;
 
-      setProgress(45);
+      setProgress(50);
 
-      // ========== SENTENCE-LEVEL CHAMFER ==========
-      // If enabled, generate sentence embeddings for true multi-aspect coverage
-      let sentenceEmbeddingsData: {
-        chunkEmbeddings: Map<number, number[][]>;
-        queryEmbeddings: Map<number, number[][]>;
-        chunkSentences: Map<number, string[]>;
-        queryClauses: Map<number, string[]>;
-      } | null = null;
+      // ========== DOCUMENT-LEVEL CHAMFER (Path 5) ==========
+      // Calculate Chamfer ONCE between all chunk vectors and all query vectors
+      // This measures: "How well does the document cover all query aspects?"
+      
+      const allChunkVectors = chunkEmbeddings.map(e => e.embedding);
+      const allQueryVectors = keywordEmbeddings.map(e => e.embedding);
 
-      let sentenceStats = {
-        totalChunkSentences: 0,
-        totalQueryClauses: 0,
-        avgSentencesPerChunk: 0,
-      };
-
-      console.log('🔍 [PATH-DECISION] Step 1 - Feature check:', {
-        useSentenceChamfer,
-        chunkCount: chunkTexts.length,
-        keywordCount: validKeywords.length,
-      });
-
-      if (useSentenceChamfer) {
-        console.log('🔬 [useAnalysis] SENTENCE-LEVEL CHAMFER ENABLED');
-        
-        // 1. Split chunks into sentences (use textWithoutCascade for cleaner segmentation)
-        // Then prepend cascade context to each sentence for better semantic matching
-        const chunkSentenceData = chunkTexts.map((text, idx) => {
-          const textToSplit = noCascadeTexts ? noCascadeTexts[idx] : text;
-          
-          // DIAGNOSTIC: What are we actually trying to split?
-          console.log('🔴 [CHUNK-TEXT] Chunk', idx, 'text to split:', {
-            sourceUsed: noCascadeTexts ? 'noCascadeTexts' : 'chunkTexts',
-            length: textToSplit?.length,
-            newlineCount: (textToSplit?.match(/\n/g) || []).length,
-            first80: textToSplit?.substring(0, 80).replace(/\n/g, '↵'),
-          });
-          
-          const rawSentences = getSentenceTexts(textToSplit).slice(0, maxSentencesPerChunk);
-          
-          // Get cascade from layout chunk if available
-          const cascade = layoutChunks?.[idx]?.headingPath?.join(' > ') || '';
-          
-          // Prepend cascade to each sentence for context
-          const sentencesWithCascade = rawSentences.map(sentence => 
-            cascade ? `${cascade}: ${sentence}` : sentence
-          );
-          
-          console.log('🔬 [SENTENCE-EMBED] With cascade:', {
-            chunkIndex: idx,
-            cascade: cascade || '(none)',
-            originalSentences: rawSentences.length,
-            sampleWithCascade: sentencesWithCascade[0]?.substring(0, 80)
-          });
-          
-          return {
-            chunkIndex: idx,
-            sentences: sentencesWithCascade,
-          };
-        });
-
-        // 2. Split queries into clauses
-        const queryClauseData = validKeywords.map((query, idx) => ({
-          queryIndex: idx,
-          clauses: splitQueryIntoClauses(query),
-        }));
-
-        // DIAGNOSTIC: Log sentence splitting results
-        console.log('🔬 [useAnalysis] Sentence splitting results:', {
-          chunks: chunkSentenceData.map(d => ({ 
-            chunkIdx: d.chunkIndex, 
-            sentenceCount: d.sentences.length,
-            firstSentence: d.sentences[0]?.substring(0, 80) + '...',
-          })),
-          queries: queryClauseData.map(d => ({ 
-            queryIdx: d.queryIndex, 
-            clauseCount: d.clauses.length,
-            clauses: d.clauses,
-          })),
-        });
-
-        // Calculate stats
-        sentenceStats.totalChunkSentences = chunkSentenceData.reduce((sum, d) => sum + d.sentences.length, 0);
-        sentenceStats.totalQueryClauses = queryClauseData.reduce((sum, d) => sum + d.clauses.length, 0);
-        sentenceStats.avgSentencesPerChunk = sentenceStats.totalChunkSentences / chunkSentenceData.length;
-
-        console.log('🔬 [useAnalysis] Sentence stats:', sentenceStats);
-        
-        // Post-fix verification logging
-        console.log('🔬 [SENTENCE-STATS] Post-fix verification:', {
-          totalChunkSentences: sentenceStats.totalChunkSentences,
-          avgSentencesPerChunk: sentenceStats.avgSentencesPerChunk.toFixed(1),
-          sampleChunk0Sentences: chunkSentenceData[0]?.sentences.length || 0,
-          sampleChunk0Preview: chunkSentenceData[0]?.sentences.slice(0, 2),
-        });
-
-        setProgress(50);
-
-        console.log('🔍 [PATH-DECISION] Step 2 - Sentence stats gate:', {
-          totalChunkSentences: sentenceStats.totalChunkSentences,
-          totalQueryClauses: sentenceStats.totalQueryClauses,
-          willGenerate: sentenceStats.totalChunkSentences > 0 && sentenceStats.totalQueryClauses > 0,
-        });
-
-        // 3. Batch generate all sentence embeddings in a single API call
-        if (sentenceStats.totalChunkSentences > 0 && sentenceStats.totalQueryClauses > 0) {
-          console.log('🔬 [useAnalysis] Generating sentence embeddings...');
-          
-          const { chunkEmbeddings: sentChunkEmbs, queryEmbeddings: sentQueryEmbs } = 
-            await generateSentenceEmbeddingsBatch(chunkSentenceData, queryClauseData);
-
-          console.log('🔬 [useAnalysis] Sentence embeddings generated:', {
-            chunkEmbeddingsMapSize: sentChunkEmbs.size,
-            queryEmbeddingsMapSize: sentQueryEmbs.size,
-            sampleChunkVectorCount: sentChunkEmbs.get(0)?.length || 0,
-            sampleQueryVectorCount: sentQueryEmbs.get(0)?.length || 0,
-          });
-
-          // Store sentence texts for diagnostics
-          const chunkSentencesMap = new Map<number, string[]>();
-          const queryClausesMap = new Map<number, string[]>();
-          
-          chunkSentenceData.forEach(d => chunkSentencesMap.set(d.chunkIndex, d.sentences));
-          queryClauseData.forEach(d => queryClausesMap.set(d.queryIndex, d.clauses));
-
-          sentenceEmbeddingsData = {
-            chunkEmbeddings: sentChunkEmbs,
-            queryEmbeddings: sentQueryEmbs,
-            chunkSentences: chunkSentencesMap,
-            queryClauses: queryClausesMap,
-          };
-
-          console.log('🔍 [PATH-DECISION] Step 3 - Embeddings stored:', {
-            hasData: !!sentenceEmbeddingsData,
-            chunkMapSize: sentenceEmbeddingsData?.chunkEmbeddings?.size || 0,
-            queryMapSize: sentenceEmbeddingsData?.queryEmbeddings?.size || 0,
-          });
-        } else {
-          console.log('⚠️ [useAnalysis] No sentences/clauses to embed');
-        }
-      } else {
-        console.log('⚠️ [useAnalysis] Sentence-level Chamfer DISABLED - using single-vector mode');
+      let documentChamfer = 0;
+      if (allChunkVectors.length >= 1 && allQueryVectors.length >= 1) {
+        documentChamfer = chamferSimilarity(allChunkVectors, allQueryVectors);
       }
 
-      setProgress(65);
+      console.log('📊 [DOCUMENT-CHAMFER] Calculated:', {
+        chunkCount: allChunkVectors.length,
+        queryCount: allQueryVectors.length,
+        chamferScore: documentChamfer.toFixed(4),
+      });
+
+      setProgress(55);
 
       // Calculate original scores (always uses whole-document vectors)
       const originalScores: OriginalScore = {
         text: content,
-        keywordScores: keywordEmbeddings.map((kwEmbed, i) => ({
-          keyword: validKeywords[i],
-          scores: calculateAllMetrics(originalEmbedding, kwEmbed.embedding),
-        })),
+        keywordScores: keywordEmbeddings.map((kwEmbed, i) => {
+          const cosine = cosineSimilarity(originalEmbedding, kwEmbed.embedding);
+          return {
+            keyword: validKeywords[i],
+            scores: {
+              cosine,
+              chamfer: documentChamfer, // Document-level
+              passageScore: calculatePassageScore(cosine, documentChamfer),
+              euclidean: euclideanDistance(originalEmbedding, kwEmbed.embedding),
+              manhattan: manhattanDistance(originalEmbedding, kwEmbed.embedding),
+              dotProduct: dotProduct(originalEmbedding, kwEmbed.embedding),
+            },
+          };
+        }),
       };
 
-      setProgress(75);
+      setProgress(65);
 
-      // Calculate chunk scores - with sentence-level Chamfer if available
+      // ========== PER-CHUNK SCORING ==========
+      // Each chunk gets: 70% chunk-level cosine + 30% document-level chamfer
       const chunkScores: ChunkScore[] = chunkTexts.map((text, chunkIdx) => ({
         chunkId: chunkData[chunkIdx].id,
         chunkIndex: chunkIdx,
@@ -358,54 +254,64 @@ export function useAnalysis() {
         keywordScores: keywordEmbeddings.map((kwEmbed, queryIdx) => {
           const chunkVec = chunkEmbeddings[chunkIdx].embedding;
           const queryVec = kwEmbed.embedding;
-
-          // Check if we have sentence-level data for this chunk-query pair
-          // Only log once per chunk to avoid spam
-          if (queryIdx === 0) {
-            console.log('🔍 [PATH-DECISION] Step 4 - Scoring loop for chunk', chunkIdx, {
-              hasSentenceData: !!sentenceEmbeddingsData,
-              chunkVecsExist: !!sentenceEmbeddingsData?.chunkEmbeddings?.get(chunkIdx),
-              chunkVecsLength: sentenceEmbeddingsData?.chunkEmbeddings?.get(chunkIdx)?.length || 0,
-            });
-          }
-
-          if (sentenceEmbeddingsData) {
-            const chunkSentVecs = sentenceEmbeddingsData.chunkEmbeddings.get(chunkIdx);
-            const querySentVecs = sentenceEmbeddingsData.queryEmbeddings.get(queryIdx);
-            const chunkSentTexts = sentenceEmbeddingsData.chunkSentences.get(chunkIdx);
-            const querySentTexts = sentenceEmbeddingsData.queryClauses.get(queryIdx);
-
-            if (chunkSentVecs && querySentVecs && chunkSentVecs.length > 0 && querySentVecs.length > 0) {
-              // Calculate true sentence-level Chamfer
-              const sentenceChamferResult = calculateSentenceChamfer(
-                chunkSentVecs,
-                querySentVecs,
-                chunkSentTexts,
-                querySentTexts
-              );
-
-              return {
-                keyword: validKeywords[queryIdx],
-                scores: calculateAllMetricsWithSentenceChamfer(
-                  chunkVec,
-                  queryVec,
-                  sentenceChamferResult,
-                  chunkSentVecs.length,
-                  querySentVecs.length
-                ),
-              };
-            }
-          }
-
-          // Fallback to standard metrics (single-vector Chamfer)
+          
+          // Chunk-level cosine (retrieval probability for this chunk-query pair)
+          const cosine = cosineSimilarity(chunkVec, queryVec);
+          
+          // Passage Score = 70% chunk cosine + 30% document chamfer
+          const passageScore = calculatePassageScore(cosine, documentChamfer);
+          
           return {
             keyword: validKeywords[queryIdx],
-            scores: calculateAllMetrics(chunkVec, queryVec),
+            scores: {
+              cosine,
+              chamfer: documentChamfer, // Same for all chunks (document-level)
+              passageScore,
+              euclidean: euclideanDistance(chunkVec, queryVec),
+              manhattan: manhattanDistance(chunkVec, queryVec),
+              dotProduct: dotProduct(chunkVec, queryVec),
+            },
           };
         }),
       }));
 
-      setProgress(85);
+      setProgress(75);
+
+      // ========== COVERAGE MAP ==========
+      // For each query, find which chunk best covers it
+      const coverageMap: CoverageEntry[] = validKeywords.map((query, queryIdx) => {
+        let bestScore = 0;
+        let bestChunkIndex = 0;
+        
+        chunkEmbeddings.forEach((chunkEmbed, chunkIdx) => {
+          const score = cosineSimilarity(chunkEmbed.embedding, keywordEmbeddings[queryIdx].embedding);
+          if (score > bestScore) {
+            bestScore = score;
+            bestChunkIndex = chunkIdx;
+          }
+        });
+        
+        const scorePercent = bestScore * 100;
+        
+        return {
+          query,
+          bestChunkIndex,
+          bestChunkHeading: layoutChunks?.[bestChunkIndex]?.headingPath?.slice(-1)[0] || `Chunk ${bestChunkIndex + 1}`,
+          score: scorePercent,
+          status: scorePercent >= 70 ? 'covered' : scorePercent >= 50 ? 'weak' : 'gap',
+        };
+      });
+
+      const coverageSummary = {
+        covered: coverageMap.filter(c => c.status === 'covered').length,
+        weak: coverageMap.filter(c => c.status === 'weak').length,
+        gaps: coverageMap.filter(c => c.status === 'gap').length,
+        totalQueries: coverageMap.length,
+      };
+
+      console.log('📊 [COVERAGE] Summary:', coverageSummary);
+
+      setProgress(80);
 
       // Calculate no-cascade scores for comparison
       let noCascadeScores: ChunkScore[] | null = null;
@@ -416,10 +322,20 @@ export function useAnalysis() {
           text,
           wordCount: text.split(/\s+/).filter(w => w.length > 0).length,
           charCount: text.length,
-          keywordScores: keywordEmbeddings.map((kwEmbed, i) => ({
-            keyword: validKeywords[i],
-            scores: calculateAllMetrics(noCascadeEmbeddings[chunkIdx].embedding, kwEmbed.embedding),
-          })),
+          keywordScores: keywordEmbeddings.map((kwEmbed, i) => {
+            const cosine = cosineSimilarity(noCascadeEmbeddings[chunkIdx].embedding, kwEmbed.embedding);
+            return {
+              keyword: validKeywords[i],
+              scores: {
+                cosine,
+                chamfer: documentChamfer,
+                passageScore: calculatePassageScore(cosine, documentChamfer),
+                euclidean: euclideanDistance(noCascadeEmbeddings[chunkIdx].embedding, kwEmbed.embedding),
+                manhattan: manhattanDistance(noCascadeEmbeddings[chunkIdx].embedding, kwEmbed.embedding),
+                dotProduct: dotProduct(noCascadeEmbeddings[chunkIdx].embedding, kwEmbed.embedding),
+              },
+            };
+          }),
         }));
       }
 
@@ -432,14 +348,24 @@ export function useAnalysis() {
           text: chunk.text,
           wordCount: chunk.wordCount,
           charCount: chunk.charCount,
-          keywordScores: keywordEmbeddings.map((kwEmbed, i) => ({
-            keyword: validKeywords[i],
-            scores: calculateAllMetrics(optimizedEmbeddings[chunkIdx].embedding, kwEmbed.embedding),
-          })),
+          keywordScores: keywordEmbeddings.map((kwEmbed, i) => {
+            const cosine = cosineSimilarity(optimizedEmbeddings[chunkIdx].embedding, kwEmbed.embedding);
+            return {
+              keyword: validKeywords[i],
+              scores: {
+                cosine,
+                chamfer: documentChamfer,
+                passageScore: calculatePassageScore(cosine, documentChamfer),
+                euclidean: euclideanDistance(optimizedEmbeddings[chunkIdx].embedding, kwEmbed.embedding),
+                manhattan: manhattanDistance(optimizedEmbeddings[chunkIdx].embedding, kwEmbed.embedding),
+                dotProduct: dotProduct(optimizedEmbeddings[chunkIdx].embedding, kwEmbed.embedding),
+              },
+            };
+          }),
         }));
       }
 
-      setProgress(95);
+      setProgress(90);
 
       // Calculate improvements (chunk vs original)
       const improvements: ImprovementResult[] = [];
@@ -478,8 +404,10 @@ export function useAnalysis() {
         optimizedScores,
         improvements,
         timestamp: new Date(),
-        usedSentenceChamfer: useSentenceChamfer && sentenceEmbeddingsData !== null,
-        sentenceStats: useSentenceChamfer ? sentenceStats : undefined,
+        // Path 5: Document-level metrics
+        documentChamfer,
+        coverageMap,
+        coverageSummary,
       };
 
       setResult(analysisResult);
