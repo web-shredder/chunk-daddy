@@ -1,7 +1,7 @@
 // CSV Export utility for Chunk Daddy results
 
 import type { AnalysisResult } from '@/hooks/useAnalysis';
-import type { ArchitectureAnalysis } from '@/lib/optimizer-types';
+import type { ArchitectureAnalysis, ArchitectureTask } from '@/lib/optimizer-types';
 
 /**
  * Escape CSV field value
@@ -192,6 +192,86 @@ export function downloadArchitectureCSV(
   const link = document.createElement('a');
   link.href = url;
   link.download = filename;
+  link.style.display = 'none';
+  
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  
+  URL.revokeObjectURL(url);
+}
+
+/**
+ * Generate CSV for architecture tasks (actionable items with selection status)
+ */
+export function generateArchitectureTasksCSV(tasks: ArchitectureTask[]): string {
+  const rows: string[][] = [];
+  
+  // Header row
+  rows.push([
+    'Issue Type',
+    'Priority',
+    'Location',
+    'Description',
+    'Suggested Fix',
+    'Expected Impact',
+    'Status',
+  ]);
+  
+  // Task rows - one row per task
+  for (const task of tasks) {
+    const location = task.location?.chunkIndex !== undefined
+      ? `Chunk ${task.location.chunkIndex + 1}${task.location.position ? ` (${task.location.position})` : ''}`
+      : task.location?.position || 'N/A';
+    
+    const suggestedFix = task.details?.after 
+      || task.details?.suggestedHeading 
+      || task.details?.before 
+      || '';
+    
+    rows.push([
+      escapeCSV(task.type.replace(/_/g, ' ')),
+      escapeCSV(task.priority),
+      escapeCSV(location),
+      escapeCSV(task.description),
+      escapeCSV(suggestedFix),
+      escapeCSV(task.expectedImpact || ''),
+      task.isSelected ? 'Selected' : 'Ignored',
+    ]);
+  }
+  
+  // Summary section
+  const selectedCount = tasks.filter(t => t.isSelected).length;
+  const highCount = tasks.filter(t => t.priority === 'high').length;
+  const mediumCount = tasks.filter(t => t.priority === 'medium').length;
+  const lowCount = tasks.filter(t => t.priority === 'low').length;
+  
+  rows.push([]); // Empty row
+  rows.push(['SUMMARY']);
+  rows.push(['Total Tasks', String(tasks.length)]);
+  rows.push(['Selected', String(selectedCount)]);
+  rows.push(['Ignored', String(tasks.length - selectedCount)]);
+  rows.push(['High Priority', String(highCount)]);
+  rows.push(['Medium Priority', String(mediumCount)]);
+  rows.push(['Low Priority', String(lowCount)]);
+  
+  return rows.map(row => row.join(',')).join('\n');
+}
+
+/**
+ * Download architecture tasks as CSV
+ */
+export function downloadArchitectureTasksCSV(
+  tasks: ArchitectureTask[],
+  filename?: string
+): void {
+  const csv = generateArchitectureTasksCSV(tasks);
+  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = filename || `architecture-tasks-${new Date().toISOString().split('T')[0]}.csv`;
   link.style.display = 'none';
   
   document.body.appendChild(link);

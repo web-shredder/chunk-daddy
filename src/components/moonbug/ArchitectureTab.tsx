@@ -8,7 +8,7 @@ import { supabase } from '@/integrations/supabase/client';
 import { ArchitectureReport } from '@/components/analysis/ArchitectureReport';
 import { ArchitectureTasksPanel } from './ArchitectureTasksPanel';
 import { calculatePassageScore } from '@/lib/similarity';
-import { downloadArchitectureCSV } from '@/lib/csv-export';
+import { downloadArchitectureCSV, downloadArchitectureTasksCSV } from '@/lib/csv-export';
 import type { ArchitectureAnalysis, ArchitectureTask, ArchitectureTaskType } from '@/lib/optimizer-types';
 import type { LayoutAwareChunk } from '@/lib/layout-chunker';
 
@@ -271,14 +271,13 @@ export function ArchitectureTab({
         </div>
         <div className="flex items-center gap-2">
           <button 
-            onClick={() => downloadArchitectureCSV(
-              architectureAnalysis, 
-              chunks.map(c => ({ text: c.text || String(c), headingPath: c.headingPath }))
-            )}
+            onClick={() => downloadArchitectureTasksCSV(architectureTasks)}
+            disabled={architectureTasks.length === 0}
             className="btn-secondary text-xs flex items-center gap-1.5"
+            title="Export tasks with selection status"
           >
             <Download className="h-3 w-3" />
-            Export CSV
+            Export Tasks ({architectureTasks.filter(t => t.isSelected).length} selected)
           </button>
           <button 
             onClick={handleAnalyzeArchitecture}
