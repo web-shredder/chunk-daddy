@@ -20,6 +20,9 @@ import {
   Trash2,
   ArrowRightLeft,
   Eye,
+  AlertCircle,
+  Wrench,
+  FileQuestion,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import type { ArchitectureTask, ArchitectureTaskType } from '@/lib/optimizer-types';
@@ -41,6 +44,7 @@ const taskTypeIcons: Record<ArchitectureTaskType, React.ReactNode> = {
   reorder_sentences: <ArrowUpDown className="h-3.5 w-3.5" />,
   remove_redundancy: <Trash2 className="h-3.5 w-3.5" />,
   move_content: <ArrowRightLeft className="h-3.5 w-3.5" />,
+  content_gap: <FileQuestion className="h-3.5 w-3.5" />,
 };
 
 const taskTypeLabels: Record<ArchitectureTaskType, string> = {
@@ -51,6 +55,7 @@ const taskTypeLabels: Record<ArchitectureTaskType, string> = {
   reorder_sentences: 'Reorder Sentences',
   remove_redundancy: 'Remove Redundancy',
   move_content: 'Move Content',
+  content_gap: 'Content Gap',
 };
 
 const priorityColors: Record<string, string> = {
@@ -79,10 +84,25 @@ export function ArchitectureTasksPanel({
     low: tasks.filter(t => t.priority === 'low').length,
   }), [tasks]);
 
-  const filteredTasks = useMemo(() => {
-    if (filter === 'all') return tasks;
-    return tasks.filter(t => t.priority === filter);
-  }, [tasks, filter]);
+  // Separate structure tasks from content gaps
+  const structureTasks = useMemo(() => 
+    tasks.filter(t => t.type !== 'content_gap'), 
+    [tasks]
+  );
+  const gapTasks = useMemo(() => 
+    tasks.filter(t => t.type === 'content_gap'), 
+    [tasks]
+  );
+
+  const filteredStructureTasks = useMemo(() => {
+    if (filter === 'all') return structureTasks;
+    return structureTasks.filter(t => t.priority === filter);
+  }, [structureTasks, filter]);
+
+  const filteredGapTasks = useMemo(() => {
+    if (filter === 'all') return gapTasks;
+    return gapTasks.filter(t => t.priority === filter);
+  }, [gapTasks, filter]);
 
   const toggleExpanded = (taskId: string) => {
     setExpandedTasks(prev => {
@@ -104,6 +124,181 @@ export function ArchitectureTasksPanel({
     );
   }
 
+  // Render a standard task card
+  const renderStructureTaskCard = (task: ArchitectureTask) => {
+    const isExpanded = expandedTasks.has(task.id);
+    const hasDetails = task.details?.before || task.details?.after || task.details?.suggestedHeading;
+    
+    return (
+      <div
+        key={task.id}
+        className={cn(
+          "border rounded-lg transition-colors",
+          task.isSelected ? "border-primary/30 bg-primary/5" : "border-border"
+        )}
+      >
+        <div className="flex items-start gap-3 p-3">
+          <Checkbox
+            checked={task.isSelected}
+            onCheckedChange={() => onTaskToggle(task.id)}
+            className="mt-0.5"
+          />
+          
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center gap-2 flex-wrap">
+              <Badge 
+                variant="outline" 
+                className={cn("text-[10px] px-1.5", priorityColors[task.priority])}
+              >
+                {task.priority.toUpperCase()}
+              </Badge>
+              <div className="flex items-center gap-1.5 text-muted-foreground">
+                {taskTypeIcons[task.type]}
+                <span className="text-xs font-medium">{taskTypeLabels[task.type]}</span>
+              </div>
+            </div>
+            
+            <p className="text-sm mt-2">{task.description}</p>
+            
+            <div className="flex flex-wrap items-center gap-2 mt-2 text-xs text-muted-foreground">
+              {task.location.chunkIndex !== undefined && (
+                <Badge 
+                  variant="secondary" 
+                  className="text-[10px] cursor-pointer hover:bg-accent/20"
+                  onClick={() => onNavigateToChunk?.(task.location.chunkIndex!)}
+                >
+                  Chunk {task.location.chunkIndex + 1}
+                </Badge>
+              )}
+              {task.location.position && (
+                <span>{task.location.position}</span>
+              )}
+            </div>
+            
+            <p className="text-xs text-muted-foreground mt-2">
+              <span className="font-medium">Impact:</span> {task.expectedImpact}
+            </p>
+            
+            {/* Expandable Details */}
+            {hasDetails && (
+              <Collapsible open={isExpanded} onOpenChange={() => toggleExpanded(task.id)}>
+                <CollapsibleTrigger asChild>
+                  <Button 
+                    variant="ghost" 
+                    size="sm" 
+                    className="h-6 px-2 text-xs mt-2 gap-1"
+                  >
+                    <Eye className="h-3 w-3" />
+                    Preview
+                    {isExpanded ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
+                  </Button>
+                </CollapsibleTrigger>
+                <CollapsibleContent className="mt-2 space-y-2">
+                  {task.details?.suggestedHeading && (
+                    <div className="p-2 bg-muted/50 rounded text-xs">
+                      <span className="font-medium text-muted-foreground">Suggested heading: </span>
+                      <code className="bg-background px-1 py-0.5 rounded">{task.details.suggestedHeading}</code>
+                    </div>
+                  )}
+                  {task.details?.before && (
+                    <div className="p-2 bg-destructive/5 rounded text-xs border border-destructive/20">
+                      <span className="font-medium text-destructive">Before: </span>
+                      <span className="text-foreground/80">{task.details.before}</span>
+                    </div>
+                  )}
+                  {task.details?.after && (
+                    <div className="p-2 bg-green-500/5 rounded text-xs border border-green-500/20">
+                      <span className="font-medium text-green-600">After: </span>
+                      <span className="text-foreground/80">{task.details.after}</span>
+                    </div>
+                  )}
+                </CollapsibleContent>
+              </Collapsible>
+            )}
+          </div>
+        </div>
+      </div>
+    );
+  };
+
+  // Render a content gap task card with distinct styling
+  const renderGapTaskCard = (task: ArchitectureTask) => {
+    return (
+      <div
+        key={task.id}
+        className={cn(
+          "border rounded-lg transition-colors",
+          task.isSelected 
+            ? "border-orange-400/50 bg-orange-50/50 dark:bg-orange-950/20" 
+            : "border-orange-200/50 dark:border-orange-800/30"
+        )}
+      >
+        <div className="flex items-start gap-3 p-3">
+          <Checkbox
+            checked={task.isSelected}
+            onCheckedChange={() => onTaskToggle(task.id)}
+            className="mt-0.5"
+          />
+          
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center gap-2 flex-wrap">
+              <Badge 
+                variant="outline" 
+                className={cn("text-[10px] px-1.5", priorityColors[task.priority])}
+              >
+                {task.priority.toUpperCase()}
+              </Badge>
+              <Badge 
+                variant="outline" 
+                className="text-[10px] px-1.5 bg-orange-100 text-orange-700 border-orange-300 dark:bg-orange-900/50 dark:text-orange-300 dark:border-orange-700"
+              >
+                Content Gap
+              </Badge>
+            </div>
+            
+            <p className="text-sm font-medium mt-2">
+              Missing content for: "{task.details?.query}"
+            </p>
+            
+            <div className="text-xs text-muted-foreground space-y-1 mt-2">
+              <p>
+                <span className="font-medium">Location:</span> {task.location.position}
+              </p>
+              {task.details?.suggestedHeading && (
+                <p>
+                  <span className="font-medium">Suggested heading:</span>{' '}
+                  <code className="bg-muted px-1 py-0.5 rounded text-[11px]">
+                    ## {task.details.suggestedHeading}
+                  </code>
+                </p>
+              )}
+              {task.details?.bestMatchChunk !== undefined && (
+                <p>
+                  <span className="font-medium">Best current match:</span>{' '}
+                  <Badge 
+                    variant="secondary" 
+                    className="text-[10px] cursor-pointer hover:bg-accent/20"
+                    onClick={() => onNavigateToChunk?.(task.details!.bestMatchChunk!)}
+                  >
+                    Chunk {task.details.bestMatchChunk + 1}
+                  </Badge>
+                  {' '}(score: {Math.round(task.details?.bestMatchScore || 0)} - below threshold)
+                </p>
+              )}
+            </div>
+            
+            {task.isSelected && (
+              <p className="text-xs text-orange-600 dark:text-orange-400 mt-2 flex items-center gap-1">
+                <AlertCircle className="h-3 w-3" />
+                Will generate content brief during optimization
+              </p>
+            )}
+          </div>
+        </div>
+      </div>
+    );
+  };
+
   return (
     <div className="space-y-4">
       {/* Summary Header */}
@@ -111,7 +306,7 @@ export function ArchitectureTasksPanel({
         <div className="flex items-center gap-2">
           <ListChecks className="h-4 w-4 text-muted-foreground" />
           <span className="text-sm font-medium">
-            {totalCount} structural improvements found
+            {totalCount} improvements found
           </span>
           <Badge variant="secondary" className="text-xs">
             {selectedCount} selected
@@ -168,104 +363,43 @@ export function ArchitectureTasksPanel({
         ))}
       </div>
 
-      {/* Task List */}
+      {/* Task List - Grouped by Type */}
       <ScrollArea className="h-[400px]">
-        <div className="space-y-2 pr-4">
-          {filteredTasks.map(task => {
-            const isExpanded = expandedTasks.has(task.id);
-            const hasDetails = task.details?.before || task.details?.after || task.details?.suggestedHeading;
-            
-            return (
-              <div
-                key={task.id}
-                className={cn(
-                  "border rounded-lg transition-colors",
-                  task.isSelected ? "border-primary/30 bg-primary/5" : "border-border"
-                )}
-              >
-                <div className="flex items-start gap-3 p-3">
-                  <Checkbox
-                    checked={task.isSelected}
-                    onCheckedChange={() => onTaskToggle(task.id)}
-                    className="mt-0.5"
-                  />
-                  
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <Badge 
-                        variant="outline" 
-                        className={cn("text-[10px] px-1.5", priorityColors[task.priority])}
-                      >
-                        {task.priority.toUpperCase()}
-                      </Badge>
-                      <div className="flex items-center gap-1.5 text-muted-foreground">
-                        {taskTypeIcons[task.type]}
-                        <span className="text-xs font-medium">{taskTypeLabels[task.type]}</span>
-                      </div>
-                    </div>
-                    
-                    <p className="text-sm mt-2">{task.description}</p>
-                    
-                    <div className="flex flex-wrap items-center gap-2 mt-2 text-xs text-muted-foreground">
-                      {task.location.chunkIndex !== undefined && (
-                        <Badge 
-                          variant="secondary" 
-                          className="text-[10px] cursor-pointer hover:bg-accent/20"
-                          onClick={() => onNavigateToChunk?.(task.location.chunkIndex!)}
-                        >
-                          Chunk {task.location.chunkIndex + 1}
-                        </Badge>
-                      )}
-                      {task.location.position && (
-                        <span>{task.location.position}</span>
-                      )}
-                    </div>
-                    
-                    <p className="text-xs text-muted-foreground mt-2">
-                      <span className="font-medium">Impact:</span> {task.expectedImpact}
-                    </p>
-                    
-                    {/* Expandable Details */}
-                    {hasDetails && (
-                      <Collapsible open={isExpanded} onOpenChange={() => toggleExpanded(task.id)}>
-                        <CollapsibleTrigger asChild>
-                          <Button 
-                            variant="ghost" 
-                            size="sm" 
-                            className="h-6 px-2 text-xs mt-2 gap-1"
-                          >
-                            <Eye className="h-3 w-3" />
-                            Preview
-                            {isExpanded ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
-                          </Button>
-                        </CollapsibleTrigger>
-                        <CollapsibleContent className="mt-2 space-y-2">
-                          {task.details?.suggestedHeading && (
-                            <div className="p-2 bg-muted/50 rounded text-xs">
-                              <span className="font-medium text-muted-foreground">Suggested heading: </span>
-                              <code className="bg-background px-1 py-0.5 rounded">{task.details.suggestedHeading}</code>
-                            </div>
-                          )}
-                          {task.details?.before && (
-                            <div className="p-2 bg-destructive/5 rounded text-xs border border-destructive/20">
-                              <span className="font-medium text-destructive">Before: </span>
-                              <span className="text-foreground/80">{task.details.before}</span>
-                            </div>
-                          )}
-                          {task.details?.after && (
-                            <div className="p-2 bg-green-500/5 rounded text-xs border border-green-500/20">
-                              <span className="font-medium text-green-600">After: </span>
-                              <span className="text-foreground/80">{task.details.after}</span>
-                            </div>
-                          )}
-                        </CollapsibleContent>
-                      </Collapsible>
-                    )}
-                  </div>
-                </div>
+        <div className="space-y-6 pr-4">
+          {/* Structural Issues Section */}
+          {filteredStructureTasks.length > 0 && (
+            <div>
+              <h4 className="font-medium mb-3 flex items-center gap-2 text-sm">
+                <Wrench className="w-4 h-4 text-muted-foreground" />
+                Structural Issues ({filteredStructureTasks.length})
+              </h4>
+              <div className="space-y-2">
+                {filteredStructureTasks.map(task => renderStructureTaskCard(task))}
               </div>
-            );
-          })}
+            </div>
+          )}
+
+          {/* Content Gaps Section */}
+          {filteredGapTasks.length > 0 && (
+            <div>
+              <h4 className="font-medium mb-3 flex items-center gap-2 text-sm">
+                <AlertCircle className="w-4 h-4 text-orange-500" />
+                Content Gaps ({filteredGapTasks.length})
+                <span className="text-xs font-normal text-muted-foreground">
+                  — Queries with no matching content
+                </span>
+              </h4>
+              <div className="space-y-2">
+                {filteredGapTasks.map(task => renderGapTaskCard(task))}
+              </div>
+            </div>
+          )}
+
+          {filteredStructureTasks.length === 0 && filteredGapTasks.length === 0 && (
+            <p className="text-muted-foreground text-center py-8 text-sm">
+              No tasks match the current filter.
+            </p>
+          )}
         </div>
       </ScrollArea>
     </div>

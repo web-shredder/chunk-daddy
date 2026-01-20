@@ -165,7 +165,8 @@ export type ArchitectureTaskType =
   | 'add_context'
   | 'reorder_sentences'
   | 'remove_redundancy'
-  | 'move_content';
+  | 'move_content'
+  | 'content_gap';
 
 export interface ArchitectureTask {
   id: string;
@@ -175,6 +176,8 @@ export interface ArchitectureTask {
   location: {
     chunkIndex?: number;
     position?: string;  // e.g., "after paragraph 3"
+    afterChunkIndex?: number;    // For content_gap: insert after this chunk
+    beforeChunkIndex?: number;   // For content_gap: insert before this chunk
   };
   priority: 'high' | 'medium' | 'low';
   expectedImpact: string;
@@ -183,6 +186,9 @@ export interface ArchitectureTask {
     before?: string;
     after?: string;
     suggestedHeading?: string;
+    query?: string;              // For content_gap: the unaddressed query
+    bestMatchChunk?: number;     // For content_gap: closest existing chunk
+    bestMatchScore?: number;     // For content_gap: score of closest match
   };
 }
 

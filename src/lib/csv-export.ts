@@ -220,17 +220,29 @@ export function generateArchitectureTasksCSV(tasks: ArchitectureTask[]): string 
   
   // Task rows - one row per task
   for (const task of tasks) {
-    const location = task.location?.chunkIndex !== undefined
-      ? `Chunk ${task.location.chunkIndex + 1}${task.location.position ? ` (${task.location.position})` : ''}`
-      : task.location?.position || 'N/A';
+    // Handle location differently for content_gap vs other types
+    let location: string;
+    if (task.type === 'content_gap') {
+      location = task.location?.position || 'N/A';
+    } else {
+      location = task.location?.chunkIndex !== undefined
+        ? `Chunk ${task.location.chunkIndex + 1}${task.location.position ? ` (${task.location.position})` : ''}`
+        : task.location?.position || 'N/A';
+    }
     
-    const suggestedFix = task.details?.after 
-      || task.details?.suggestedHeading 
-      || task.details?.before 
-      || '';
+    // Handle suggested fix - for content_gap, include the suggested heading
+    let suggestedFix: string;
+    if (task.type === 'content_gap' && task.details?.suggestedHeading) {
+      suggestedFix = `## ${task.details.suggestedHeading}`;
+    } else {
+      suggestedFix = task.details?.after 
+        || task.details?.suggestedHeading 
+        || task.details?.before 
+        || '';
+    }
     
     rows.push([
-      escapeCSV(task.type.replace(/_/g, ' ')),
+      escapeCSV(task.type === 'content_gap' ? 'content gap' : task.type.replace(/_/g, ' ')),
       escapeCSV(task.priority),
       escapeCSV(location),
       escapeCSV(task.description),
@@ -245,12 +257,16 @@ export function generateArchitectureTasksCSV(tasks: ArchitectureTask[]): string 
   const highCount = tasks.filter(t => t.priority === 'high').length;
   const mediumCount = tasks.filter(t => t.priority === 'medium').length;
   const lowCount = tasks.filter(t => t.priority === 'low').length;
+  const structureCount = tasks.filter(t => t.type !== 'content_gap').length;
+  const gapCount = tasks.filter(t => t.type === 'content_gap').length;
   
   rows.push([]); // Empty row
   rows.push(['SUMMARY']);
   rows.push(['Total Tasks', String(tasks.length)]);
   rows.push(['Selected', String(selectedCount)]);
   rows.push(['Ignored', String(tasks.length - selectedCount)]);
+  rows.push(['Structural Issues', String(structureCount)]);
+  rows.push(['Content Gaps', String(gapCount)]);
   rows.push(['High Priority', String(highCount)]);
   rows.push(['Medium Priority', String(mediumCount)]);
   rows.push(['Low Priority', String(lowCount)]);

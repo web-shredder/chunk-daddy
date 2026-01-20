@@ -1,4 +1,4 @@
-import { useCallback, useEffect } from 'react';
+import { useCallback, useEffect, useMemo } from 'react';
 import { Layers, Loader2, Download, ArrowRight, Wrench } from 'lucide-react';
 import { toast } from 'sonner';
 import { ScrollArea } from '@/components/ui/scroll-area';
@@ -15,6 +15,7 @@ import type { LayoutAwareChunk } from '@/lib/layout-chunker';
 interface ChunkScore {
   chunkId: string;
   text: string;
+  heading?: string;
   keywordScores: Array<{
     keyword: string;
     scores: {
@@ -122,13 +123,118 @@ export function ArchitectureTab({
   onTasksChange,
 }: ArchitectureTabProps) {
 
-  // Generate tasks when analysis completes
-  useEffect(() => {
-    if (architectureAnalysis && architectureAnalysis.issues.length > 0 && architectureTasks.length === 0) {
-      const generatedTasks = generateTasksFromIssues(architectureAnalysis);
-      onTasksChange(generatedTasks);
+  // Helper to generate a suggested heading from a query
+  const generateSuggestedHeading = useCallback((query: string): string => {
+    // Convert question to heading format
+    // "How long does RPO implementation take?" → "RPO Implementation Timeline"
+    // "What are the benefits of RPO?" → "Benefits of RPO"
+    const cleaned = query
+      .replace(/^(how|what|why|when|where|who|which|can|do|does|is|are)\s+/i, '')
+      .replace(/\?$/, '')
+      .trim();
+
+    // Title case
+    return cleaned
+      .split(' ')
+      .map(word => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
+      .join(' ');
+  }, []);
+
+  // Analyze query gaps - find queries with no good matching chunk
+  const analyzeQueryGaps = useCallback((): ArchitectureTask[] => {
+    if (!chunkScores || chunkScores.length === 0 || !keywords || keywords.length === 0) {
+      return [];
     }
-  }, [architectureAnalysis, architectureTasks.length, onTasksChange]);
+
+    const MIN_SCORE_THRESHOLD = 40;
+
+    const gapTasks: ArchitectureTask[] = keywords
+      .map((query, queryIndex) => {
+        // Find best matching chunk for this query
+        const scores = chunkScores.map((chunk, chunkIndex) => {
+          const keywordScore = chunk.keywordScores.find(ks => ks.keyword === query);
+          const passageScore = keywordScore 
+            ? calculatePassageScore(keywordScore.scores.cosine, keywordScore.scores.chamfer)
+            : 0;
+          return {
+            chunkIndex,
+            score: passageScore,
+            heading: chunk.heading || chunks[chunkIndex]?.headingPath?.slice(-1)[0] || `Chunk ${chunkIndex + 1}`,
+          };
+        });
+
+        const bestMatch = scores.reduce((best, current) =>
+          current.score > best.score ? current : best
+          , { chunkIndex: -1, score: 0, heading: '' });
+
+        // If best match is below threshold, this is a content gap
+        if (bestMatch.score < MIN_SCORE_THRESHOLD) {
+          // Determine suggested location - after the best matching chunk
+          const suggestedAfterChunk = bestMatch.chunkIndex >= 0 ? bestMatch.chunkIndex : 0;
+          const suggestedBeforeChunk = suggestedAfterChunk + 1;
+
+          // Determine location description
+          let locationDescription: string;
+          if (suggestedAfterChunk === chunkScores.length - 1) {
+            locationDescription = `After Chunk ${suggestedAfterChunk + 1} (end of document)`;
+          } else {
+            locationDescription = `Between Chunk ${suggestedAfterChunk + 1} and Chunk ${suggestedBeforeChunk + 1}`;
+          }
+
+          return {
+            id: `gap-${queryIndex}`,
+            type: 'content_gap' as const,
+            issueId: `gap-issue-${queryIndex}`,
+            description: `No content addresses: "${query}"`,
+            location: {
+              position: locationDescription,
+              afterChunkIndex: suggestedAfterChunk,
+              beforeChunkIndex: suggestedBeforeChunk < chunkScores.length ? suggestedBeforeChunk : undefined,
+            },
+            priority: queryIndex === 0 ? 'high' as const : 'medium' as const, // Primary query gaps are high priority
+            expectedImpact: `Adding a section for this query would improve coverage. Best current match: Chunk ${bestMatch.chunkIndex + 1} (score: ${Math.round(bestMatch.score)})`,
+            isSelected: true, // Default selected for gaps
+            details: {
+              query: query,
+              bestMatchChunk: bestMatch.chunkIndex >= 0 ? bestMatch.chunkIndex : 0,
+              bestMatchScore: bestMatch.score,
+              suggestedHeading: generateSuggestedHeading(query),
+            },
+          } as ArchitectureTask;
+        }
+
+        return null;
+      })
+      .filter((task): task is ArchitectureTask => task !== null);
+
+    return gapTasks;
+  }, [chunkScores, keywords, chunks, generateSuggestedHeading]);
+
+  // Memoize gap tasks
+  const gapTasks = useMemo(() => analyzeQueryGaps(), [analyzeQueryGaps]);
+
+  // Generate tasks when analysis completes - merge structure tasks with gap tasks
+  useEffect(() => {
+    if (architectureAnalysis && architectureAnalysis.issues.length > 0) {
+      const structureTasks = generateTasksFromIssues(architectureAnalysis);
+      
+      // Merge and sort by priority
+      const allTasks = [...structureTasks, ...gapTasks].sort((a, b) => {
+        const priorityOrder = { high: 0, medium: 1, low: 2 };
+        return priorityOrder[a.priority] - priorityOrder[b.priority];
+      });
+
+      // Only update if tasks are different (to avoid infinite loop)
+      const currentTaskIds = architectureTasks.map(t => t.id).join(',');
+      const newTaskIds = allTasks.map(t => t.id).join(',');
+      if (currentTaskIds !== newTaskIds) {
+        onTasksChange(allTasks);
+      }
+    } else if (gapTasks.length > 0 && architectureTasks.length === 0) {
+      // If no architecture analysis yet but we have gap tasks, show them
+      onTasksChange(gapTasks);
+    }
+  }, [architectureAnalysis, gapTasks, architectureTasks, onTasksChange]);
 
   const handleAnalyzeArchitecture = async () => {
     setIsAnalyzing(true);
@@ -171,10 +277,14 @@ export function ArchitectureTab({
       if (error) throw error;
       if (data?.result) {
         setArchitectureAnalysis(data.result);
-        // Generate tasks from the new analysis
-        const generatedTasks = generateTasksFromIssues(data.result);
-        onTasksChange(generatedTasks);
-        toast.success(`Architecture analysis complete: ${data.result.issues?.length || 0} issues found`);
+        // Generate structure tasks from the new analysis and merge with gap tasks
+        const structureTasks = generateTasksFromIssues(data.result);
+        const allTasks = [...structureTasks, ...gapTasks].sort((a, b) => {
+          const priorityOrder = { high: 0, medium: 1, low: 2 };
+          return priorityOrder[a.priority] - priorityOrder[b.priority];
+        });
+        onTasksChange(allTasks);
+        toast.success(`Architecture analysis complete: ${data.result.issues?.length || 0} issues, ${gapTasks.length} content gaps`);
       }
     } catch (err) {
       console.error('Architecture analysis failed:', err);
