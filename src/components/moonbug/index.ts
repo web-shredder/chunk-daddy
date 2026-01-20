@@ -5,6 +5,7 @@ export { AnalyzeTab } from './AnalyzeTab';
 export { ResultsTab } from './ResultsTab';
 export { ArchitectureTab } from './ArchitectureTab';
 export { OptimizeTab } from './OptimizeTab';
+export { OutputsTab } from './OutputsTab';
 export { ReportTab } from './ReportTab';
 export { ScoreItem, ScoreGrid } from './ScoreItem';
 export { PassageScoreHero, MiniPassageScore, DaddyScoreHero, MiniDaddyScore } from './PassageScoreHero';
