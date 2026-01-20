@@ -225,7 +225,7 @@ export function ResultsTab({
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [viewMode, setViewMode] = useState<'list' | 'structure' | 'assignments'>('list');
-  const [mobileDetailOpen, setMobileDetailOpen] = useState(false);
+  const [detailPanelOpen, setDetailPanelOpen] = useState(false);
   const [scoreFilter, setScoreFilter] = useState<'all' | 'problems' | 'good'>('problems');
   const [sortBy, setSortBy] = useState<'score' | 'index' | 'heading'>('score');
   const isMobile = useIsMobile();
@@ -431,9 +431,7 @@ export function ResultsTab({
 
   const handleSelectChunk = (index: number) => {
     setSelectedIndex(index);
-    if (isMobile) {
-      setMobileDetailOpen(true);
-    }
+    setDetailPanelOpen(true);
   };
 
   const exportJSON = () => {
@@ -521,11 +519,8 @@ export function ResultsTab({
       )}
 
       <div className="flex-1 flex overflow-hidden">
-        {/* Left: Tree/List Structure */}
-        <div className={cn(
-          "border-r border-border flex flex-col bg-surface shrink-0",
-          isMobile ? "w-full" : "w-1/2"
-        )}>
+        {/* Left: Tree/List Structure - Full Width */}
+        <div className="flex-1 flex flex-col bg-surface overflow-hidden">
           {/* Header with view toggle */}
           <div className="p-2 md:p-3 border-b border-border space-y-2">
             {/* View mode toggles */}
@@ -832,139 +827,79 @@ export function ResultsTab({
           )}
         </div>
 
-        {/* Right: Detail Panel (Desktop only) */}
-        {!isMobile && selectedChunk && (
-          <div className="flex-1 flex flex-col overflow-hidden">
-            {/* Detail Header with Navigation */}
-            <div className="h-14 px-4 border-b border-border flex items-center justify-between bg-surface shrink-0">
-              <div className="flex items-center gap-3">
-                <button 
-                  onClick={() => setSelectedIndex(Math.max(0, selectedIndex - 1))} 
-                  disabled={selectedIndex === 0} 
-                  className="icon-button"
-                >
-                  <ChevronLeft className="h-4 w-4" />
-                </button>
-                <span className="text-[13px] text-muted-foreground font-mono">
-                  {selectedIndex + 1} / {chunks.length}
-                </span>
-                <button 
-                  onClick={() => setSelectedIndex(Math.min(chunks.length - 1, selectedIndex + 1))} 
-                  disabled={selectedIndex === chunks.length - 1} 
-                  className="icon-button"
-                >
-                  <ChevronRight className="h-4 w-4" />
-                </button>
-              </div>
-
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <button className="icon-button" title="Export">
-                    <Download className="h-4 w-4" />
-                  </button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="end" className="bg-elevated">
-                  <DropdownMenuItem onClick={exportJSON}>
-                    <FileJson className="h-4 w-4 mr-2" />
-                    Export as JSON
-                  </DropdownMenuItem>
-                  <DropdownMenuItem onClick={exportMarkdown}>
-                    <FileText className="h-4 w-4 mr-2" />
-                    Export as Markdown
-                  </DropdownMenuItem>
-                  {result && (
-                    <DropdownMenuItem onClick={handleExportCSV}>
-                      <Table className="h-4 w-4 mr-2" />
-                      Export as CSV
-                    </DropdownMenuItem>
-                  )}
-                </DropdownMenuContent>
-              </DropdownMenu>
-            </div>
-
-            {/* New Chunk Details Panel */}
-            <ChunkDetailsPanel
-              chunk={selectedChunk}
-              chunkIndex={selectedIndex}
-              chunkScore={selectedScore}
-              totalChunks={chunks.length}
-              allQueries={keywords}
-              assignedQuery={getAssignedQuery(selectedIndex)}
-              onReassignQuery={(newQuery) => handleReassignQuery(selectedIndex, newQuery)}
-              perQueryScores={getPerQueryScores(selectedIndex)}
-            />
-          </div>
-        )}
-
-        {/* Mobile: Detail Sheet */}
-        {isMobile && (
-          <Sheet open={mobileDetailOpen} onOpenChange={setMobileDetailOpen}>
-            <SheetContent side="bottom" className="h-[85vh] p-0">
-              {selectedChunk && (
-                <div className="h-full flex flex-col">
-                  {/* Header */}
-                  <div className="h-14 px-4 border-b border-border flex items-center justify-between bg-surface shrink-0">
-                    <div className="flex items-center gap-2">
-                      <button 
-                        onClick={() => setSelectedIndex(Math.max(0, selectedIndex - 1))} 
-                        disabled={selectedIndex === 0} 
-                        className="icon-button"
-                      >
-                        <ChevronLeft className="h-4 w-4" />
-                      </button>
-                      <span className="text-xs text-muted-foreground font-mono">
-                        {selectedIndex + 1} / {chunks.length}
-                      </span>
-                      <button 
-                        onClick={() => setSelectedIndex(Math.min(chunks.length - 1, selectedIndex + 1))} 
-                        disabled={selectedIndex === chunks.length - 1} 
-                        className="icon-button"
-                      >
-                        <ChevronRight className="h-4 w-4" />
-                      </button>
-                    </div>
-
-                    <DropdownMenu>
-                      <DropdownMenuTrigger asChild>
-                        <button className="icon-button" title="Export">
-                          <Download className="h-4 w-4" />
-                        </button>
-                      </DropdownMenuTrigger>
-                      <DropdownMenuContent align="end" className="bg-elevated">
-                        <DropdownMenuItem onClick={exportJSON}>
-                          <FileJson className="h-4 w-4 mr-2" />
-                          JSON
-                        </DropdownMenuItem>
-                        <DropdownMenuItem onClick={exportMarkdown}>
-                          <FileText className="h-4 w-4 mr-2" />
-                          Markdown
-                        </DropdownMenuItem>
-                        {result && (
-                          <DropdownMenuItem onClick={handleExportCSV}>
-                            <Table className="h-4 w-4 mr-2" />
-                            CSV
-                          </DropdownMenuItem>
-                        )}
-                      </DropdownMenuContent>
-                    </DropdownMenu>
+        {/* Detail Panel - Slide-over Sheet */}
+        <Sheet open={detailPanelOpen} onOpenChange={setDetailPanelOpen}>
+          <SheetContent 
+            side={isMobile ? "bottom" : "right"} 
+            className={cn(
+              "p-0",
+              isMobile ? "h-[85vh]" : "w-full sm:w-[600px] sm:max-w-[50vw]"
+            )}
+          >
+            {selectedChunk && (
+              <div className="h-full flex flex-col">
+                {/* Header with Navigation */}
+                <div className="h-14 px-4 border-b border-border flex items-center justify-between bg-surface shrink-0">
+                  <div className="flex items-center gap-3">
+                    <button 
+                      onClick={() => setSelectedIndex(Math.max(0, selectedIndex - 1))} 
+                      disabled={selectedIndex === 0} 
+                      className="icon-button"
+                    >
+                      <ChevronLeft className="h-4 w-4" />
+                    </button>
+                    <span className="text-[13px] text-muted-foreground font-mono">
+                      {selectedIndex + 1} / {chunks.length}
+                    </span>
+                    <button 
+                      onClick={() => setSelectedIndex(Math.min(chunks.length - 1, selectedIndex + 1))} 
+                      disabled={selectedIndex === chunks.length - 1} 
+                      className="icon-button"
+                    >
+                      <ChevronRight className="h-4 w-4" />
+                    </button>
                   </div>
 
-                  {/* New Chunk Details Panel */}
-                  <ChunkDetailsPanel
-                    chunk={selectedChunk}
-                    chunkIndex={selectedIndex}
-                    chunkScore={selectedScore}
-                    totalChunks={chunks.length}
-                    allQueries={keywords}
-                    assignedQuery={getAssignedQuery(selectedIndex)}
-                    onReassignQuery={(newQuery) => handleReassignQuery(selectedIndex, newQuery)}
-                    perQueryScores={getPerQueryScores(selectedIndex)}
-                  />
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <button className="icon-button" title="Export">
+                        <Download className="h-4 w-4" />
+                      </button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end" className="bg-elevated">
+                      <DropdownMenuItem onClick={exportJSON}>
+                        <FileJson className="h-4 w-4 mr-2" />
+                        Export as JSON
+                      </DropdownMenuItem>
+                      <DropdownMenuItem onClick={exportMarkdown}>
+                        <FileText className="h-4 w-4 mr-2" />
+                        Export as Markdown
+                      </DropdownMenuItem>
+                      {result && (
+                        <DropdownMenuItem onClick={handleExportCSV}>
+                          <Table className="h-4 w-4 mr-2" />
+                          Export as CSV
+                        </DropdownMenuItem>
+                      )}
+                    </DropdownMenuContent>
+                  </DropdownMenu>
                 </div>
-              )}
-            </SheetContent>
-          </Sheet>
-        )}
+
+                {/* Chunk Details Panel */}
+                <ChunkDetailsPanel
+                  chunk={selectedChunk}
+                  chunkIndex={selectedIndex}
+                  chunkScore={selectedScore}
+                  totalChunks={chunks.length}
+                  allQueries={keywords}
+                  assignedQuery={getAssignedQuery(selectedIndex)}
+                  onReassignQuery={(newQuery) => handleReassignQuery(selectedIndex, newQuery)}
+                  perQueryScores={getPerQueryScores(selectedIndex)}
+                />
+              </div>
+            )}
+          </SheetContent>
+        </Sheet>
       </div>
     </div>
   );
