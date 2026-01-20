@@ -705,21 +705,25 @@ export function ResultsTab({
                       {result.coverageMap.map((entry: CoverageEntry, idx: number) => (
                         <div 
                           key={idx} 
-                          className="flex items-center gap-2 text-xs py-1 px-2 bg-background/50 rounded hover:bg-background/80 cursor-pointer"
+                          className="flex items-start gap-2 text-xs py-1.5 px-2 bg-background/50 rounded hover:bg-background/80 cursor-pointer min-w-0"
                           onClick={() => handleSelectChunk(entry.bestChunkIndex)}
                         >
                           <span className={cn(
-                            "w-4 text-center shrink-0",
+                            "w-4 text-center shrink-0 pt-0.5",
                             entry.status === 'covered' && "text-emerald-600 dark:text-emerald-400",
                             entry.status === 'weak' && "text-amber-600 dark:text-amber-400",
                             entry.status === 'gap' && "text-rose-500"
                           )}>
                             {entry.status === 'covered' ? '✓' : entry.status === 'weak' ? '⚠' : '✗'}
                           </span>
-                          <span className="flex-1 truncate text-muted-foreground">{entry.query}</span>
-                          <ArrowRight className="h-3 w-3 text-muted-foreground/50 shrink-0" />
-                          <span className="w-20 truncate text-muted-foreground">{entry.bestChunkHeading}</span>
-                          <span className="w-8 text-right font-mono shrink-0">{Math.round(entry.score)}</span>
+                          <div className="flex-1 min-w-0 space-y-0.5">
+                            <span className="text-muted-foreground break-words block">{entry.query}</span>
+                            <span className="text-muted-foreground/70 break-words block text-[10px]">
+                              <ArrowRight className="h-2.5 w-2.5 inline-block mr-1" />
+                              {entry.bestChunkHeading}
+                            </span>
+                          </div>
+                          <span className="w-8 text-right font-mono shrink-0 pt-0.5">{Math.round(entry.score)}</span>
                         </div>
                       ))}
                     </div>
