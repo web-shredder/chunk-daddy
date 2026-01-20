@@ -47,6 +47,17 @@ interface OptimizeTabProps {
   onRejectedChunksChange: (chunks: Set<number>) => void;
   editedChunks: Map<number, string>;
   onEditedChunksChange: (chunks: Map<number, string>) => void;
+  // Streaming optimization props
+  onStreamingOptimize?: (params: {
+    applyArchitecture: boolean;
+    architectureTasks: ArchitectureTask[];
+    generateBriefs: boolean;
+    unassignedQueries: string[];
+    chunkAssignments: Array<{ chunkIndex: number; query: string }>;
+  }) => Promise<void>;
+  isStreamingOptimization?: boolean;
+  streamingStep?: string;
+  streamingProgress?: number;
 }
 
 export function OptimizeTab({
@@ -71,6 +82,11 @@ export function OptimizeTab({
   onRejectedChunksChange: setRejectedChunks,
   editedChunks,
   onEditedChunksChange: setEditedChunks,
+  // Streaming optimization
+  onStreamingOptimize,
+  isStreamingOptimization = false,
+  streamingStep = '',
+  streamingProgress = 0,
 }: OptimizeTabProps) {
   // Content brief generation state (local - not critical to persist)
   const [generatedBriefs, setGeneratedBriefs] = useState<ContentBrief[]>([]);
@@ -584,6 +600,36 @@ export function OptimizeTab({
     console.log('Toggle architecture task:', taskId);
   };
 
+  // Streaming optimization handler
+  const handleStreamingOptimize = async () => {
+    if (!onStreamingOptimize) {
+      // Fall back to legacy optimization
+      handleStartOptimization();
+      return;
+    }
+
+    // Build chunk assignments for streaming
+    const chunkAssignmentsForStreaming = queryAssignments.chunkAssignments
+      .filter(ca => ca.assignedQuery)
+      .map(ca => ({
+        chunkIndex: ca.chunkIndex,
+        query: ca.assignedQuery!.query,
+      }));
+
+    await onStreamingOptimize({
+      applyArchitecture,
+      architectureTasks: selectedArchitectureTasks,
+      generateBriefs,
+      unassignedQueries: queryAssignments.unassignedQueries,
+      chunkAssignments: chunkAssignmentsForStreaming,
+    });
+  };
+
+  // Determine which step/progress to show
+  const isCurrentlyOptimizing = isStreamingOptimization || (step !== 'idle' && step !== 'complete' && step !== 'error');
+  const currentStep = isStreamingOptimization ? streamingStep : getStepLabel();
+  const currentProgress = isStreamingOptimization ? streamingProgress : progress;
+
   // Assignment view (default) - now just the consolidated plan panel
   return (
     <div className="flex-1 overflow-auto">
@@ -612,10 +658,10 @@ export function OptimizeTab({
               onArchitectureTaskToggle={handleArchitectureTaskToggle}
               onQueryReassign={handleQueryReassign}
               allQueries={keywords}
-              isOptimizing={step !== 'idle' && step !== 'complete' && step !== 'error'}
-              optimizationStep={getStepLabel()}
-              optimizationProgress={progress}
-              onOptimize={handleStartOptimization}
+              isOptimizing={isCurrentlyOptimizing}
+              optimizationStep={currentStep}
+              optimizationProgress={currentProgress}
+              onOptimize={handleStreamingOptimize}
             />
           )}
         </div>
