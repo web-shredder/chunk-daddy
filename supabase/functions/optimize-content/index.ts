@@ -1195,9 +1195,19 @@ Generate a content brief for a NEW section that would rank highly for this query
 
       systemPrompt = `You are a content architecture analyst specializing in RAG optimization.
 
-Analyze this document's structure to identify issues that hurt retrieval performance. Think holistically about how chunks relate to each other, not just individual chunk quality.
+IMPORTANT CONTEXT:
+- You are analyzing the ORIGINAL markdown document structure, NOT chunked content
+- The system separately prepends "heading cascades" (parent headings) to chunks for context - this is intentional
+- Do NOT flag repeated headings as issues - they are NOT repeated in the source document
+- Do NOT flag short sections as "tiny chunks" - chunking is handled separately
+- Focus ONLY on the source document's actual structural problems
 
-DOCUMENT CHUNKS:
+${content ? `ORIGINAL DOCUMENT:
+"""
+${content.slice(0, 8000)}${content.length > 8000 ? '...[truncated]' : ''}
+"""
+
+` : ''}CHUNK CONTEXT (for understanding how content was divided):
 ${chunkSummaries.map(c => `
 [Chunk ${c.index}] ${c.heading}
 Words: ${c.wordCount} | Top matches: ${c.topMatches.join(', ') || 'none'}
@@ -1207,7 +1217,7 @@ Preview: "${c.preview}..."
 TARGET QUERIES:
 ${(queries || []).map((q: string, i: number) => `${i + 1}. ${q}`).join('\n')}
 
-IDENTIFY THESE ISSUE TYPES:
+IDENTIFY THESE ISSUE TYPES (in the ORIGINAL document):
 
 1. MISPLACED_CONTENT (high priority)
    Content that belongs in a different section based on its topic.
@@ -1215,24 +1225,24 @@ IDENTIFY THESE ISSUE TYPES:
    Look for: Topic keywords appearing in unexpected sections.
 
 2. REDUNDANCY (medium priority)
-   Same information stated in multiple chunks.
-   Example: The same definition appearing in chunks 3, 15, and 42.
-   Look for: Similar previews, repeated key phrases, duplicate statistics.
+   Same information stated in multiple places IN THE SOURCE DOCUMENT.
+   Example: The same definition written twice in different sections.
+   Look for: Genuinely duplicated content, NOT heading cascades.
 
 3. BROKEN_ATOMICITY (high priority)
-   Chunks that reference external context and can't stand alone.
+   Passages that reference external context and can't stand alone.
    Example: "As mentioned above...", "This model...", "The previous section..."
    Look for: Pronouns without clear referents, relative references.
 
 4. TOPIC_INCOHERENCE (medium priority)
-   Single chunks covering multiple unrelated topics.
-   Example: One chunk discussing both pricing AND implementation timelines.
-   Look for: Chunks with high scores for very different queries.
+   Long paragraphs covering multiple unrelated topics that should be split.
+   Example: One 500-word paragraph discussing both pricing AND implementation timelines.
+   Look for: Topic shifts within a single paragraph.
 
 5. COVERAGE_GAP (high priority)
-   Query clusters with no chunk scoring above 50%.
-   Example: No chunk addresses "contract negotiation" despite related queries.
-   Look for: Queries with all low scores across all chunks.
+   Query topics with no substantive content in the document.
+   Example: No section addresses "contract negotiation" despite it being a target query.
+   Look for: Missing sections, not just low-scoring chunks.
 
 6. ORPHANED_MENTION (low priority)
    Topics mentioned briefly but never developed.
@@ -1241,7 +1251,7 @@ IDENTIFY THESE ISSUE TYPES:
 
 Be thorough but practical. Focus on issues that would meaningfully improve retrieval if fixed.`;
 
-      userPrompt = 'Analyze the document architecture and identify structural issues that hurt retrieval performance.';
+      userPrompt = 'Analyze the document architecture and identify structural issues that hurt retrieval performance. Remember: heading repetition in chunks is intentional (heading cascades), so do NOT flag that as an issue.';
 
       tools = [{
         type: "function",

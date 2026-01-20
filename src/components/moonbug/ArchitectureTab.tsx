@@ -32,6 +32,7 @@ interface ArchitectureTabProps {
   chunks: LayoutAwareChunk[];
   chunkScores: ChunkScore[];
   keywords: string[];
+  originalContent: string; // Raw markdown before chunking
   onGoToResults: () => void;
   onNavigateToChunk?: (chunkIndex: number) => void;
   onNavigateToOptimize?: () => void;
@@ -109,6 +110,7 @@ export function ArchitectureTab({
   chunks,
   chunkScores,
   keywords,
+  originalContent,
   onGoToResults,
   onNavigateToChunk,
   onNavigateToOptimize,
@@ -152,7 +154,8 @@ export function ArchitectureTab({
       const { data, error } = await supabase.functions.invoke('optimize-content', {
         body: {
           type: 'analyze_architecture',
-          chunks: chunkInfo.map(c => c.text),
+          content: originalContent, // Pass ORIGINAL markdown, not chunk-derived content
+          chunks: chunkInfo.map(c => c.textWithoutCascade), // Body-only for chunk context
           queries: keywords,
           chunkScores: formattedChunkScores,
           headings: chunkInfo.map(c => c.heading),
