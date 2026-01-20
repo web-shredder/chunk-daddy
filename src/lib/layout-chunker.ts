@@ -227,6 +227,14 @@ export function createLayoutAwareChunks(
         ? cascadeText + '\n\n' + element.content 
         : element.content;
       
+      // DIAGNOSTIC: Check newline preservation
+      console.log('🔴 [CHUNKER] Creating chunk:', {
+        chunkIndex,
+        contentHasNewlines: element.content.includes('\n'),
+        contentNewlineCount: (element.content.match(/\n/g) || []).length,
+        contentFirst60: element.content.substring(0, 60).replace(/\n/g, '↵'),
+      });
+      
       chunks.push({
         id: `chunk-${chunkIndex++}`,
         text: fullText,

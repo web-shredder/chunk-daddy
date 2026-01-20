@@ -1,5 +1,9 @@
 // Sentence and clause segmentation utilities for sentence-level Chamfer scoring
 
+// VERSION CHECK - If you see this in console, the latest code is running
+const SENTENCE_UTILS_VERSION = 'v2-simplified-2024-01-20';
+console.log('🔴 [SENTENCE-UTILS] Loaded version:', SENTENCE_UTILS_VERSION);
+
 export interface Sentence {
   text: string;
   index: number;
@@ -13,6 +17,14 @@ export interface Sentence {
  * Handles standard prose, markdown, and list-based content.
  */
 export function splitIntoSentences(text: string): Sentence[] {
+  // Show exactly what we're receiving, including hidden characters
+  console.log('🔴 [SPLIT-INPUT] Raw text analysis:', {
+    length: text?.length,
+    newlineCount: (text?.match(/\n/g) || []).length,
+    periodCount: (text?.match(/\./g) || []).length,
+    first100: text?.substring(0, 100).replace(/\n/g, '↵'),
+  });
+
   if (!text?.trim()) return [];
   
   // Simple approach: split on sentence endings (. ! ?) OR newlines

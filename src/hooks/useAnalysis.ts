@@ -220,6 +220,15 @@ export function useAnalysis() {
         // Then prepend cascade context to each sentence for better semantic matching
         const chunkSentenceData = chunkTexts.map((text, idx) => {
           const textToSplit = noCascadeTexts ? noCascadeTexts[idx] : text;
+          
+          // DIAGNOSTIC: What are we actually trying to split?
+          console.log('🔴 [CHUNK-TEXT] Chunk', idx, 'text to split:', {
+            sourceUsed: noCascadeTexts ? 'noCascadeTexts' : 'chunkTexts',
+            length: textToSplit?.length,
+            newlineCount: (textToSplit?.match(/\n/g) || []).length,
+            first80: textToSplit?.substring(0, 80).replace(/\n/g, '↵'),
+          });
+          
           const rawSentences = getSentenceTexts(textToSplit).slice(0, maxSentencesPerChunk);
           
           // Get cascade from layout chunk if available
