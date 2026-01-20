@@ -1,11 +1,15 @@
-import { Layers, Loader2, Download } from 'lucide-react';
+import { useCallback, useEffect } from 'react';
+import { Layers, Loader2, Download, ArrowRight, Wrench } from 'lucide-react';
 import { toast } from 'sonner';
 import { ScrollArea } from '@/components/ui/scroll-area';
+import { Button } from '@/components/ui/button';
+import { Badge } from '@/components/ui/badge';
 import { supabase } from '@/integrations/supabase/client';
 import { ArchitectureReport } from '@/components/analysis/ArchitectureReport';
+import { ArchitectureTasksPanel } from './ArchitectureTasksPanel';
 import { calculatePassageScore } from '@/lib/similarity';
 import { downloadArchitectureCSV } from '@/lib/csv-export';
-import type { ArchitectureAnalysis } from '@/lib/optimizer-types';
+import type { ArchitectureAnalysis, ArchitectureTask, ArchitectureTaskType } from '@/lib/optimizer-types';
 import type { LayoutAwareChunk } from '@/lib/layout-chunker';
 
 interface ChunkScore {
@@ -30,11 +34,74 @@ interface ArchitectureTabProps {
   keywords: string[];
   onGoToResults: () => void;
   onNavigateToChunk?: (chunkIndex: number) => void;
+  onNavigateToOptimize?: () => void;
   // Lifted state props
   analysis: ArchitectureAnalysis | null;
   onAnalysisUpdate: (analysis: ArchitectureAnalysis | null) => void;
   isAnalyzing: boolean;
   onAnalyzingChange: (loading: boolean) => void;
+  // Architecture tasks state
+  architectureTasks: ArchitectureTask[];
+  onTasksChange: (tasks: ArchitectureTask[]) => void;
+}
+
+// Generate tasks from architecture issues
+function generateTasksFromIssues(analysis: ArchitectureAnalysis): ArchitectureTask[] {
+  const tasks: ArchitectureTask[] = [];
+  
+  analysis.issues.forEach((issue, issueIdx) => {
+    // Map issue types to task types
+    const taskMappings: Record<string, { type: ArchitectureTaskType; description: string }[]> = {
+      MISPLACED_CONTENT: [
+        { type: 'move_content', description: `Move content to appropriate section` },
+      ],
+      REDUNDANCY: [
+        { type: 'remove_redundancy', description: `Remove or consolidate redundant content` },
+      ],
+      BROKEN_ATOMICITY: [
+        { type: 'replace_pronoun', description: `Replace pronouns with explicit references` },
+        { type: 'add_context', description: `Add context to make chunk self-contained` },
+      ],
+      TOPIC_INCOHERENCE: [
+        { type: 'split_paragraph', description: `Split content into focused sections` },
+        { type: 'add_heading', description: `Add heading to separate topics` },
+      ],
+      COVERAGE_GAP: [
+        { type: 'add_context', description: `Add content to address coverage gap` },
+      ],
+      ORPHANED_MENTION: [
+        { type: 'add_context', description: `Expand orphaned mention into full section` },
+      ],
+    };
+    
+    const mappings = taskMappings[issue.type] || [];
+    
+    mappings.forEach((mapping, taskIdx) => {
+      const task: ArchitectureTask = {
+        id: `task-${issueIdx}-${taskIdx}`,
+        type: mapping.type,
+        issueId: issue.id,
+        description: `${mapping.description}: ${issue.description}`,
+        location: {
+          chunkIndex: issue.chunkIndices[0],
+          position: issue.chunkIndices.length > 1 
+            ? `Affects chunks ${issue.chunkIndices.map(i => i + 1).join(', ')}`
+            : undefined,
+        },
+        priority: issue.severity,
+        expectedImpact: issue.impact,
+        isSelected: issue.severity === 'high', // Auto-select high priority
+        details: {
+          suggestedHeading: mapping.type === 'add_heading' 
+            ? issue.recommendation.match(/heading[:\s]*["']?([^"'\n]+)["']?/i)?.[1] 
+            : undefined,
+        },
+      };
+      tasks.push(task);
+    });
+  });
+  
+  return tasks;
 }
 
 export function ArchitectureTab({
@@ -44,11 +111,22 @@ export function ArchitectureTab({
   keywords,
   onGoToResults,
   onNavigateToChunk,
+  onNavigateToOptimize,
   analysis: architectureAnalysis,
   onAnalysisUpdate: setArchitectureAnalysis,
   isAnalyzing,
   onAnalyzingChange: setIsAnalyzing,
+  architectureTasks,
+  onTasksChange,
 }: ArchitectureTabProps) {
+
+  // Generate tasks when analysis completes
+  useEffect(() => {
+    if (architectureAnalysis && architectureAnalysis.issues.length > 0 && architectureTasks.length === 0) {
+      const generatedTasks = generateTasksFromIssues(architectureAnalysis);
+      onTasksChange(generatedTasks);
+    }
+  }, [architectureAnalysis, architectureTasks.length, onTasksChange]);
 
   const handleAnalyzeArchitecture = async () => {
     setIsAnalyzing(true);
@@ -90,6 +168,9 @@ export function ArchitectureTab({
       if (error) throw error;
       if (data?.result) {
         setArchitectureAnalysis(data.result);
+        // Generate tasks from the new analysis
+        const generatedTasks = generateTasksFromIssues(data.result);
+        onTasksChange(generatedTasks);
         toast.success(`Architecture analysis complete: ${data.result.issues?.length || 0} issues found`);
       }
     } catch (err) {
@@ -99,6 +180,29 @@ export function ArchitectureTab({
       setIsAnalyzing(false);
     }
   };
+
+  const handleTaskToggle = useCallback((taskId: string) => {
+    onTasksChange(architectureTasks.map(task => 
+      task.id === taskId ? { ...task, isSelected: !task.isSelected } : task
+    ));
+  }, [architectureTasks, onTasksChange]);
+
+  const handleSelectAll = useCallback(() => {
+    onTasksChange(architectureTasks.map(task => ({ ...task, isSelected: true })));
+  }, [architectureTasks, onTasksChange]);
+
+  const handleDeselectAll = useCallback(() => {
+    onTasksChange(architectureTasks.map(task => ({ ...task, isSelected: false })));
+  }, [architectureTasks, onTasksChange]);
+
+  const handleSelectByPriority = useCallback((priority: 'high' | 'medium' | 'low') => {
+    onTasksChange(architectureTasks.map(task => ({ 
+      ...task, 
+      isSelected: task.priority === priority 
+    })));
+  }, [architectureTasks, onTasksChange]);
+
+  const selectedTaskCount = architectureTasks.filter(t => t.isSelected).length;
 
   if (!hasResults) {
     return (
@@ -188,19 +292,71 @@ export function ArchitectureTab({
         </div>
       </div>
 
-      {/* Report Content */}
-      <ScrollArea className="flex-1">
-        <div className="p-6">
-          <ArchitectureReport 
-            analysis={architectureAnalysis}
-            onNavigateToChunk={(idx) => {
-              if (onNavigateToChunk) {
-                onNavigateToChunk(idx);
-              }
-            }}
-          />
+      {/* Content - Two Column Layout */}
+      <div className="flex-1 flex overflow-hidden">
+        {/* Left: Architecture Report */}
+        <div className="flex-1 border-r border-border overflow-hidden">
+          <ScrollArea className="h-full">
+            <ArchitectureReport 
+              analysis={architectureAnalysis}
+              onNavigateToChunk={(idx) => {
+                if (onNavigateToChunk) {
+                  onNavigateToChunk(idx);
+                }
+              }}
+            />
+          </ScrollArea>
         </div>
-      </ScrollArea>
+
+        {/* Right: Tasks Panel */}
+        <div className="w-[400px] flex flex-col overflow-hidden bg-background">
+          <div className="h-12 px-4 border-b border-border flex items-center justify-between shrink-0">
+            <div className="flex items-center gap-2">
+              <Wrench className="h-4 w-4 text-muted-foreground" />
+              <span className="text-sm font-medium">Action Tasks</span>
+            </div>
+            {selectedTaskCount > 0 && (
+              <Badge variant="secondary" className="text-xs">
+                {selectedTaskCount} selected
+              </Badge>
+            )}
+          </div>
+          
+          <div className="flex-1 overflow-hidden p-4">
+            <ArchitectureTasksPanel
+              tasks={architectureTasks}
+              onTaskToggle={handleTaskToggle}
+              onSelectAll={handleSelectAll}
+              onDeselectAll={handleDeselectAll}
+              onSelectByPriority={handleSelectByPriority}
+              onNavigateToChunk={onNavigateToChunk}
+            />
+          </div>
+
+          {/* Continue to Optimize CTA */}
+          {architectureTasks.length > 0 && (
+            <div className="border-t border-border p-4 bg-muted/30 shrink-0">
+              <div className="space-y-3">
+                <div>
+                  <p className="text-sm font-medium">
+                    {selectedTaskCount} of {architectureTasks.length} tasks selected
+                  </p>
+                  <p className="text-xs text-muted-foreground">
+                    Selected tasks will be applied during optimization
+                  </p>
+                </div>
+                <Button 
+                  onClick={onNavigateToOptimize}
+                  className="w-full gap-2"
+                >
+                  Continue to Optimize
+                  <ArrowRight className="h-4 w-4" />
+                </Button>
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
     </div>
   );
 }
