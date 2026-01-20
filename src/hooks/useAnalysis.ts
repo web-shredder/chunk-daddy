@@ -1,7 +1,15 @@
 import { useState, useCallback } from 'react';
-import { generateEmbeddings, type EmbeddingResult } from '@/lib/embeddings';
-import { calculateAllMetrics, calculateImprovement, type SimilarityScores } from '@/lib/similarity';
+import { generateEmbeddings, generateSentenceEmbeddingsBatch, type EmbeddingResult } from '@/lib/embeddings';
+import { 
+  calculateAllMetrics, 
+  calculateAllMetricsWithSentenceChamfer,
+  calculateSentenceChamfer,
+  calculateImprovement, 
+  type SimilarityScores,
+  type SentenceMatch
+} from '@/lib/similarity';
 import { chunkContent, type Chunk, type ChunkingStrategy } from '@/lib/chunking';
+import { splitIntoSentences, splitQueryIntoClauses, getSentenceTexts } from '@/lib/sentence-utils';
 import type { LayoutAwareChunk, ChunkerOptions } from '@/lib/layout-chunker';
 
 export interface KeywordScore {
@@ -38,6 +46,13 @@ export interface AnalysisResult {
   optimizedScores: ChunkScore[] | null;
   improvements: ImprovementResult[] | null;
   timestamp: Date;
+  // Sentence-level analysis metadata
+  usedSentenceChamfer?: boolean;
+  sentenceStats?: {
+    totalChunkSentences: number;
+    totalQueryClauses: number;
+    avgSentencesPerChunk: number;
+  };
 }
 
 export interface UseAnalysisOptions {
@@ -48,6 +63,8 @@ export interface UseAnalysisOptions {
   fixedChunkSize?: number;
   layoutChunks?: LayoutAwareChunk[];
   chunkerOptions?: ChunkerOptions;
+  useSentenceChamfer?: boolean; // Enable sentence-level Chamfer (default: true)
+  maxSentencesPerChunk?: number; // Limit sentences per chunk for cost control (default: 20)
 }
 
 export function useAnalysis() {
@@ -57,7 +74,17 @@ export function useAnalysis() {
   const [progress, setProgress] = useState(0);
 
   const analyze = useCallback(async (options: UseAnalysisOptions) => {
-    const { content, optimizedContent, keywords, strategy, fixedChunkSize, layoutChunks, chunkerOptions } = options;
+    const { 
+      content, 
+      optimizedContent, 
+      keywords, 
+      strategy, 
+      fixedChunkSize, 
+      layoutChunks, 
+      chunkerOptions,
+      useSentenceChamfer = true, // Default to true
+      maxSentencesPerChunk = 20 
+    } = options;
 
     if (!content.trim()) {
       setError('Please enter content to analyze');
@@ -107,7 +134,7 @@ export function useAnalysis() {
 
       setProgress(10);
 
-      // Prepare all texts for embedding
+      // Prepare all texts for embedding (whole documents)
       const validKeywords = keywords.filter(k => k.trim());
       const textsToEmbed: string[] = [
         content, // Original full content
@@ -124,12 +151,12 @@ export function useAnalysis() {
         textsToEmbed.push(...optimizedChunks.map(c => c.text));
       }
 
-      setProgress(20);
+      setProgress(15);
 
       // Generate all embeddings in one batch via edge function
       const embeddings = await generateEmbeddings(textsToEmbed);
 
-      setProgress(60);
+      setProgress(40);
 
       // Extract embeddings by type
       let embeddingIndex = 0;
@@ -151,9 +178,71 @@ export function useAnalysis() {
         ? optimizedChunks.map(() => embeddings[embeddingIndex++])
         : null;
 
-      setProgress(70);
+      setProgress(45);
 
-      // Calculate original scores
+      // ========== SENTENCE-LEVEL CHAMFER ==========
+      // If enabled, generate sentence embeddings for true multi-aspect coverage
+      let sentenceEmbeddingsData: {
+        chunkEmbeddings: Map<number, number[][]>;
+        queryEmbeddings: Map<number, number[][]>;
+        chunkSentences: Map<number, string[]>;
+        queryClauses: Map<number, string[]>;
+      } | null = null;
+
+      let sentenceStats = {
+        totalChunkSentences: 0,
+        totalQueryClauses: 0,
+        avgSentencesPerChunk: 0,
+      };
+
+      if (useSentenceChamfer) {
+        // 1. Split chunks into sentences (use textWithoutCascade for cleaner segmentation)
+        const chunkSentenceData = chunkTexts.map((text, idx) => {
+          const textToSplit = noCascadeTexts ? noCascadeTexts[idx] : text;
+          const sentences = getSentenceTexts(textToSplit).slice(0, maxSentencesPerChunk);
+          return {
+            chunkIndex: idx,
+            sentences,
+          };
+        });
+
+        // 2. Split queries into clauses
+        const queryClauseData = validKeywords.map((query, idx) => ({
+          queryIndex: idx,
+          clauses: splitQueryIntoClauses(query),
+        }));
+
+        // Calculate stats
+        sentenceStats.totalChunkSentences = chunkSentenceData.reduce((sum, d) => sum + d.sentences.length, 0);
+        sentenceStats.totalQueryClauses = queryClauseData.reduce((sum, d) => sum + d.clauses.length, 0);
+        sentenceStats.avgSentencesPerChunk = sentenceStats.totalChunkSentences / chunkSentenceData.length;
+
+        setProgress(50);
+
+        // 3. Batch generate all sentence embeddings in a single API call
+        if (sentenceStats.totalChunkSentences > 0 && sentenceStats.totalQueryClauses > 0) {
+          const { chunkEmbeddings: sentChunkEmbs, queryEmbeddings: sentQueryEmbs } = 
+            await generateSentenceEmbeddingsBatch(chunkSentenceData, queryClauseData);
+
+          // Store sentence texts for diagnostics
+          const chunkSentencesMap = new Map<number, string[]>();
+          const queryClausesMap = new Map<number, string[]>();
+          
+          chunkSentenceData.forEach(d => chunkSentencesMap.set(d.chunkIndex, d.sentences));
+          queryClauseData.forEach(d => queryClausesMap.set(d.queryIndex, d.clauses));
+
+          sentenceEmbeddingsData = {
+            chunkEmbeddings: sentChunkEmbs,
+            queryEmbeddings: sentQueryEmbs,
+            chunkSentences: chunkSentencesMap,
+            queryClauses: queryClausesMap,
+          };
+        }
+      }
+
+      setProgress(65);
+
+      // Calculate original scores (always uses whole-document vectors)
       const originalScores: OriginalScore = {
         text: content,
         keywordScores: keywordEmbeddings.map((kwEmbed, i) => ({
@@ -162,20 +251,57 @@ export function useAnalysis() {
         })),
       };
 
-      setProgress(80);
+      setProgress(75);
 
-      // Calculate chunk scores
+      // Calculate chunk scores - with sentence-level Chamfer if available
       const chunkScores: ChunkScore[] = chunkTexts.map((text, chunkIdx) => ({
         chunkId: chunkData[chunkIdx].id,
         chunkIndex: chunkIdx,
         text,
         wordCount: chunkData[chunkIdx].wordCount,
         charCount: chunkData[chunkIdx].charCount,
-        keywordScores: keywordEmbeddings.map((kwEmbed, i) => ({
-          keyword: validKeywords[i],
-          scores: calculateAllMetrics(chunkEmbeddings[chunkIdx].embedding, kwEmbed.embedding),
-        })),
+        keywordScores: keywordEmbeddings.map((kwEmbed, queryIdx) => {
+          const chunkVec = chunkEmbeddings[chunkIdx].embedding;
+          const queryVec = kwEmbed.embedding;
+
+          // Check if we have sentence-level data for this chunk-query pair
+          if (sentenceEmbeddingsData) {
+            const chunkSentVecs = sentenceEmbeddingsData.chunkEmbeddings.get(chunkIdx);
+            const querySentVecs = sentenceEmbeddingsData.queryEmbeddings.get(queryIdx);
+            const chunkSentTexts = sentenceEmbeddingsData.chunkSentences.get(chunkIdx);
+            const querySentTexts = sentenceEmbeddingsData.queryClauses.get(queryIdx);
+
+            if (chunkSentVecs && querySentVecs && chunkSentVecs.length > 0 && querySentVecs.length > 0) {
+              // Calculate true sentence-level Chamfer
+              const sentenceChamferResult = calculateSentenceChamfer(
+                chunkSentVecs,
+                querySentVecs,
+                chunkSentTexts,
+                querySentTexts
+              );
+
+              return {
+                keyword: validKeywords[queryIdx],
+                scores: calculateAllMetricsWithSentenceChamfer(
+                  chunkVec,
+                  queryVec,
+                  sentenceChamferResult,
+                  chunkSentVecs.length,
+                  querySentVecs.length
+                ),
+              };
+            }
+          }
+
+          // Fallback to standard metrics (single-vector Chamfer)
+          return {
+            keyword: validKeywords[queryIdx],
+            scores: calculateAllMetrics(chunkVec, queryVec),
+          };
+        }),
       }));
+
+      setProgress(85);
 
       // Calculate no-cascade scores for comparison
       let noCascadeScores: ChunkScore[] | null = null;
@@ -209,7 +335,7 @@ export function useAnalysis() {
         }));
       }
 
-      setProgress(90);
+      setProgress(95);
 
       // Calculate improvements (chunk vs original)
       const improvements: ImprovementResult[] = [];
@@ -248,6 +374,8 @@ export function useAnalysis() {
         optimizedScores,
         improvements,
         timestamp: new Date(),
+        usedSentenceChamfer: useSentenceChamfer && sentenceEmbeddingsData !== null,
+        sentenceStats: useSentenceChamfer ? sentenceStats : undefined,
       };
 
       setResult(analysisResult);
