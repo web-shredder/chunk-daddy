@@ -208,5 +208,6 @@ export function estimateSentenceEmbeddingCount(
  * Get sentence texts from text (convenience function)
  */
 export function getSentenceTexts(text: string): string[] {
+  console.log('🔍 [SENTENCE] getSentenceTexts called, length:', text?.length || 0);
   return splitIntoSentences(text).map(s => s.text);
 }

@@ -207,6 +207,12 @@ export function useAnalysis() {
         avgSentencesPerChunk: 0,
       };
 
+      console.log('🔍 [PATH-DECISION] Step 1 - Feature check:', {
+        useSentenceChamfer,
+        chunkCount: chunkTexts.length,
+        keywordCount: validKeywords.length,
+      });
+
       if (useSentenceChamfer) {
         console.log('🔬 [useAnalysis] SENTENCE-LEVEL CHAMFER ENABLED');
         
@@ -257,6 +263,12 @@ export function useAnalysis() {
 
         setProgress(50);
 
+        console.log('🔍 [PATH-DECISION] Step 2 - Sentence stats gate:', {
+          totalChunkSentences: sentenceStats.totalChunkSentences,
+          totalQueryClauses: sentenceStats.totalQueryClauses,
+          willGenerate: sentenceStats.totalChunkSentences > 0 && sentenceStats.totalQueryClauses > 0,
+        });
+
         // 3. Batch generate all sentence embeddings in a single API call
         if (sentenceStats.totalChunkSentences > 0 && sentenceStats.totalQueryClauses > 0) {
           console.log('🔬 [useAnalysis] Generating sentence embeddings...');
@@ -284,6 +296,12 @@ export function useAnalysis() {
             chunkSentences: chunkSentencesMap,
             queryClauses: queryClausesMap,
           };
+
+          console.log('🔍 [PATH-DECISION] Step 3 - Embeddings stored:', {
+            hasData: !!sentenceEmbeddingsData,
+            chunkMapSize: sentenceEmbeddingsData?.chunkEmbeddings?.size || 0,
+            queryMapSize: sentenceEmbeddingsData?.queryEmbeddings?.size || 0,
+          });
         } else {
           console.log('⚠️ [useAnalysis] No sentences/clauses to embed');
         }
@@ -316,6 +334,15 @@ export function useAnalysis() {
           const queryVec = kwEmbed.embedding;
 
           // Check if we have sentence-level data for this chunk-query pair
+          // Only log once per chunk to avoid spam
+          if (queryIdx === 0) {
+            console.log('🔍 [PATH-DECISION] Step 4 - Scoring loop for chunk', chunkIdx, {
+              hasSentenceData: !!sentenceEmbeddingsData,
+              chunkVecsExist: !!sentenceEmbeddingsData?.chunkEmbeddings?.get(chunkIdx),
+              chunkVecsLength: sentenceEmbeddingsData?.chunkEmbeddings?.get(chunkIdx)?.length || 0,
+            });
+          }
+
           if (sentenceEmbeddingsData) {
             const chunkSentVecs = sentenceEmbeddingsData.chunkEmbeddings.get(chunkIdx);
             const querySentVecs = sentenceEmbeddingsData.queryEmbeddings.get(queryIdx);
