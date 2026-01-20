@@ -121,10 +121,25 @@ export function chamferDistance(setA: number[][], setB: number[][]): number {
  * @returns Similarity score between 0 and 1
  */
 export function chamferSimilarity(setA: number[][], setB: number[][]): number {
+  // DIAGNOSTIC: Log input shapes
+  console.log('🔬 [CHAMFER] Input shapes:', setA.length, 'vectors for chunk,', setB.length, 'vectors for query');
+  
   const distance = chamferDistance(setA, setB);
   // Cosine distance ranges 0-2, so chamfer can range 0-4
   // Convert to similarity: lower distance = higher similarity
-  return Math.max(0, 1 - distance / 4);
+  const similarity = Math.max(0, 1 - distance / 4);
+  
+  // DIAGNOSTIC: Log if this is a singleton set (degenerates to cosine)
+  if (setA.length === 1 && setB.length === 1) {
+    const cosine = cosineSimilarity(setA[0], setB[0]);
+    console.log('⚠️ [CHAMFER] SINGLETON SETS - Chamfer degenerates to cosine!', {
+      chamfer: similarity.toFixed(4),
+      cosine: cosine.toFixed(4),
+      delta: Math.abs(similarity - cosine).toFixed(6),
+    });
+  }
+  
+  return similarity;
 }
 
 export interface SimilarityScores {
@@ -237,8 +252,19 @@ export function calculateSentenceChamfer(
  * Use calculateSentenceChamfer() for true multi-aspect scoring.
  */
 export function calculateAllMetrics(vecA: number[], vecB: number[]): SimilarityScores {
+  // DIAGNOSTIC: Log that we're using single-vector mode (degenerate Chamfer)
+  console.log('📊 [calculateAllMetrics] Using SINGLE VECTOR mode (Chamfer will equal Cosine)');
+  
   const cosine = cosineSimilarity(vecA, vecB);
   const chamfer = chamferSimilarity([vecA], [vecB]);
+  
+  // DIAGNOSTIC: Compare scores
+  console.log('📊 [calculateAllMetrics] Scores comparison:', {
+    cosine: cosine.toFixed(4),
+    chamfer: chamfer.toFixed(4),
+    delta: Math.abs(cosine - chamfer).toFixed(6),
+    passageScore: calculatePassageScore(cosine, chamfer),
+  });
   
   return {
     cosine,
@@ -261,6 +287,25 @@ export function calculateAllMetricsWithSentenceChamfer(
   querySentenceCount: number
 ): SimilarityScores {
   const cosine = cosineSimilarity(vecA, vecB);
+  
+  // DIAGNOSTIC: Log sentence-level Chamfer mode
+  console.log('🎯 [calculateAllMetricsWithSentenceChamfer] Using SENTENCE-LEVEL Chamfer!', {
+    chunkSentences: chunkSentenceCount,
+    queryClauses: querySentenceCount,
+    cosine: cosine.toFixed(4),
+    sentenceChamfer: sentenceChamferResult.chamferSimilarity.toFixed(4),
+    delta: Math.abs(cosine - sentenceChamferResult.chamferSimilarity).toFixed(6),
+    forwardCoverage: sentenceChamferResult.forwardCoverage.toFixed(4),
+    backwardCoverage: sentenceChamferResult.backwardCoverage.toFixed(4),
+  });
+  
+  // DIAGNOSTIC: Log if Chamfer differs meaningfully from Cosine
+  const delta = Math.abs(cosine - sentenceChamferResult.chamferSimilarity);
+  if (delta > 0.01) {
+    console.log('✅ [CHAMFER MEANINGFUL] Delta > 0.01:', delta.toFixed(4));
+  } else {
+    console.log('⚠️ [CHAMFER ~= COSINE] Delta <= 0.01:', delta.toFixed(4));
+  }
   
   return {
     cosine,

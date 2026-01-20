@@ -151,6 +151,18 @@ export function useAnalysis() {
         textsToEmbed.push(...optimizedChunks.map(c => c.text));
       }
 
+      // DIAGNOSTIC: Log what's being embedded
+      console.log('📝 [useAnalysis] textsToEmbed breakdown:', {
+        totalTexts: textsToEmbed.length,
+        originalContent: 1,
+        chunks: chunkTexts.length,
+        keywords: validKeywords.length,
+        noCascadeTexts: noCascadeTexts?.length || 0,
+        optimizedChunks: optimizedChunks?.length || 0,
+      });
+      console.log('📝 [useAnalysis] First chunk text (truncated):', chunkTexts[0]?.substring(0, 200) + '...');
+      console.log('📝 [useAnalysis] Embedding mode: Each chunk as ONE string (not split into sentences yet)');
+
       setProgress(15);
 
       // Generate all embeddings in one batch via edge function
@@ -196,6 +208,8 @@ export function useAnalysis() {
       };
 
       if (useSentenceChamfer) {
+        console.log('🔬 [useAnalysis] SENTENCE-LEVEL CHAMFER ENABLED');
+        
         // 1. Split chunks into sentences (use textWithoutCascade for cleaner segmentation)
         const chunkSentenceData = chunkTexts.map((text, idx) => {
           const textToSplit = noCascadeTexts ? noCascadeTexts[idx] : text;
@@ -212,17 +226,42 @@ export function useAnalysis() {
           clauses: splitQueryIntoClauses(query),
         }));
 
+        // DIAGNOSTIC: Log sentence splitting results
+        console.log('🔬 [useAnalysis] Sentence splitting results:', {
+          chunks: chunkSentenceData.map(d => ({ 
+            chunkIdx: d.chunkIndex, 
+            sentenceCount: d.sentences.length,
+            firstSentence: d.sentences[0]?.substring(0, 80) + '...',
+          })),
+          queries: queryClauseData.map(d => ({ 
+            queryIdx: d.queryIndex, 
+            clauseCount: d.clauses.length,
+            clauses: d.clauses,
+          })),
+        });
+
         // Calculate stats
         sentenceStats.totalChunkSentences = chunkSentenceData.reduce((sum, d) => sum + d.sentences.length, 0);
         sentenceStats.totalQueryClauses = queryClauseData.reduce((sum, d) => sum + d.clauses.length, 0);
         sentenceStats.avgSentencesPerChunk = sentenceStats.totalChunkSentences / chunkSentenceData.length;
 
+        console.log('🔬 [useAnalysis] Sentence stats:', sentenceStats);
+
         setProgress(50);
 
         // 3. Batch generate all sentence embeddings in a single API call
         if (sentenceStats.totalChunkSentences > 0 && sentenceStats.totalQueryClauses > 0) {
+          console.log('🔬 [useAnalysis] Generating sentence embeddings...');
+          
           const { chunkEmbeddings: sentChunkEmbs, queryEmbeddings: sentQueryEmbs } = 
             await generateSentenceEmbeddingsBatch(chunkSentenceData, queryClauseData);
+
+          console.log('🔬 [useAnalysis] Sentence embeddings generated:', {
+            chunkEmbeddingsMapSize: sentChunkEmbs.size,
+            queryEmbeddingsMapSize: sentQueryEmbs.size,
+            sampleChunkVectorCount: sentChunkEmbs.get(0)?.length || 0,
+            sampleQueryVectorCount: sentQueryEmbs.get(0)?.length || 0,
+          });
 
           // Store sentence texts for diagnostics
           const chunkSentencesMap = new Map<number, string[]>();
@@ -237,7 +276,11 @@ export function useAnalysis() {
             chunkSentences: chunkSentencesMap,
             queryClauses: queryClausesMap,
           };
+        } else {
+          console.log('⚠️ [useAnalysis] No sentences/clauses to embed');
         }
+      } else {
+        console.log('⚠️ [useAnalysis] Sentence-level Chamfer DISABLED - using single-vector mode');
       }
 
       setProgress(65);
