@@ -246,6 +246,14 @@ export function useAnalysis() {
         sentenceStats.avgSentencesPerChunk = sentenceStats.totalChunkSentences / chunkSentenceData.length;
 
         console.log('🔬 [useAnalysis] Sentence stats:', sentenceStats);
+        
+        // Post-fix verification logging
+        console.log('🔬 [SENTENCE-STATS] Post-fix verification:', {
+          totalChunkSentences: sentenceStats.totalChunkSentences,
+          avgSentencesPerChunk: sentenceStats.avgSentencesPerChunk.toFixed(1),
+          sampleChunk0Sentences: chunkSentenceData[0]?.sentences.length || 0,
+          sampleChunk0Preview: chunkSentenceData[0]?.sentences.slice(0, 2),
+        });
 
         setProgress(50);
 
