@@ -1,13 +1,13 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { Loader2 } from "lucide-react";
-import { TopBar, TabBar, ContentTab, AnalyzeTab, ResultsTab, ArchitectureTab, OptimizeTab, ReportTab, type TabId } from "@/components/moonbug";
+import { TopBar, TabBar, ContentTab, AnalyzeTab, ResultsTab, ArchitectureTab, OptimizeTab, OutputsTab, ReportTab, type TabId } from "@/components/moonbug";
 import { useApiKey } from "@/hooks/useApiKey";
 import { useAnalysis, type AnalysisResult } from "@/hooks/useAnalysis";
 import { useAuth } from "@/hooks/useAuth";
 import { useProjects } from "@/hooks/useProjects";
 import { parseMarkdown, createLayoutAwareChunks, type LayoutAwareChunk, type ChunkerOptions, type DocumentElement } from "@/lib/layout-chunker";
-import type { FullOptimizationResult, ArchitectureAnalysis, ArchitectureTask, FanoutIntentType } from "@/lib/optimizer-types";
+import type { FullOptimizationResult, ArchitectureAnalysis, ArchitectureTask, FanoutIntentType, ContentBrief } from "@/lib/optimizer-types";
 import {
   Dialog,
   DialogContent,
@@ -64,6 +64,26 @@ const Index = () => {
   const [acceptedChunks, setAcceptedChunks] = useState<Set<number>>(new Set());
   const [rejectedChunks, setRejectedChunks] = useState<Set<number>>(new Set());
   const [editedChunks, setEditedChunks] = useState<Map<number, string>>(new Map());
+  
+  // Streaming optimization state
+  interface StreamedChunk {
+    chunk_number: number;
+    original_text: string;
+    optimized_text: string;
+    assignedQuery?: string;
+    heading?: string;
+    originalScore?: number;
+    optimizedScore?: number;
+    scoreChange?: number;
+    explanation?: string;
+  }
+  
+  const [isStreamingOptimization, setIsStreamingOptimization] = useState(false);
+  const [streamingStep, setStreamingStep] = useState('');
+  const [streamingProgress, setStreamingProgress] = useState(0);
+  const [streamedArchitectureTasks, setStreamedArchitectureTasks] = useState<ArchitectureTask[]>([]);
+  const [streamedChunks, setStreamedChunks] = useState<StreamedChunk[]>([]);
+  const [streamedBriefs, setStreamedBriefs] = useState<ContentBrief[]>([]);
   
   // Local project name
   const [localProjectName, setLocalProjectName] = useState<string>('Untitled Project');
@@ -336,6 +356,7 @@ const Index = () => {
         hasContent={hasContent}
         hasAnalysis={hasAnalysis}
         hasOptimizationResult={hasOptimizationResult}
+        hasOutputs={streamedChunks.length > 0 || streamedArchitectureTasks.length > 0 || streamedBriefs.length > 0}
         isAnalyzing={isAnalyzing}
         isSaving={isSaving}
         hasUnsavedChanges={hasUnsavedChanges}
@@ -442,6 +463,45 @@ const Index = () => {
           onRejectedChunksChange={setRejectedChunks}
           editedChunks={editedChunks}
           onEditedChunksChange={setEditedChunks}
+        />
+      )}
+
+      {activeTab === 'outputs' && (
+        <OutputsTab
+          isOptimizing={isStreamingOptimization}
+          currentStep={streamingStep}
+          progress={streamingProgress}
+          appliedArchitectureTasks={streamedArchitectureTasks}
+          optimizedChunks={streamedChunks}
+          generatedBriefs={streamedBriefs}
+          onApplyChanges={() => {
+            // Apply optimized content
+            if (streamedChunks.length > 0) {
+              const optimizedText = streamedChunks.map(c => c.optimized_text).join('\n\n');
+              handleApplyOptimization(optimizedText);
+            }
+          }}
+          onCopyContent={() => {
+            const text = streamedChunks.map(c => c.optimized_text).join('\n\n');
+            navigator.clipboard.writeText(text);
+          }}
+          onExportReport={() => {
+            // Export as JSON
+            const report = {
+              timestamp: new Date().toISOString(),
+              architectureTasks: streamedArchitectureTasks,
+              chunks: streamedChunks,
+              briefs: streamedBriefs,
+            };
+            const blob = new Blob([JSON.stringify(report, null, 2)], { type: 'application/json' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `optimization-report-${new Date().toISOString().slice(0, 10)}.json`;
+            a.click();
+            URL.revokeObjectURL(url);
+          }}
+          onGoToOptimize={() => setActiveTab('optimize')}
         />
       )}
 
