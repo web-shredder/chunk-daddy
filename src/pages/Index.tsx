@@ -395,6 +395,7 @@ const Index = () => {
           chunks={layoutChunks}
           chunkScores={result?.chunkScores || []}
           keywords={keywords}
+          originalContent={content}
           onGoToResults={() => setActiveTab('results')}
           onNavigateToChunk={(idx) => {
             setActiveTab('results');
