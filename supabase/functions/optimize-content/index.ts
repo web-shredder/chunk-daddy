@@ -517,59 +517,82 @@ Suggest keywords that:
       toolChoice = { type: "function", function: { name: "suggest_keywords" } };
 
     } else if (type === 'generate_fanout') {
-      // Intent-based query decomposition for AI search fan-out
+      // Aspect-based query decomposition for comprehensive coverage
       const fanoutQuery = primaryQuery || content;
       
-      const fanoutSystemPrompt = `You are an expert in how AI search systems decompose user queries.
+      const fanoutSystemPrompt = `You decompose search queries into their underlying aspects and facets.
 
-Modern AI search (Google AI Overviews, ChatGPT, Perplexity) uses "query fan-out" - expanding one query into multiple sub-queries to retrieve comprehensive information from different angles.
+When someone searches a question, they're often looking for MULTIPLE TYPES of information that together form a complete answer. Your job is to identify these aspects.
 
-Given a primary query, generate the sub-queries an AI search system would create internally.
+PRIMARY QUERY: "${fanoutQuery}"
 
-GENERATE THESE QUERY TYPES:
+TASK: Generate 5-6 sub-queries that each explore a DIFFERENT ASPECT of the primary query.
 
-1. FOLLOW-UP QUERY
-   What question comes next after the basic answer?
-   "What is RPO?" → "How long does it typically take to implement an RPO solution for a mid-sized company?"
+RULES FOR ASPECT DECOMPOSITION:
 
-2. SPECIFICATION QUERY
-   A narrower, more specific version
-   "What is RPO?" → "How does RPO pricing work for technology companies with under 500 employees?"
+1. Each sub-query must answer PART OF the primary question
+   - If primary asks "why X is bad" → each sub-query explores a DIFFERENT REASON
+   - If primary asks "how to do X" → each sub-query explores a DIFFERENT STEP or METHOD
+   - If primary asks "what is X" → each sub-query explores a DIFFERENT DIMENSION (definition, history, examples, uses)
 
-3. COMPARISON QUERY
-   X vs Y format against alternatives
-   "What is RPO?" → "What are the cost and time-to-hire differences between RPO and traditional staffing agencies?"
+2. Sub-queries should be RETRIEVAL-FOCUSED
+   - They should match passages that CONTAIN the answer
+   - NOT questions about what to do with the answer
+   - NOT tangential topics
 
-4. PROCESS/HOW-TO QUERY
-   How to implement, use, or do something
-   "What is RPO?" → "What are the step-by-step stages of transitioning from in-house recruiting to an RPO model?"
+3. Together, sub-queries should provide COMPLETE COVERAGE
+   - A document that answers ALL sub-queries would fully answer the primary query
+   - Missing any sub-query = incomplete answer
 
-5. DECISION QUERY
-   For someone ready to act
-   "What is RPO?" → "What questions should a CFO ask RPO providers before signing a contract?"
+EXAMPLES:
 
-6. PROBLEM QUERY
-   What problem or pain point does this solve?
-   "What is RPO?" → "How can companies reduce their hiring costs and time-to-fill with external recruiting support?"
+PRIMARY: "why is live nation hated"
+GOOD ASPECTS (each explores a different REASON for hatred):
+- "What fee practices make people hate Live Nation?" (aspect: fees)
+- "How does Live Nation's monopoly affect ticket availability?" (aspect: market power)
+- "What customer service problems does Live Nation have?" (aspect: service)
+- "How does Live Nation treat artists and venues unfairly?" (aspect: business practices)
+- "What safety incidents have occurred at Live Nation events?" (aspect: safety)
 
-CRITICAL QUERY FORMAT RULES:
-- Each query MUST be a COMPLETE, NATURAL sentence (typically 8-20 words)
-- Include VERBS and question forms (How, What, Why, When, Which)
-- Add CONTEXT qualifiers (budget, timeline, company size, industry, use case)
-- NEVER generate short noun phrases like "RPO pricing" or "staffing vs RPO"
-- NEVER generate 2-4 word fragments
+BAD (these are different questions, not aspects):
+- "What can consumers do about Live Nation?" (action, not reason)
+- "Live Nation vs Ticketmaster comparison" (they're the same company)
+- "How to buy tickets without Live Nation" (avoidance, not reason)
+- "Should I boycott Live Nation?" (decision, not reason)
 
-RULES:
-- Generate 5-7 queries total
-- Each query must be a DIFFERENT intent type
-- Use natural language (how real people search)
-- Do NOT generate synonym swaps or keyword variations
-- Do NOT include the primary query again
-- Return response as JSON with format: {"queries": [{"query": "...", "intent": "..."}]}`;
+PRIMARY: "how to choose an RPO provider"
+GOOD ASPECTS (each explores a different EVALUATION DIMENSION):
+- "What experience and track record should an RPO provider have?" (aspect: credentials)
+- "How should RPO pricing and contract terms be structured?" (aspect: pricing)
+- "What technology capabilities should an RPO provider offer?" (aspect: tech stack)
+- "How to evaluate RPO provider culture fit and communication?" (aspect: soft factors)
+- "What SLAs and guarantees should an RPO contract include?" (aspect: accountability)
 
-      const fanoutUserPrompt = `Primary Query: "${fanoutQuery || content}"
+BAD (these are tangential):
+- "What is RPO?" (definition, not selection criteria)
+- "RPO vs staffing agency" (comparison, not how to choose)
+- "RPO implementation timeline" (post-selection, not selection)
 
-${contentContext ? `Content Context:\n${contentContext.slice(0, 500)}\n\n` : ''}Generate 5-7 fan-out queries representing DIFFERENT search intents. Each must be a FULL SENTENCE (8-20 words), not short phrases. Return as JSON.`;
+PRIMARY: "benefits of remote work"
+GOOD ASPECTS (each explores a different BENEFIT CATEGORY):
+- "How does remote work improve employee productivity?" (aspect: productivity)
+- "What cost savings do companies see from remote work?" (aspect: financial)
+- "How does remote work affect employee mental health and satisfaction?" (aspect: wellbeing)
+- "What talent acquisition advantages does remote work provide?" (aspect: hiring)
+- "How does remote work impact work-life balance?" (aspect: lifestyle)
+
+OUTPUT FORMAT:
+Return a JSON object with queries array. Each should be a complete question (8-20 words) that explores ONE distinct aspect of the primary query.
+
+{
+  "queries": [
+    {"query": "...", "aspect": "brief label for what aspect this covers"}
+  ]
+}`;
+
+      const fanoutUserPrompt = `Primary Query: "${fanoutQuery}"
+
+${contentContext ? `Content Context:\n${contentContext.slice(0, 500)}\n\n` : ''}Generate 5-6 aspect-based sub-queries that each explore a DIFFERENT facet of answering the primary query. Each must be a FULL SENTENCE (8-20 words). Return as JSON.`;
 
       const OPENAI_API_KEY = Deno.env.get('OPENAI_API_KEY');
       
@@ -586,7 +609,7 @@ ${contentContext ? `Content Context:\n${contentContext.slice(0, 500)}\n\n` : ''}
             { role: 'user', content: fanoutUserPrompt }
           ],
           response_format: { type: 'json_object' },
-          temperature: 0.8,
+          temperature: 0.7,
         }),
       });
 
@@ -599,10 +622,14 @@ ${contentContext ? `Content Context:\n${contentContext.slice(0, 500)}\n\n` : ''}
       const fanoutData = await fanoutResponse.json();
       const fanoutResult = JSON.parse(fanoutData.choices[0]?.message?.content || '{"queries":[]}');
       
-      console.log(`generate_fanout: ${(fanoutResult.queries || []).length} queries generated`);
+      console.log(`generate_fanout: ${(fanoutResult.queries || []).length} aspect queries generated`);
       
       return new Response(JSON.stringify({
-        suggestions: fanoutResult.queries || [],
+        suggestions: (fanoutResult.queries || []).map((q: any) => ({
+          query: q.query,
+          intent: 'aspect',
+          aspect: q.aspect,
+        })),
       }), {
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       });
@@ -883,7 +910,8 @@ Respond with JSON.`;
             const childNode: any = {
               id: generateId(),
               query: q.query || q,
-              intentType: q.intentType || intentTypes[(currentDepth + 1) % intentTypes.length],
+              aspectLabel: q.aspectAnswered || q.aspect || null,  // Capture the aspect label
+              intentType: 'aspect',  // All fanout children are aspects now
               level: currentDepth + 1,
               parentId: parentNode.id,
               children: [],
