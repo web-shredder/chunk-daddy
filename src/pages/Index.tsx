@@ -7,7 +7,7 @@ import { useAnalysis, type AnalysisResult } from "@/hooks/useAnalysis";
 import { useAuth } from "@/hooks/useAuth";
 import { useProjects } from "@/hooks/useProjects";
 import { parseMarkdown, createLayoutAwareChunks, type LayoutAwareChunk, type ChunkerOptions, type DocumentElement } from "@/lib/layout-chunker";
-import type { FullOptimizationResult, ArchitectureAnalysis, FanoutIntentType } from "@/lib/optimizer-types";
+import type { FullOptimizationResult, ArchitectureAnalysis, ArchitectureTask, FanoutIntentType } from "@/lib/optimizer-types";
 import {
   Dialog,
   DialogContent,
@@ -56,6 +56,7 @@ const Index = () => {
   const [optimizedContent, setOptimizedContent] = useState<string>("");
   const [optimizationResult, setOptimizationResult] = useState<FullOptimizationResult | null>(null);
   const [architectureAnalysis, setArchitectureAnalysis] = useState<ArchitectureAnalysis | null>(null);
+  const [architectureTasks, setArchitectureTasks] = useState<ArchitectureTask[]>([]);
   const [architectureLoading, setArchitectureLoading] = useState(false);
   
   // Optimization review state (lifted from OptimizeTab)
@@ -398,6 +399,7 @@ const Index = () => {
           onNavigateToChunk={(idx) => {
             setActiveTab('results');
           }}
+          onNavigateToOptimize={() => setActiveTab('optimize')}
           analysis={architectureAnalysis}
           onAnalysisUpdate={(newAnalysis) => {
             setArchitectureAnalysis(newAnalysis);
@@ -407,6 +409,11 @@ const Index = () => {
           }}
           isAnalyzing={architectureLoading}
           onAnalyzingChange={setArchitectureLoading}
+          architectureTasks={architectureTasks}
+          onTasksChange={(tasks) => {
+            setArchitectureTasks(tasks);
+            markUnsaved(content, keywords, chunkerOptions, result, optimizedContent, optimizationResult, architectureAnalysis);
+          }}
         />
       )}
 
@@ -422,6 +429,8 @@ const Index = () => {
           onSaveProject={handleSave}
           onOptimizationComplete={handleOptimizationComplete}
           chunks={layoutChunks.map(c => c.text)}
+          // Architecture tasks
+          selectedArchitectureTasks={architectureTasks.filter(t => t.isSelected)}
           // Lifted state props
           viewState={optimizeViewState}
           onViewStateChange={setOptimizeViewState}

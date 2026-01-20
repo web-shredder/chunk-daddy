@@ -6,7 +6,9 @@ import {
   ArrowLeft,
   Target,
   Loader2,
+  Wrench,
 } from 'lucide-react';
+import { Badge } from '@/components/ui/badge';
 import { DismissableTip } from '@/components/DismissableTip';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Button } from '@/components/ui/button';
@@ -21,7 +23,7 @@ import {
   type QueryAssignmentMap,
   type ChunkScoreData,
 } from '@/lib/query-assignment';
-import type { FullOptimizationResult, ContentBrief } from '@/lib/optimizer-types';
+import type { FullOptimizationResult, ContentBrief, ArchitectureTask } from '@/lib/optimizer-types';
 import type { ChunkScore } from '@/hooks/useAnalysis';
 import { supabase } from '@/integrations/supabase/client';
 
@@ -38,6 +40,8 @@ interface OptimizeTabProps {
   onSaveProject?: () => void;
   onOptimizationComplete?: (result: FullOptimizationResult, finalContent: string) => void;
   chunks?: string[];
+  // Architecture tasks from Architecture tab
+  selectedArchitectureTasks?: ArchitectureTask[];
   // Lifted state props
   viewState: OptimizeViewState;
   onViewStateChange: (state: OptimizeViewState) => void;
@@ -64,6 +68,7 @@ export function OptimizeTab({
   onSaveProject,
   onOptimizationComplete,
   chunks: providedChunks,
+  selectedArchitectureTasks = [],
   // Lifted state
   viewState,
   onViewStateChange: setViewState,
@@ -138,6 +143,9 @@ export function OptimizeTab({
       </div>
     );
   }
+
+  // Architecture tasks summary display
+  const hasArchitectureTasks = selectedArchitectureTasks.length > 0;
 
   const handleAssignmentChange = (newMap: QueryAssignmentMap) => {
     setQueryAssignments(newMap);

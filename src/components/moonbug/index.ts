@@ -11,3 +11,4 @@ export { PassageScoreHero, MiniPassageScore, DaddyScoreHero, MiniDaddyScore } fr
 export { ExportGapsDialog } from './ExportGapsDialog';
 export { FanoutListView } from './FanoutListView';
 export { ExportFanoutDialog } from './ExportFanoutDialog';
+export { ArchitectureTasksPanel } from './ArchitectureTasksPanel';

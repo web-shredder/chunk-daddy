@@ -158,6 +158,34 @@ export type ArchitectureIssueType =
   | 'COVERAGE_GAP'
   | 'ORPHANED_MENTION';
 
+export type ArchitectureTaskType = 
+  | 'add_heading'
+  | 'split_paragraph'
+  | 'replace_pronoun'
+  | 'add_context'
+  | 'reorder_sentences'
+  | 'remove_redundancy'
+  | 'move_content';
+
+export interface ArchitectureTask {
+  id: string;
+  type: ArchitectureTaskType;
+  issueId: string;  // Links back to the ArchitectureIssue
+  description: string;
+  location: {
+    chunkIndex?: number;
+    position?: string;  // e.g., "after paragraph 3"
+  };
+  priority: 'high' | 'medium' | 'low';
+  expectedImpact: string;
+  isSelected: boolean;
+  details?: {
+    before?: string;
+    after?: string;
+    suggestedHeading?: string;
+  };
+}
+
 export interface ArchitectureIssue {
   id: string;
   type: ArchitectureIssueType;
@@ -171,6 +199,7 @@ export interface ArchitectureIssue {
 
 export interface ArchitectureAnalysis {
   issues: ArchitectureIssue[];
+  tasks?: ArchitectureTask[];  // Generated from issues
   summary: {
     totalIssues: number;
     highPriority: number;
