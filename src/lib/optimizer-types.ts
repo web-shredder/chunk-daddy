@@ -188,11 +188,12 @@ export interface ArchitectureAnalysis {
 }
 
 // Types for query fanout tree
-export type FanoutIntentType = 'primary' | 'follow_up' | 'specification' | 'comparison' | 'process' | 'decision' | 'problem';
+export type FanoutIntentType = 'primary' | 'follow_up' | 'specification' | 'comparison' | 'process' | 'decision' | 'problem' | 'aspect';
 
 export interface FanoutNode {
   id: string;
   query: string;
+  aspectLabel?: string;  // e.g., "fees", "monopoly", "safety" - what aspect this explores
   intentType: FanoutIntentType;
   level: number;
   parentId: string | null;

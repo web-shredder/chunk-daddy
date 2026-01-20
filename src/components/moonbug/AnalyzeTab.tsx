@@ -26,6 +26,7 @@ interface ExpandedQuery {
   isOriginal: boolean;
   selected: boolean;
   intentType?: FanoutIntentType;
+  aspectLabel?: string;
   level?: number;
 }
 const intentColors: Record<FanoutIntentType, string> = {
@@ -35,7 +36,8 @@ const intentColors: Record<FanoutIntentType, string> = {
   comparison: 'bg-orange-100 text-orange-800 dark:bg-orange-900/30 dark:text-orange-300',
   process: 'bg-cyan-100 text-cyan-800 dark:bg-cyan-900/30 dark:text-cyan-300',
   decision: 'bg-pink-100 text-pink-800 dark:bg-pink-900/30 dark:text-pink-300',
-  problem: 'bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-300'
+  problem: 'bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-300',
+  aspect: 'bg-indigo-100 text-indigo-800 dark:bg-indigo-900/30 dark:text-indigo-300',
 };
 const intentLabels: Record<FanoutIntentType, string> = {
   primary: 'Primary',
@@ -44,7 +46,8 @@ const intentLabels: Record<FanoutIntentType, string> = {
   comparison: 'Compare',
   process: 'How-to',
   decision: 'Decision',
-  problem: 'Problem'
+  problem: 'Problem',
+  aspect: 'Aspect',
 };
 interface AnalyzeTabProps {
   hasChunks: boolean;
@@ -192,11 +195,13 @@ export function AnalyzeTab({
         }, ...suggestions.map((s: {
           query: string;
           intent?: string;
+          aspect?: string;
         }, idx: number) => ({
           keyword: s.query || s,
           isOriginal: false,
           selected: true,
-          intentType: s.intent as FanoutIntentType || 'follow_up',
+          intentType: (s.intent as FanoutIntentType) || 'aspect',
+          aspectLabel: s.aspect,
           level: 1
         }))];
         setExpandedQueries(expanded);
@@ -373,6 +378,7 @@ export function AnalyzeTab({
                       id: node.id,
                       query: node.query,
                       intentType: node.intentType,
+                      aspectLabel: node.aspectLabel,
                       level: node.level,
                       parentId: node.parentId,
                       isSelected: node.isSelected,
@@ -405,6 +411,7 @@ export function AnalyzeTab({
                       id: node.id,
                       query: node.query,
                       intentType: node.intentType,
+                      aspectAnswered: node.aspectLabel,
                       level: node.level,
                       parentId: node.parentId,
                       isSelected: node.isSelected,
@@ -456,9 +463,16 @@ export function AnalyzeTab({
                   <div className="space-y-2 max-h-[300px] overflow-y-auto">
                     {expandedQueries.map(query => <label key={query.keyword} className="flex items-start gap-2 cursor-pointer p-2 rounded-md hover:bg-background/50">
                         <Checkbox checked={query.selected} onCheckedChange={() => toggleExpandedQuery(query.keyword)} className="mt-0.5" />
-                        {query.intentType && <Badge variant="outline" className={cn("shrink-0 text-[10px] px-1.5", intentColors[query.intentType])}>
+                        {/* Show aspect label if available, otherwise show intent type */}
+                        {query.aspectLabel ? (
+                          <span className="shrink-0 text-[10px] px-1.5 py-0.5 bg-indigo-100 text-indigo-800 dark:bg-indigo-900/30 dark:text-indigo-300 rounded-full">
+                            {query.aspectLabel}
+                          </span>
+                        ) : query.intentType && (
+                          <Badge variant="outline" className={cn("shrink-0 text-[10px] px-1.5", intentColors[query.intentType])}>
                             {intentLabels[query.intentType]}
-                          </Badge>}
+                          </Badge>
+                        )}
                         <span className="text-sm flex-1">{query.keyword}</span>
                         {query.isOriginal && <Badge variant="secondary" className="text-[10px] px-1.5 py-0 h-4">
                             primary
@@ -534,9 +548,16 @@ function FanoutNodeDisplay({
         
         <Checkbox checked={node.isSelected} onCheckedChange={checked => onToggle(node.id, !!checked)} className="shrink-0" />
         
-        <Badge variant="outline" className={cn("shrink-0 text-[10px] px-1.5", intentColors[node.intentType])}>
-          {intentLabels[node.intentType]}
-        </Badge>
+        {/* Show aspect label if available, otherwise show intent type */}
+        {node.aspectLabel ? (
+          <span className="shrink-0 text-[10px] px-1.5 py-0.5 bg-indigo-100 text-indigo-800 dark:bg-indigo-900/30 dark:text-indigo-300 rounded-full">
+            {node.aspectLabel}
+          </span>
+        ) : (
+          <Badge variant="outline" className={cn("shrink-0 text-[10px] px-1.5", intentColors[node.intentType])}>
+            {intentLabels[node.intentType]}
+          </Badge>
+        )}
         
         <span className="text-xs flex-1 truncate" title={node.query}>
           {node.query}

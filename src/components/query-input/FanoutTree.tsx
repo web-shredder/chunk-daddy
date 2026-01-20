@@ -23,6 +23,7 @@ const intentColors: Record<FanoutIntentType, string> = {
   process: 'bg-cyan-100 text-cyan-800 dark:bg-cyan-900/30 dark:text-cyan-300',
   decision: 'bg-pink-100 text-pink-800 dark:bg-pink-900/30 dark:text-pink-300',
   problem: 'bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-300',
+  aspect: 'bg-indigo-100 text-indigo-800 dark:bg-indigo-900/30 dark:text-indigo-300',
 };
 
 const intentLabels: Record<FanoutIntentType, string> = {
@@ -33,6 +34,7 @@ const intentLabels: Record<FanoutIntentType, string> = {
   process: 'How-to',
   decision: 'Decision',
   problem: 'Problem',
+  aspect: 'Aspect',
 };
 
 const FanoutNodeComponent: React.FC<{
