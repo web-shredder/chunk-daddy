@@ -317,6 +317,223 @@ const Index = () => {
     setActiveTab('report');
   }, [content, keywords, chunkerOptions, result, architectureAnalysis, markUnsaved]);
 
+  // Streaming optimization handler - connects to optimize-content-stream SSE edge function
+  const handleStreamingOptimization = useCallback(async (params: {
+    applyArchitecture: boolean;
+    architectureTasks: ArchitectureTask[];
+    generateBriefs: boolean;
+    unassignedQueries: string[];
+    chunkAssignments: Array<{ chunkIndex: number; query: string }>;
+  }) => {
+    const { applyArchitecture, architectureTasks, generateBriefs, unassignedQueries, chunkAssignments } = params;
+    
+    // Reset streaming state
+    setStreamedArchitectureTasks([]);
+    setStreamedChunks([]);
+    setStreamedBriefs([]);
+    setStreamingProgress(0);
+    setIsStreamingOptimization(true);
+    
+    // Auto-switch to outputs tab
+    setActiveTab('outputs');
+    
+    const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+    const supabaseKey = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
+    
+    try {
+      let processedContent = content;
+      
+      // Step 1: Apply architecture tasks (if enabled)
+      if (applyArchitecture && architectureTasks.length > 0) {
+        setStreamingStep('Applying architecture fixes...');
+        
+        const selectedTasks = architectureTasks.filter(t => t.isSelected && t.type !== 'content_gap');
+        
+        if (selectedTasks.length > 0) {
+          const response = await fetch(`${supabaseUrl}/functions/v1/optimize-content-stream`, {
+            method: 'POST',
+            headers: {
+              'Authorization': `Bearer ${supabaseKey}`,
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              type: 'apply_architecture_stream',
+              content: processedContent,
+              tasks: selectedTasks,
+            }),
+          });
+
+          const reader = response.body?.getReader();
+          const decoder = new TextDecoder();
+
+          if (reader) {
+            let buffer = '';
+            while (true) {
+              const { done, value } = await reader.read();
+              if (done) break;
+
+              buffer += decoder.decode(value, { stream: true });
+              const lines = buffer.split('\n');
+              buffer = lines.pop() || ''; // Keep incomplete line in buffer
+
+              for (const line of lines) {
+                if (line.startsWith('data: ')) {
+                  try {
+                    const data = JSON.parse(line.slice(6));
+                    
+                    if (data.type === 'task_started') {
+                      setStreamingStep(`Applying fix ${data.taskIndex + 1}/${data.totalTasks}...`);
+                      setStreamingProgress(Math.round((data.taskIndex / data.totalTasks) * 20));
+                    } else if (data.type === 'task_applied') {
+                      const appliedTask = selectedTasks.find(t => t.id === data.taskId);
+                      if (appliedTask) {
+                        setStreamedArchitectureTasks(prev => [...prev, appliedTask]);
+                      }
+                    } else if (data.type === 'architecture_complete') {
+                      processedContent = data.finalContent || processedContent;
+                    }
+                  } catch (e) {
+                    console.error('Failed to parse SSE event:', e);
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+      
+      // Step 2: Optimize chunks
+      if (chunkAssignments.length > 0) {
+        setStreamingStep('Optimizing chunks...');
+        setStreamingProgress(20);
+        
+        // Get chunk texts from layout chunks
+        const chunkTexts = layoutChunks.map(c => c.text);
+        
+        const response = await fetch(`${supabaseUrl}/functions/v1/optimize-content-stream`, {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${supabaseKey}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            type: 'optimize_chunks_stream',
+            chunks: chunkTexts,
+            queryAssignments: chunkAssignments.map(ca => ({
+              chunkIndex: ca.chunkIndex,
+              queries: [ca.query],
+            })),
+          }),
+        });
+
+        const reader = response.body?.getReader();
+        const decoder = new TextDecoder();
+
+        if (reader) {
+          let buffer = '';
+          while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+
+            buffer += decoder.decode(value, { stream: true });
+            const lines = buffer.split('\n');
+            buffer = lines.pop() || '';
+
+            for (const line of lines) {
+              if (line.startsWith('data: ')) {
+                try {
+                  const data = JSON.parse(line.slice(6));
+                  
+                  if (data.type === 'chunk_started') {
+                    setStreamingStep(`Optimizing chunk ${data.chunkNumber}...`);
+                    setStreamingProgress(20 + Math.round((data.progress / 100) * 50));
+                  } else if (data.type === 'chunk_optimized') {
+                    const newChunk = {
+                      chunk_number: data.chunkNumber,
+                      original_text: data.originalText,
+                      optimized_text: data.optimizedText,
+                      assignedQuery: data.query,
+                      heading: layoutChunks[data.chunkIndex]?.headingPath?.slice(-1)[0] || undefined,
+                    };
+                    setStreamedChunks(prev => [...prev, newChunk]);
+                    setStreamingProgress(20 + Math.round((data.progress / 100) * 50));
+                  }
+                } catch (e) {
+                  console.error('Failed to parse SSE event:', e);
+                }
+              }
+            }
+          }
+        }
+      }
+      
+      // Step 3: Generate content briefs (if enabled)
+      if (generateBriefs && unassignedQueries.length > 0) {
+        setStreamingStep('Generating content briefs...');
+        setStreamingProgress(70);
+        
+        const response = await fetch(`${supabaseUrl}/functions/v1/optimize-content-stream`, {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${supabaseKey}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            type: 'generate_briefs_stream',
+            queries: unassignedQueries,
+            existingChunks: layoutChunks.map(c => ({
+              heading: c.headingPath?.slice(-1)[0] || '',
+              preview: c.text.slice(0, 200),
+            })),
+          }),
+        });
+
+        const reader = response.body?.getReader();
+        const decoder = new TextDecoder();
+
+        if (reader) {
+          let buffer = '';
+          while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+
+            buffer += decoder.decode(value, { stream: true });
+            const lines = buffer.split('\n');
+            buffer = lines.pop() || '';
+
+            for (const line of lines) {
+              if (line.startsWith('data: ')) {
+                try {
+                  const data = JSON.parse(line.slice(6));
+                  
+                  if (data.type === 'brief_started') {
+                    setStreamingStep(`Generating brief ${data.index + 1}/${data.total}...`);
+                    setStreamingProgress(70 + Math.round(((data.index) / data.total) * 25));
+                  } else if (data.type === 'brief_generated') {
+                    setStreamedBriefs(prev => [...prev, data.brief]);
+                    setStreamingProgress(70 + Math.round(((data.index + 1) / data.total) * 25));
+                  }
+                } catch (e) {
+                  console.error('Failed to parse SSE event:', e);
+                }
+              }
+            }
+          }
+        }
+      }
+      
+      // Complete
+      setStreamingStep('Optimization complete!');
+      setStreamingProgress(100);
+      setIsStreamingOptimization(false);
+      
+    } catch (error) {
+      console.error('Streaming optimization error:', error);
+      setStreamingStep('Error occurred');
+      setIsStreamingOptimization(false);
+    }
+  }, [content, layoutChunks]);
+
   const wordCount = content.trim() ? content.trim().split(/\s+/).length : 0;
   const tokenCount = Math.ceil(wordCount * 1.3);
   const hasContent = content.trim().length > 0;
@@ -463,6 +680,11 @@ const Index = () => {
           onRejectedChunksChange={setRejectedChunks}
           editedChunks={editedChunks}
           onEditedChunksChange={setEditedChunks}
+          // Streaming optimization
+          onStreamingOptimize={handleStreamingOptimization}
+          isStreamingOptimization={isStreamingOptimization}
+          streamingStep={streamingStep}
+          streamingProgress={streamingProgress}
         />
       )}
 
