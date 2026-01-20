@@ -16,6 +16,7 @@ import { Progress } from '@/components/ui/progress';
 import { toast } from 'sonner';
 import { QueryAssignmentPreview } from '@/components/optimizer/QueryAssignmentPreview';
 import { ChunkReviewPanel } from '@/components/optimizer/ChunkReviewPanel';
+import { OptimizationPlanPanel } from './OptimizationPlanPanel';
 import { useOptimizer } from '@/hooks/useOptimizer';
 import { calculatePassageScore } from '@/lib/similarity';
 import { 
@@ -86,6 +87,10 @@ export function OptimizeTab({
   // Content brief generation state (local - not critical to persist)
   const [generatedBriefs, setGeneratedBriefs] = useState<ContentBrief[]>([]);
   
+  // Feature toggles for optimization plan
+  const [applyArchitecture, setApplyArchitecture] = useState(true);
+  const [generateBriefs, setGenerateBriefs] = useState(true);
+  
   const { step, progress, error, result, optimize, reset } = useOptimizer();
 
   // Compute query assignments from current scores
@@ -129,6 +134,19 @@ export function OptimizeTab({
     }
   }, [assignmentMap]);
 
+  // Build chunk assignments for plan panel (must be before early return)
+  const planChunkAssignments = useMemo(() => {
+    return queryAssignments.chunkAssignments.map(ca => ({
+      chunkIndex: ca.chunkIndex,
+      chunkHeading: ca.chunkHeading || '',
+      assignedQuery: ca.assignedQuery?.query || null,
+      currentScore: ca.assignedQuery ? Math.round(ca.assignedQuery.score * 100) : 0,
+    }));
+  }, [queryAssignments.chunkAssignments]);
+
+  // Architecture tasks summary display
+  const hasArchitectureTasks = selectedArchitectureTasks.length > 0;
+
   if (!hasResults) {
     return (
       <div className="flex-1 flex items-center justify-center p-4">
@@ -143,9 +161,6 @@ export function OptimizeTab({
       </div>
     );
   }
-
-  // Architecture tasks summary display
-  const hasArchitectureTasks = selectedArchitectureTasks.length > 0;
 
   const handleAssignmentChange = (newMap: QueryAssignmentMap) => {
     setQueryAssignments(newMap);
@@ -531,7 +546,20 @@ export function OptimizeTab({
   return (
     <div className="flex-1 overflow-auto">
       <ScrollArea className="h-full">
-        <div className="p-4 md:p-6 max-w-5xl mx-auto">
+        <div className="p-4 md:p-6 max-w-5xl mx-auto space-y-6">
+          {/* Optimization Plan Panel */}
+          {queryAssignments.assignments.length > 0 && (
+            <OptimizationPlanPanel
+              chunkAssignments={planChunkAssignments}
+              selectedArchitectureTasks={selectedArchitectureTasks}
+              unassignedQueries={queryAssignments.unassignedQueries}
+              applyArchitecture={applyArchitecture}
+              generateBriefs={generateBriefs}
+              onToggleArchitecture={setApplyArchitecture}
+              onToggleBriefs={setGenerateBriefs}
+            />
+          )}
+
           <div className="panel">
             <div className="panel-header">
               <h3 className="flex items-center gap-2 text-sm md:text-base">

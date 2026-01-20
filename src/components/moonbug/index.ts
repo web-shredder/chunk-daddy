@@ -12,3 +12,4 @@ export { ExportGapsDialog } from './ExportGapsDialog';
 export { FanoutListView } from './FanoutListView';
 export { ExportFanoutDialog } from './ExportFanoutDialog';
 export { ArchitectureTasksPanel } from './ArchitectureTasksPanel';
+export { OptimizationPlanPanel } from './OptimizationPlanPanel';
