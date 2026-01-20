@@ -9,7 +9,7 @@ export function cosineSimilarity(vecA: number[], vecB: number[]): number {
     throw new Error("Vectors must have the same length");
   }
 
-  const dotProduct = vecA.reduce((sum, a, i) => sum + a * vecB[i], 0);
+  const dotProd = vecA.reduce((sum, a, i) => sum + a * vecB[i], 0);
   const magnitudeA = Math.sqrt(vecA.reduce((sum, a) => sum + a * a, 0));
   const magnitudeB = Math.sqrt(vecB.reduce((sum, b) => sum + b * b, 0));
 
@@ -17,7 +17,7 @@ export function cosineSimilarity(vecA: number[], vecB: number[]): number {
     return 0;
   }
 
-  return dotProduct / (magnitudeA * magnitudeB);
+  return dotProd / (magnitudeA * magnitudeB);
 }
 
 /**
@@ -65,22 +65,17 @@ export function dotProduct(vecA: number[], vecB: number[]): number {
 }
 
 /**
- * Calculate Chamfer distance between two SETS of embedding vectors
- * Used for multi-aspect embeddings (like Google's MUVERA)
+ * Calculate Chamfer distance between two SETS of embedding vectors.
+ * Used for document-level coverage analysis.
  *
  * Measures bidirectional coverage:
- * - For each vector in setA, find nearest vector in setB
- * - For each vector in setB, find nearest vector in setA
+ * - For each vector in setA (chunks), find nearest vector in setB (queries)
+ * - For each vector in setB (queries), find nearest vector in setA (chunks)
  * - Average both directions
  *
- * @param setA - Array of vectors (e.g., chunk aspect embeddings)
- * @param setB - Array of vectors (e.g., query aspect embeddings)
+ * @param setA - Array of vectors (e.g., all chunk embeddings)
+ * @param setB - Array of vectors (e.g., all query embeddings)
  * @returns Chamfer distance (lower = more similar, ranges 0-4)
- *
- * Example:
- * const chunkAspects = [[0.1, 0.2, ...], [0.3, 0.4, ...]]
- * const queryAspects = [[0.5, 0.6, ...]]
- * const distance = chamferDistance(chunkAspects, queryAspects)
  */
 export function chamferDistance(setA: number[][], setB: number[][]): number {
   if (setA.length === 0 || setB.length === 0) {
@@ -93,13 +88,13 @@ export function chamferDistance(setA: number[][], setB: number[][]): number {
     throw new Error("All vectors must have the same dimensionality");
   }
 
-  // Direction 1: For each vector in A, find nearest vector in B
+  // Direction 1: For each chunk vector, find nearest query vector
   const distA = setA.map((vecA) => {
     const distances = setB.map((vecB) => cosineDistance(vecA, vecB));
     return Math.min(...distances);
   });
 
-  // Direction 2: For each vector in B, find nearest vector in A
+  // Direction 2: For each query vector, find nearest chunk vector
   const distB = setB.map((vecB) => {
     const distances = setA.map((vecA) => cosineDistance(vecA, vecB));
     return Math.min(...distances);
@@ -116,28 +111,25 @@ export function chamferDistance(setA: number[][], setB: number[][]): number {
  * Convert Chamfer distance to similarity score (0-1 range)
  * Higher = more similar
  *
- * @param setA - Array of vectors
- * @param setB - Array of vectors
+ * @param setA - Array of vectors (all chunk embeddings)
+ * @param setB - Array of vectors (all query embeddings)
  * @returns Similarity score between 0 and 1
  */
 export function chamferSimilarity(setA: number[][], setB: number[][]): number {
-  // DIAGNOSTIC: Log input shapes
-  console.log('🔬 [CHAMFER] Input shapes:', setA.length, 'vectors for chunk,', setB.length, 'vectors for query');
+  if (setA.length === 0 || setB.length === 0) {
+    return 0;
+  }
   
   const distance = chamferDistance(setA, setB);
   // Cosine distance ranges 0-2, so chamfer can range 0-4
   // Convert to similarity: lower distance = higher similarity
   const similarity = Math.max(0, 1 - distance / 4);
   
-  // DIAGNOSTIC: Log if this is a singleton set (degenerates to cosine)
-  if (setA.length === 1 && setB.length === 1) {
-    const cosine = cosineSimilarity(setA[0], setB[0]);
-    console.log('⚠️ [CHAMFER] SINGLETON SETS - Chamfer degenerates to cosine!', {
-      chamfer: similarity.toFixed(4),
-      cosine: cosine.toFixed(4),
-      delta: Math.abs(similarity - cosine).toFixed(6),
-    });
-  }
+  console.log('📊 [CHAMFER] Document-level calculation:', {
+    chunkVectors: setA.length,
+    queryVectors: setB.length,
+    chamferSimilarity: similarity.toFixed(4),
+  });
   
   return similarity;
 }
@@ -149,122 +141,16 @@ export interface SimilarityScores {
   dotProduct: number;
   chamfer: number;
   passageScore: number;
-  // Sentence-level Chamfer metrics (optional, populated when sentence analysis is enabled)
-  sentenceChamfer?: number;
-  forwardCoverage?: number;
-  backwardCoverage?: number;
-  sentenceCount?: { chunk: number; query: number };
-  sentenceMatches?: SentenceMatch[];
-}
-
-export interface SentenceMatch {
-  querySentence: string;
-  bestMatchChunkSentence: string;
-  similarity: number;
-}
-
-export interface SentenceChamferResult {
-  chamferSimilarity: number;
-  chamferDistance: number;
-  forwardCoverage: number;  // Query → Chunk: Does chunk cover all query aspects?
-  backwardCoverage: number; // Chunk → Query: Is chunk focused on query-relevant content?
-  sentenceMatches: SentenceMatch[];
-}
-
-/**
- * Calculate sentence-level Chamfer with directional coverage metrics.
- * 
- * @param chunkSentenceEmbeddings - Array of embeddings for chunk sentences
- * @param querySentenceEmbeddings - Array of embeddings for query clauses
- * @param chunkSentences - Original sentence texts (for diagnostics)
- * @param querySentences - Original query clause texts (for diagnostics)
- */
-export function calculateSentenceChamfer(
-  chunkSentenceEmbeddings: number[][],
-  querySentenceEmbeddings: number[][],
-  chunkSentences?: string[],
-  querySentences?: string[]
-): SentenceChamferResult {
-  // Handle edge cases
-  if (chunkSentenceEmbeddings.length === 0 || querySentenceEmbeddings.length === 0) {
-    return {
-      chamferSimilarity: 0,
-      chamferDistance: 4, // Max distance
-      forwardCoverage: 0,
-      backwardCoverage: 0,
-      sentenceMatches: [],
-    };
-  }
-  
-  // Use existing Chamfer functions for overall score
-  const distance = chamferDistance(chunkSentenceEmbeddings, querySentenceEmbeddings);
-  const similarity = chamferSimilarity(chunkSentenceEmbeddings, querySentenceEmbeddings);
-  
-  // Calculate directional coverage
-  // Forward: For each query sentence, find best match in chunk
-  const forwardDistances = querySentenceEmbeddings.map(qVec => {
-    const distances = chunkSentenceEmbeddings.map(cVec => cosineDistance(qVec, cVec));
-    return Math.min(...distances);
-  });
-  
-  // Backward: For each chunk sentence, find best match in query
-  const backwardDistances = chunkSentenceEmbeddings.map(cVec => {
-    const distances = querySentenceEmbeddings.map(qVec => cosineDistance(cVec, qVec));
-    return Math.min(...distances);
-  });
-  
-  // Convert distances to coverage scores (0-1)
-  // Cosine distance ranges 0-2, so divide by 2 to normalize
-  const forwardCoverage = 1 - (
-    forwardDistances.reduce((sum, d) => sum + d, 0) / forwardDistances.length / 2
-  );
-  const backwardCoverage = 1 - (
-    backwardDistances.reduce((sum, d) => sum + d, 0) / backwardDistances.length / 2
-  );
-  
-  // Build sentence matches for diagnostics (optional)
-  let sentenceMatches: SentenceMatch[] = [];
-  if (querySentences && chunkSentences && querySentences.length > 0 && chunkSentences.length > 0) {
-    sentenceMatches = querySentenceEmbeddings.map((qVec, qi) => {
-      const similarities = chunkSentenceEmbeddings.map(cVec => cosineSimilarity(qVec, cVec));
-      const bestIdx = similarities.indexOf(Math.max(...similarities));
-      return {
-        querySentence: querySentences[qi] || '',
-        bestMatchChunkSentence: chunkSentences[bestIdx] || '',
-        similarity: similarities[bestIdx] || 0,
-      };
-    });
-  }
-  
-  return {
-    chamferSimilarity: similarity,
-    chamferDistance: distance,
-    forwardCoverage,
-    backwardCoverage,
-    sentenceMatches,
-  };
 }
 
 /**
  * Calculate all similarity metrics between two vectors.
- * Note: Chamfer distance requires multi-aspect embeddings (number[][]),
- * so it returns degenerate single-vector Chamfer here. 
- * Use calculateSentenceChamfer() for true multi-aspect scoring.
+ * Used for general scoring. Chamfer is set to the provided document-level value
+ * or defaults to the cosine value if not provided.
  */
-export function calculateAllMetrics(vecA: number[], vecB: number[]): SimilarityScores {
-  // DIAGNOSTIC: Log that we're using single-vector mode (degenerate Chamfer)
-  console.log('📊 [calculateAllMetrics] Using SINGLE VECTOR mode (Chamfer will equal Cosine)');
-  
+export function calculateAllMetrics(vecA: number[], vecB: number[], documentChamfer?: number): SimilarityScores {
   const cosine = cosineSimilarity(vecA, vecB);
-  const chamfer = chamferSimilarity([vecA], [vecB]);
-  
-  // DIAGNOSTIC: Compare scores
-  console.log('📊 [calculateAllMetrics] Scores comparison:', {
-    cosine: cosine.toFixed(4),
-    chamfer: chamfer.toFixed(4),
-    delta: Math.abs(cosine - chamfer).toFixed(6),
-    passageScore: calculatePassageScore(cosine, chamfer),
-  });
+  const chamfer = documentChamfer ?? cosine; // Use document chamfer or fallback to cosine
   
   return {
     cosine,
@@ -277,56 +163,14 @@ export function calculateAllMetrics(vecA: number[], vecB: number[]): SimilarityS
 }
 
 /**
- * Calculate metrics with sentence-level Chamfer
- */
-export function calculateAllMetricsWithSentenceChamfer(
-  vecA: number[],
-  vecB: number[],
-  sentenceChamferResult: SentenceChamferResult,
-  chunkSentenceCount: number,
-  querySentenceCount: number
-): SimilarityScores {
-  const cosine = cosineSimilarity(vecA, vecB);
-  
-  // DIAGNOSTIC: Log sentence-level Chamfer mode
-  console.log('🎯 [calculateAllMetricsWithSentenceChamfer] Using SENTENCE-LEVEL Chamfer!', {
-    chunkSentences: chunkSentenceCount,
-    queryClauses: querySentenceCount,
-    cosine: cosine.toFixed(4),
-    sentenceChamfer: sentenceChamferResult.chamferSimilarity.toFixed(4),
-    delta: Math.abs(cosine - sentenceChamferResult.chamferSimilarity).toFixed(6),
-    forwardCoverage: sentenceChamferResult.forwardCoverage.toFixed(4),
-    backwardCoverage: sentenceChamferResult.backwardCoverage.toFixed(4),
-  });
-  
-  // DIAGNOSTIC: Log if Chamfer differs meaningfully from Cosine
-  const delta = Math.abs(cosine - sentenceChamferResult.chamferSimilarity);
-  if (delta > 0.01) {
-    console.log('✅ [CHAMFER MEANINGFUL] Delta > 0.01:', delta.toFixed(4));
-  } else {
-    console.log('⚠️ [CHAMFER ~= COSINE] Delta <= 0.01:', delta.toFixed(4));
-  }
-  
-  return {
-    cosine,
-    euclidean: euclideanDistance(vecA, vecB),
-    manhattan: manhattanDistance(vecA, vecB),
-    dotProduct: dotProduct(vecA, vecB),
-    chamfer: sentenceChamferResult.chamferSimilarity, // Now uses sentence-level
-    passageScore: calculatePassageScore(cosine, sentenceChamferResult.chamferSimilarity),
-    sentenceChamfer: sentenceChamferResult.chamferSimilarity,
-    forwardCoverage: sentenceChamferResult.forwardCoverage,
-    backwardCoverage: sentenceChamferResult.backwardCoverage,
-    sentenceCount: { chunk: chunkSentenceCount, query: querySentenceCount },
-    sentenceMatches: sentenceChamferResult.sentenceMatches,
-  };
-}
-
-/**
  * Calculate Passage Score - composite retrieval probability metric
  * 
  * Combines cosine similarity (70%) and chamfer similarity (30%) to predict
  * how likely a passage is to be retrieved by RAG systems.
+ * 
+ * Path 5 Architecture:
+ * - Cosine (70%): Chunk-level relevance - how well THIS chunk matches the query
+ * - Chamfer (30%): Document-level coverage - how well the ENTIRE document covers all queries
  * 
  * Score interpretation:
  * - 90-100: Excellent retrieval probability (top 5 results)
@@ -335,8 +179,8 @@ export function calculateAllMetricsWithSentenceChamfer(
  * - 40-59: Weak retrieval probability (depends on competition)
  * - 0-39: Poor retrieval probability (likely filtered out)
  * 
- * @param cosine - Cosine similarity score (0-1)
- * @param chamfer - Chamfer similarity score (0-1)
+ * @param cosine - Chunk-level cosine similarity score (0-1)
+ * @param chamfer - Document-level chamfer similarity score (0-1)
  * @returns Passage Score (0-100)
  */
 export function calculatePassageScore(cosine: number, chamfer: number): number {
@@ -344,7 +188,7 @@ export function calculatePassageScore(cosine: number, chamfer: number): number {
   const normalizedCosine = Math.max(0, Math.min(1, cosine));
   const normalizedChamfer = Math.max(0, Math.min(1, chamfer));
   
-  // Weight: 70% cosine (primary semantic relevance), 30% chamfer (multi-aspect coverage)
+  // Weight: 70% cosine (chunk retrieval), 30% chamfer (document coverage)
   const weighted = (normalizedCosine * 0.7) + (normalizedChamfer * 0.3);
   
   // Scale to 0-100
