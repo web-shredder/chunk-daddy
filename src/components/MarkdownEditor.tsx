@@ -167,7 +167,7 @@ export function MarkdownEditor({
 }: MarkdownEditorProps) {
   const [copied, setCopied] = useState(false);
   const [isUpdatingFromProp, setIsUpdatingFromProp] = useState(false);
-  const [internalShowChunkPreview, setInternalShowChunkPreview] = useState(true);
+  const [internalShowChunkPreview, setInternalShowChunkPreview] = useState(false);
   
   // Use external control if provided, otherwise internal state
   const showChunkPreview = externalShowChunkPreview ?? internalShowChunkPreview;
@@ -353,43 +353,26 @@ export function MarkdownEditor({
             <>
               <Separator orientation="vertical" className="h-5 mx-1" />
               
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className={cn(
-                      "h-8 w-8 transition-all",
-                      showChunkPreview && "chunk-preview-toggle-active"
-                    )}
-                    onClick={handleToggleChunkPreview}
-                  >
-                    <Scissors className="h-4 w-4" />
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent side="bottom">
-                  <p className="text-xs">
-                    {showChunkPreview ? 'Hide' : 'Show'} chunk boundaries
-                  </p>
-                </TooltipContent>
-              </Tooltip>
-              
-              {showChunkPreview && chunkPreviewData.totalChunks > 0 && (
-                <div className="chunk-stats-pill ml-1">
-                  <span className="font-medium text-foreground">
-                    {chunkPreviewData.totalChunks}
-                  </span>
-                  <span>chunks</span>
-                  <span className="text-primary">
-                    {chunkPreviewData.headingSplits} §
-                  </span>
-                  {chunkPreviewData.tokenSplits > 0 && (
-                    <span className="text-muted-foreground">
-                      {chunkPreviewData.tokenSplits} ✂
-                    </span>
-                  )}
-                </div>
-              )}
+              <Button
+                variant={showChunkPreview ? "secondary" : "ghost"}
+                size="sm"
+                className={cn(
+                  "h-8 gap-1.5 text-xs font-medium transition-all",
+                  showChunkPreview && "bg-primary/15 text-primary border border-primary/30 shadow-sm"
+                )}
+                onClick={handleToggleChunkPreview}
+              >
+                <Scissors className="h-3.5 w-3.5" />
+                {showChunkPreview ? (
+                  chunkPreviewData.totalChunks > 0 ? (
+                    <>Viewing {chunkPreviewData.totalChunks} Chunks</>
+                  ) : (
+                    <>Hide Preview</>
+                  )
+                ) : (
+                  <>Preview Chunks</>
+                )}
+              </Button>
             </>
           )}
         </div>
