@@ -15,3 +15,5 @@ export { FanoutListView } from './FanoutListView';
 export { ExportFanoutDialog } from './ExportFanoutDialog';
 export { ArchitectureTasksPanel } from './ArchitectureTasksPanel';
 export { OptimizationPlanPanel } from './OptimizationPlanPanel';
+export { QuerySidebar } from './QuerySidebar';
+export { QueryAutoSuggest } from './QueryAutoSuggest';
