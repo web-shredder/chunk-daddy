@@ -171,8 +171,9 @@ const Index = () => {
         if (currentProject.results) {
           // Re-parse and re-chunk to get layout chunks
           const settings = currentProject.settings || chunkerOptions;
-          const elements = parseMarkdown(currentProject.content || "");
-          const chunks = createLayoutAwareChunks(elements, settings);
+          const projectContent = currentProject.content || "";
+          const elements = parseMarkdown(projectContent);
+          const chunks = createLayoutAwareChunks(projectContent, settings);
           setParsedElements(elements);
           setLayoutChunks(chunks);
           setContentHashAtAnalysis(currentProject.content || "");
@@ -262,7 +263,7 @@ const Index = () => {
 
   const handleChunk = () => {
     const elements = parseMarkdown(content);
-    const chunks = createLayoutAwareChunks(elements, chunkerOptions);
+    const chunks = createLayoutAwareChunks(content, chunkerOptions);
     setParsedElements(elements);
     setLayoutChunks(chunks);
     setActiveTab('analyze');
@@ -270,7 +271,7 @@ const Index = () => {
 
   const handleAnalyze = () => {
     const elements = parseMarkdown(content);
-    const chunks = createLayoutAwareChunks(elements, chunkerOptions);
+    const chunks = createLayoutAwareChunks(content, chunkerOptions);
     setParsedElements(elements);
     setLayoutChunks(chunks);
     setContentHashAtAnalysis(content);
