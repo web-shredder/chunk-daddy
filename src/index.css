@@ -120,6 +120,13 @@
     --tier-moderate-bg: 45 93% 47% / 0.12;
     --tier-weak-bg: 24 94% 50% / 0.12;
     --tier-poor-bg: 0 84% 60% / 0.12;
+
+    /* Metric visualization colors */
+    --metric-cosine: 217 91% 60%;
+    --metric-chamfer: 271 91% 65%;
+
+    /* Info state */
+    --info: 217 91% 60%;
   }
 }
 
