@@ -632,6 +632,7 @@ const Index = () => {
           isAnalyzing={isAnalyzing}
           progress={progress}
           onGoToContent={() => setActiveTab('content')}
+          content={content}
         />
       )}
 

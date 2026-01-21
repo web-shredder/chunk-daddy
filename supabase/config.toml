@@ -8,3 +8,6 @@ verify_jwt = false
 
 [functions.optimize-content-stream]
 verify_jwt = false
+
+[functions.analyze-content-queries]
+verify_jwt = false
