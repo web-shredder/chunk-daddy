@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useCallback, useEffect, useMemo } from 'react';
 import { useEditor, EditorContent } from '@tiptap/react';
 import StarterKit from '@tiptap/starter-kit';
 import Link from '@tiptap/extension-link';
@@ -25,8 +25,11 @@ import {
   FileText,
   Copy,
   Check,
+  Scissors,
 } from 'lucide-react';
-import { getDocumentStats, SAMPLE_MARKDOWN } from '@/lib/layout-chunker';
+import { getDocumentStats, SAMPLE_MARKDOWN, type ChunkerOptions } from '@/lib/layout-chunker';
+import { computeChunkBoundaries, type ChunkPreviewData } from '@/lib/chunk-preview';
+import { ChunkBoundaryIndicator } from '@/components/editor/ChunkBoundaryIndicator';
 import { cn } from '@/lib/utils';
 
 interface MarkdownEditorProps {
@@ -35,6 +38,9 @@ interface MarkdownEditorProps {
   placeholder?: string;
   minHeight?: string;
   maxHeight?: string;
+  chunkerOptions?: ChunkerOptions;
+  showChunkPreview?: boolean;
+  onChunkPreviewToggle?: (enabled: boolean) => void;
 }
 
 interface ToolbarButtonProps {
@@ -80,17 +86,110 @@ function ToolbarButton({ icon, label, onClick, isActive }: ToolbarButtonProps) {
   );
 }
 
+// Component to render chunk boundaries inline
+function ChunkBoundariesOverlay({ 
+  previewData, 
+  content 
+}: { 
+  previewData: ChunkPreviewData; 
+  content: string;
+}) {
+  if (previewData.boundaries.length === 0) return null;
+
+  const lines = content.split('\n');
+  const elements: React.ReactNode[] = [];
+  let currentLine = 0;
+
+  previewData.boundaries.forEach((boundary, idx) => {
+    // Get content from currentLine to boundary.lineEnd
+    const chunkLines = lines.slice(currentLine, boundary.lineEnd + 1);
+    const chunkContent = chunkLines.join('\n');
+    
+    if (chunkContent.trim()) {
+      elements.push(
+        <div key={`content-${idx}`} className="chunk-content-block">
+          <div 
+            className="prose prose-sm dark:prose-invert max-w-none"
+            dangerouslySetInnerHTML={{ 
+              __html: marked.parse(chunkContent) as string 
+            }}
+          />
+        </div>
+      );
+    }
+
+    // Add boundary indicator (not for the last chunk)
+    if (idx < previewData.boundaries.length - 1) {
+      elements.push(
+        <ChunkBoundaryIndicator
+          key={`boundary-${idx}`}
+          chunkIndex={boundary.chunkIndex}
+          tokenCount={boundary.tokenCount}
+          cascadeTokens={boundary.cascadeTokens}
+          reason={boundary.reason}
+          headingPath={boundary.headingPath}
+        />
+      );
+    }
+
+    currentLine = boundary.lineEnd + 1;
+  });
+
+  // Add any remaining content after the last boundary
+  if (currentLine < lines.length) {
+    const remainingContent = lines.slice(currentLine).join('\n');
+    if (remainingContent.trim()) {
+      elements.push(
+        <div key="content-final" className="chunk-content-block">
+          <div 
+            className="prose prose-sm dark:prose-invert max-w-none"
+            dangerouslySetInnerHTML={{ 
+              __html: marked.parse(remainingContent) as string 
+            }}
+          />
+        </div>
+      );
+    }
+  }
+
+  return <div className="chunk-boundaries-container">{elements}</div>;
+}
+
 export function MarkdownEditor({
   value,
   onChange,
   placeholder = 'Start typing or paste your content here...',
   minHeight = '400px',
   maxHeight,
+  chunkerOptions,
+  showChunkPreview: externalShowChunkPreview,
+  onChunkPreviewToggle,
 }: MarkdownEditorProps) {
   const [copied, setCopied] = useState(false);
   const [isUpdatingFromProp, setIsUpdatingFromProp] = useState(false);
+  const [internalShowChunkPreview, setInternalShowChunkPreview] = useState(false);
+  
+  // Use external control if provided, otherwise internal state
+  const showChunkPreview = externalShowChunkPreview ?? internalShowChunkPreview;
   
   const stats = getDocumentStats(value);
+  
+  // Compute chunk boundaries with debounce
+  const [debouncedValue, setDebouncedValue] = useState(value);
+  
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setDebouncedValue(value);
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [value]);
+  
+  const chunkPreviewData = useMemo(() => {
+    if (!showChunkPreview || !chunkerOptions || !debouncedValue.trim()) {
+      return { boundaries: [], totalChunks: 0, headingSplits: 0, tokenSplits: 0 };
+    }
+    return computeChunkBoundaries(debouncedValue, chunkerOptions);
+  }, [debouncedValue, chunkerOptions, showChunkPreview]);
   
   const editor = useEditor({
     extensions: [
@@ -176,6 +275,15 @@ export function MarkdownEditor({
 
     editor.chain().focus().extendMarkRange('link').setLink({ href: url }).run();
   }, [editor]);
+
+  const handleToggleChunkPreview = useCallback(() => {
+    const newValue = !showChunkPreview;
+    if (onChunkPreviewToggle) {
+      onChunkPreviewToggle(newValue);
+    } else {
+      setInternalShowChunkPreview(newValue);
+    }
+  }, [showChunkPreview, onChunkPreviewToggle]);
   
   if (!editor) {
     return null;
@@ -240,6 +348,50 @@ export function MarkdownEditor({
             onClick={() => editor.chain().focus().toggleBulletList().run()}
             isActive={editor.isActive('bulletList')}
           />
+          
+          {chunkerOptions && (
+            <>
+              <Separator orientation="vertical" className="h-5 mx-1" />
+              
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className={cn(
+                      "h-8 w-8 transition-all",
+                      showChunkPreview && "chunk-preview-toggle-active"
+                    )}
+                    onClick={handleToggleChunkPreview}
+                  >
+                    <Scissors className="h-4 w-4" />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent side="bottom">
+                  <p className="text-xs">
+                    {showChunkPreview ? 'Hide' : 'Show'} chunk boundaries
+                  </p>
+                </TooltipContent>
+              </Tooltip>
+              
+              {showChunkPreview && chunkPreviewData.totalChunks > 0 && (
+                <div className="chunk-stats-pill ml-1">
+                  <span className="font-medium text-foreground">
+                    {chunkPreviewData.totalChunks}
+                  </span>
+                  <span>chunks</span>
+                  <span className="text-primary">
+                    {chunkPreviewData.headingSplits} §
+                  </span>
+                  {chunkPreviewData.tokenSplits > 0 && (
+                    <span className="text-muted-foreground">
+                      {chunkPreviewData.tokenSplits} ✂
+                    </span>
+                  )}
+                </div>
+              )}
+            </>
+          )}
         </div>
         
         <div className="flex items-center gap-1">
@@ -260,7 +412,7 @@ export function MarkdownEditor({
             disabled={!value}
           >
             {copied ? (
-              <Check className="h-3.5 w-3.5 text-green-600" />
+              <Check className="h-3.5 w-3.5 text-success" />
             ) : (
               <Copy className="h-3.5 w-3.5" />
             )}
@@ -279,15 +431,24 @@ export function MarkdownEditor({
         </div>
       </div>
       
-      {/* WYSIWYG Editor */}
+      {/* Editor / Preview Area */}
       <div 
         className="tiptap-container relative overflow-auto"
         style={{ minHeight, maxHeight }}
       >
-        <EditorContent 
-          editor={editor} 
-          className="h-full w-full px-4 py-4"
-        />
+        {showChunkPreview && chunkPreviewData.boundaries.length > 0 ? (
+          <div className="h-full w-full px-4 py-4">
+            <ChunkBoundariesOverlay 
+              previewData={chunkPreviewData} 
+              content={value} 
+            />
+          </div>
+        ) : (
+          <EditorContent 
+            editor={editor} 
+            className="h-full w-full px-4 py-4"
+          />
+        )}
       </div>
       
       {/* Stats Bar - only show when content exists */}

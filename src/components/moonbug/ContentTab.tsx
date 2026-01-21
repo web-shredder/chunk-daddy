@@ -234,7 +234,8 @@ Paste or write your content. Use headings (# H1, ## H2, ### H3) to create docume
 
 The chunker will respect your heading hierarchy and create semantically coherent chunks." 
             minHeight="300px" 
-            maxHeight="500px" 
+            maxHeight="500px"
+            chunkerOptions={chunkerOptions}
           />
         </div>
       </div>
@@ -261,7 +262,8 @@ The chunker will respect your heading hierarchy and create semantically coherent
             onChange={onChange} 
             placeholder="Start typing or paste your content here..." 
             minHeight="calc(100vh - 340px)" 
-            maxHeight="none" 
+            maxHeight="none"
+            chunkerOptions={chunkerOptions}
           />
         </div>
       </div>
