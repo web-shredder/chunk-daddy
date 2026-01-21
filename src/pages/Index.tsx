@@ -756,10 +756,16 @@ const Index = () => {
           optimizedContent={optimizedContent}
           originalContent={content}
           keywords={keywords}
+          layoutChunks={layoutChunks}
           onApplyContent={handleApplyOptimization}
-          onGoToOptimize={() => setActiveTab('optimize')}
+          onGoToOptimize={() => setActiveTab('optimization')}
           onReanalyze={handleAnalyze}
           onSaveProject={handleSave}
+          projectName={localProjectName}
+          onNavigateToOutputs={(chunkIndex) => {
+            setActiveTab('outputs');
+            // Could store chunkIndex for highlighting in outputs tab in the future
+          }}
         />
       )}
 
