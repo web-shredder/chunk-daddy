@@ -39,29 +39,42 @@ export function QuerySidebar({
     q.toLowerCase().includes(searchFilter.toLowerCase())
   );
 
+  // Collapsed state - floating badge on mobile, compact sidebar on desktop
   if (isCollapsed) {
     return (
-      <div className="w-12 border-l border-border/50 bg-muted/20 flex flex-col items-center py-3 gap-3">
-        <Button
-          variant="ghost"
-          size="icon"
+      <div className="fixed right-0 top-1/2 -translate-y-1/2 z-40 md:relative md:translate-y-0 md:top-auto">
+        <button
           onClick={() => setIsCollapsed(false)}
-          className="h-8 w-8"
+          className={cn(
+            "flex items-center gap-2 p-2 md:p-3 rounded-l-lg md:rounded-lg",
+            "bg-primary text-primary-foreground shadow-lg md:shadow-none",
+            "hover:bg-primary/90 transition-all",
+            "md:flex-col md:w-12 md:border md:border-border/50 md:bg-muted/20 md:text-foreground md:h-full"
+          )}
         >
-          <ChevronLeft className="h-4 w-4" />
-        </Button>
-        <div className="flex flex-col items-center gap-1">
-          <ListChecks className="h-4 w-4 text-muted-foreground" />
-          <Badge variant="secondary" className="text-xs px-1.5">
-            {queries.length}
-          </Badge>
-        </div>
-        <div className="flex-1" />
+          <ChevronLeft className="h-4 w-4 md:mb-1" />
+          <div className="flex items-center gap-1.5 md:flex-col md:gap-1">
+            <ListChecks className="h-4 w-4" />
+            <Badge 
+              variant="secondary" 
+              className={cn(
+                "text-xs px-1.5 font-bold",
+                "md:bg-background md:text-foreground",
+                queries.length > 0 && "bg-primary-foreground/20 text-primary-foreground md:bg-primary/20 md:text-primary"
+              )}
+            >
+              {queries.length}
+            </Badge>
+          </div>
+          <span className="text-xs font-medium md:hidden">Queries</span>
+        </button>
+        
+        {/* Mobile floating analyze button */}
         <Button
           size="icon"
           onClick={onAnalyze}
           disabled={!canAnalyze || isAnalyzing}
-          className="h-8 w-8"
+          className="fixed right-0 top-[calc(50%+40px)] -translate-y-1/2 z-40 rounded-l-lg rounded-r-none h-10 w-10 shadow-lg md:hidden"
         >
           {isAnalyzing ? (
             <Loader2 className="h-4 w-4 animate-spin" />
@@ -74,7 +87,10 @@ export function QuerySidebar({
   }
 
   return (
-    <div className="w-64 border-l border-border/50 bg-muted/20 flex flex-col h-full">
+    <div className={cn(
+      "w-64 border-l border-border/50 bg-muted/20 flex flex-col h-full",
+      "fixed right-0 top-0 bottom-0 z-50 shadow-xl md:relative md:shadow-none md:z-auto"
+    )}>
       {/* Header */}
       <div className="p-3 border-b border-border/50 flex items-center justify-between gap-2">
         <div className="flex items-center gap-2">

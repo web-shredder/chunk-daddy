@@ -6,12 +6,286 @@ import type { ArchitectureAnalysis, ArchitectureTask } from '@/lib/optimizer-typ
 /**
  * Escape CSV field value
  */
-function escapeCSV(value: string | number): string {
+function escapeCSV(value: string | number | null | undefined): string {
+  if (value === null || value === undefined) return '';
   const str = String(value);
   if (str.includes(',') || str.includes('"') || str.includes('\n')) {
     return `"${str.replace(/"/g, '""')}"`;
   }
   return str;
+}
+
+// ============================================================
+// QUERY INTELLIGENCE EXPORT TYPES
+// ============================================================
+
+interface QueryIntelligenceExportData {
+  detectedTopic: {
+    primaryEntity: string;
+    entityType: string;
+    contentPurpose: string;
+    targetAction: string;
+    confidence: number;
+    alternativeInterpretations?: Array<{
+      entity: string;
+      confidence: number;
+      reason: string;
+    }>;
+  };
+  primaryQuery: {
+    query: string;
+    searchIntent: string;
+    confidence: number;
+    reasoning: string;
+    variants?: Array<{ query: string; popularity: string }>;
+  } | null;
+  intelligence: {
+    contentType?: string;
+    primaryAudience?: { role: string; expertiseLevel: string; intent: string };
+    topicHierarchy?: { broadCategory: string; specificNiche: string; exactFocus: string };
+    coreEntities?: Array<{ name: string; type: string; role: string; isExplained: boolean; mentionCount: number }>;
+    semanticClusters?: Array<{ clusterName: string; concepts: string[]; coverageDepth: string }>;
+    implicitKnowledge?: string[];
+  } | null;
+  suggestions: Array<{
+    query: string;
+    intentType: string;
+    matchStrength: 'strong' | 'partial' | 'weak';
+    matchReason: string;
+    relevantSection: string | null;
+    confidence: number;
+  }>;
+  gaps: Array<{
+    gapType: string;
+    query: string;
+    intentType: string;
+    severity: 'critical' | 'important' | 'nice-to-have';
+    reason: string;
+    suggestedFix: string;
+    relatedEntities: string[];
+    estimatedEffort?: string;
+  }>;
+}
+
+/**
+ * Generate comprehensive CSV for Query Intelligence analysis
+ */
+export function generateQueryIntelligenceCSV(data: QueryIntelligenceExportData): string {
+  const rows: string[][] = [];
+
+  // =============== SECTION 1: TOPIC ANALYSIS ===============
+  rows.push(['=== TOPIC ANALYSIS ===']);
+  rows.push(['Primary Entity', escapeCSV(data.detectedTopic.primaryEntity)]);
+  rows.push(['Entity Type', escapeCSV(data.detectedTopic.entityType)]);
+  rows.push(['Content Purpose', escapeCSV(data.detectedTopic.contentPurpose)]);
+  rows.push(['Target Action', escapeCSV(data.detectedTopic.targetAction)]);
+  rows.push(['Detection Confidence', `${Math.round(data.detectedTopic.confidence * 100)}%`]);
+  rows.push([]);
+
+  // Alternative interpretations
+  if (data.detectedTopic.alternativeInterpretations?.length) {
+    rows.push(['Alternative Interpretations']);
+    rows.push(['Entity', 'Confidence', 'Reason']);
+    for (const alt of data.detectedTopic.alternativeInterpretations) {
+      rows.push([
+        escapeCSV(alt.entity),
+        `${Math.round(alt.confidence * 100)}%`,
+        escapeCSV(alt.reason),
+      ]);
+    }
+    rows.push([]);
+  }
+
+  // =============== SECTION 2: PRIMARY QUERY ===============
+  if (data.primaryQuery) {
+    rows.push(['=== PRIMARY QUERY ===']);
+    rows.push(['Query', escapeCSV(data.primaryQuery.query)]);
+    rows.push(['Search Intent', escapeCSV(data.primaryQuery.searchIntent)]);
+    rows.push(['Confidence', `${Math.round(data.primaryQuery.confidence * 100)}%`]);
+    rows.push(['Reasoning', escapeCSV(data.primaryQuery.reasoning)]);
+    
+    if (data.primaryQuery.variants?.length) {
+      rows.push([]);
+      rows.push(['Query Variants']);
+      rows.push(['Variant Query', 'Relative Popularity']);
+      for (const v of data.primaryQuery.variants) {
+        rows.push([escapeCSV(v.query), escapeCSV(v.popularity)]);
+      }
+    }
+    rows.push([]);
+  }
+
+  // =============== SECTION 3: CONTENT INTELLIGENCE ===============
+  if (data.intelligence) {
+    rows.push(['=== CONTENT INTELLIGENCE ===']);
+    if (data.intelligence.contentType) {
+      rows.push(['Content Type', escapeCSV(data.intelligence.contentType)]);
+    }
+    rows.push([]);
+    
+    // Audience
+    if (data.intelligence.primaryAudience) {
+      rows.push(['Target Audience']);
+      rows.push(['Role', escapeCSV(data.intelligence.primaryAudience.role)]);
+      rows.push(['Expertise Level', escapeCSV(data.intelligence.primaryAudience.expertiseLevel)]);
+      rows.push(['Intent', escapeCSV(data.intelligence.primaryAudience.intent)]);
+      rows.push([]);
+    }
+    
+    // Topic Hierarchy
+    if (data.intelligence.topicHierarchy) {
+      rows.push(['Topic Hierarchy']);
+      rows.push(['Broad Category', escapeCSV(data.intelligence.topicHierarchy.broadCategory)]);
+      rows.push(['Specific Niche', escapeCSV(data.intelligence.topicHierarchy.specificNiche)]);
+      rows.push(['Exact Focus', escapeCSV(data.intelligence.topicHierarchy.exactFocus)]);
+      rows.push([]);
+    }
+    
+    // Core Entities
+    if (data.intelligence.coreEntities?.length) {
+      rows.push(['Core Entities']);
+      rows.push(['Entity Name', 'Type', 'Role', 'Is Explained', 'Mention Count']);
+      for (const entity of data.intelligence.coreEntities) {
+        rows.push([
+          escapeCSV(entity.name),
+          escapeCSV(entity.type),
+          escapeCSV(entity.role),
+          entity.isExplained ? 'Yes' : 'No',
+          String(entity.mentionCount),
+        ]);
+      }
+      rows.push([]);
+    }
+    
+    // Semantic Clusters
+    if (data.intelligence.semanticClusters?.length) {
+      rows.push(['Semantic Clusters']);
+      rows.push(['Cluster Name', 'Concepts', 'Coverage Depth']);
+      for (const cluster of data.intelligence.semanticClusters) {
+        rows.push([
+          escapeCSV(cluster.clusterName),
+          escapeCSV(cluster.concepts.join('; ')),
+          escapeCSV(cluster.coverageDepth),
+        ]);
+      }
+      rows.push([]);
+    }
+    
+    // Implicit Knowledge
+    if (data.intelligence.implicitKnowledge?.length) {
+      rows.push(['Implicit Knowledge Assumptions']);
+      for (const knowledge of data.intelligence.implicitKnowledge) {
+        rows.push([escapeCSV(knowledge)]);
+      }
+      rows.push([]);
+    }
+  }
+
+  // =============== SECTION 4: QUERY SUGGESTIONS ===============
+  rows.push(['=== QUERY SUGGESTIONS ===']);
+  rows.push([
+    'Query',
+    'Intent Type',
+    'Match Strength',
+    'Match Reason',
+    'Relevant Section',
+    'Confidence',
+  ]);
+  for (const suggestion of data.suggestions) {
+    rows.push([
+      escapeCSV(suggestion.query),
+      escapeCSV(suggestion.intentType),
+      escapeCSV(suggestion.matchStrength),
+      escapeCSV(suggestion.matchReason),
+      escapeCSV(suggestion.relevantSection || 'N/A'),
+      `${Math.round(suggestion.confidence * 100)}%`,
+    ]);
+  }
+  rows.push([]);
+
+  // =============== SECTION 5: COVERAGE GAPS ===============
+  rows.push(['=== COVERAGE GAPS ===']);
+  rows.push([
+    'Query',
+    'Gap Type',
+    'Intent Type',
+    'Severity',
+    'Reason',
+    'Suggested Fix',
+    'Related Entities',
+    'Estimated Effort',
+  ]);
+  for (const gap of data.gaps) {
+    rows.push([
+      escapeCSV(gap.query),
+      escapeCSV(gap.gapType.replace(/_/g, ' ')),
+      escapeCSV(gap.intentType),
+      escapeCSV(gap.severity),
+      escapeCSV(gap.reason),
+      escapeCSV(gap.suggestedFix),
+      escapeCSV(gap.relatedEntities.join('; ')),
+      escapeCSV(gap.estimatedEffort || 'N/A'),
+    ]);
+  }
+  rows.push([]);
+
+  // =============== SECTION 6: SUMMARY STATISTICS ===============
+  const strongCount = data.suggestions.filter(s => s.matchStrength === 'strong').length;
+  const partialCount = data.suggestions.filter(s => s.matchStrength === 'partial').length;
+  const weakCount = data.suggestions.filter(s => s.matchStrength === 'weak').length;
+  const criticalGaps = data.gaps.filter(g => g.severity === 'critical').length;
+  const importantGaps = data.gaps.filter(g => g.severity === 'important').length;
+  
+  // Intent distribution
+  const intentCounts: Record<string, number> = {};
+  data.suggestions.forEach(s => {
+    intentCounts[s.intentType] = (intentCounts[s.intentType] || 0) + 1;
+  });
+
+  rows.push(['=== SUMMARY ===']);
+  rows.push(['Total Suggestions', String(data.suggestions.length)]);
+  rows.push(['Strong Matches', String(strongCount)]);
+  rows.push(['Partial Matches', String(partialCount)]);
+  rows.push(['Weak Matches', String(weakCount)]);
+  rows.push(['Total Gaps', String(data.gaps.length)]);
+  rows.push(['Critical Gaps', String(criticalGaps)]);
+  rows.push(['Important Gaps', String(importantGaps)]);
+  rows.push([]);
+  rows.push(['Intent Distribution']);
+  for (const [intent, count] of Object.entries(intentCounts).sort((a, b) => b[1] - a[1])) {
+    rows.push([escapeCSV(intent), String(count), `${Math.round((count / data.suggestions.length) * 100)}%`]);
+  }
+
+  return rows.map(row => row.join(',')).join('\n');
+}
+
+/**
+ * Download Query Intelligence analysis as CSV
+ */
+export function downloadQueryIntelligenceCSV(
+  data: QueryIntelligenceExportData,
+  topicName?: string
+): void {
+  const csv = generateQueryIntelligenceCSV(data);
+  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+
+  const safeName = (topicName || 'query-intelligence')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .slice(0, 50);
+  const filename = `${safeName}-${new Date().toISOString().split('T')[0]}.csv`;
+
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = filename;
+  link.style.display = 'none';
+
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+
+  URL.revokeObjectURL(url);
 }
 
 /**
