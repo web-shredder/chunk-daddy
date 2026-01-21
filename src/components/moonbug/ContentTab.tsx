@@ -17,6 +17,107 @@ import { toast } from 'sonner';
 import { fetchUrlContent } from '@/lib/url-fetcher';
 import type { ChunkerOptions } from '@/lib/layout-chunker';
 
+// Extracted as standalone component to prevent focus loss on re-render
+interface UrlImportSectionProps {
+  urlInput: string;
+  setUrlInput: (value: string) => void;
+  isUrlSectionOpen: boolean;
+  setIsUrlSectionOpen: (open: boolean) => void;
+  isFetching: boolean;
+  onFetch: () => void;
+  onKeyDown: (e: React.KeyboardEvent) => void;
+}
+
+function UrlImportSection({
+  urlInput,
+  setUrlInput,
+  isUrlSectionOpen,
+  setIsUrlSectionOpen,
+  isFetching,
+  onFetch,
+  onKeyDown,
+}: UrlImportSectionProps) {
+  return (
+    <Collapsible open={isUrlSectionOpen} onOpenChange={setIsUrlSectionOpen}>
+      <CollapsibleTrigger asChild>
+        <button className="flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground transition-colors mb-3">
+          <Globe className="h-4 w-4" />
+          <span>Import from URL</span>
+          <ChevronDown className={`h-4 w-4 transition-transform ${isUrlSectionOpen ? 'rotate-180' : ''}`} />
+        </button>
+      </CollapsibleTrigger>
+      <CollapsibleContent>
+        <div className="flex gap-2 mb-4">
+          <Input
+            placeholder="https://example.com/article"
+            value={urlInput}
+            onChange={(e) => setUrlInput(e.target.value)}
+            onKeyDown={onKeyDown}
+            className="flex-1"
+            disabled={isFetching}
+          />
+          <Button
+            onClick={onFetch}
+            disabled={!urlInput.trim() || isFetching}
+            size="default"
+          >
+            {isFetching ? (
+              <>
+                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                Fetching...
+              </>
+            ) : (
+              <>
+                <Download className="h-4 w-4 mr-2" />
+                Fetch
+              </>
+            )}
+          </Button>
+        </div>
+      </CollapsibleContent>
+    </Collapsible>
+  );
+}
+
+// Extracted as standalone component to prevent unnecessary re-renders
+interface SourceUrlBadgeProps {
+  sourceUrl: string | null;
+  onClear: () => void;
+}
+
+function SourceUrlBadge({ sourceUrl, onClear }: SourceUrlBadgeProps) {
+  if (!sourceUrl) return null;
+  
+  let hostname = '';
+  try {
+    hostname = new URL(sourceUrl).hostname;
+  } catch {
+    hostname = sourceUrl;
+  }
+  
+  return (
+    <Badge variant="outline" className="gap-1.5 text-xs font-normal">
+      <Globe className="h-3 w-3" />
+      <span className="hidden sm:inline">Source:</span>
+      <a
+        href={sourceUrl}
+        target="_blank"
+        rel="noopener noreferrer"
+        className="hover:underline max-w-[200px] truncate"
+      >
+        {hostname}
+      </a>
+      <button
+        onClick={onClear}
+        className="ml-1 hover:text-destructive transition-colors"
+        title="Clear source"
+      >
+        <X className="h-3 w-3" />
+      </button>
+    </Badge>
+  );
+}
+
 interface ContentTabProps {
   content: string;
   onChange: (content: string) => void;
@@ -102,79 +203,6 @@ export function ContentTab({
     }
   };
 
-  const UrlImportSection = () => (
-    <Collapsible open={isUrlSectionOpen} onOpenChange={setIsUrlSectionOpen}>
-      <CollapsibleTrigger asChild>
-        <button className="flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground transition-colors mb-3">
-          <Globe className="h-4 w-4" />
-          <span>Import from URL</span>
-          <ChevronDown className={`h-4 w-4 transition-transform ${isUrlSectionOpen ? 'rotate-180' : ''}`} />
-        </button>
-      </CollapsibleTrigger>
-      <CollapsibleContent>
-        <div className="flex gap-2 mb-4">
-          <Input
-            placeholder="https://example.com/article"
-            value={urlInput}
-            onChange={(e) => setUrlInput(e.target.value)}
-            onKeyDown={handleKeyDown}
-            className="flex-1"
-            disabled={isFetching}
-          />
-          <Button
-            onClick={handleFetchUrl}
-            disabled={!urlInput.trim() || isFetching}
-            size="default"
-          >
-            {isFetching ? (
-              <>
-                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                Fetching...
-              </>
-            ) : (
-              <>
-                <Download className="h-4 w-4 mr-2" />
-                Fetch
-              </>
-            )}
-          </Button>
-        </div>
-      </CollapsibleContent>
-    </Collapsible>
-  );
-
-  const SourceUrlBadge = () => {
-    if (!sourceUrl) return null;
-    
-    let hostname = '';
-    try {
-      hostname = new URL(sourceUrl).hostname;
-    } catch {
-      hostname = sourceUrl;
-    }
-    
-    return (
-      <Badge variant="outline" className="gap-1.5 text-xs font-normal">
-        <Globe className="h-3 w-3" />
-        <span className="hidden sm:inline">Source:</span>
-        <a
-          href={sourceUrl}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="hover:underline max-w-[200px] truncate"
-        >
-          {hostname}
-        </a>
-        <button
-          onClick={() => onSourceUrlChange?.(null)}
-          className="ml-1 hover:text-destructive transition-colors"
-          title="Clear source"
-        >
-          <X className="h-3 w-3" />
-        </button>
-      </Badge>
-    );
-  };
 
   if (!hasContent) {
     return (
@@ -187,7 +215,15 @@ export function ContentTab({
         </div>
         
         <div className="w-full max-w-3xl px-4 md:px-6 mt-8">
-          <UrlImportSection />
+          <UrlImportSection
+            urlInput={urlInput}
+            setUrlInput={setUrlInput}
+            isUrlSectionOpen={isUrlSectionOpen}
+            setIsUrlSectionOpen={setIsUrlSectionOpen}
+            isFetching={isFetching}
+            onFetch={handleFetchUrl}
+            onKeyDown={handleKeyDown}
+          />
           
           <MarkdownEditor 
             value={content} 
@@ -210,7 +246,15 @@ The chunker will respect your heading hierarchy and create semantically coherent
       {/* Editor Container */}
       <div className="flex-1 overflow-auto p-4 md:p-6">
         <div className="max-w-4xl mx-auto">
-          <UrlImportSection />
+          <UrlImportSection
+            urlInput={urlInput}
+            setUrlInput={setUrlInput}
+            isUrlSectionOpen={isUrlSectionOpen}
+            setIsUrlSectionOpen={setIsUrlSectionOpen}
+            isFetching={isFetching}
+            onFetch={handleFetchUrl}
+            onKeyDown={handleKeyDown}
+          />
           
           <MarkdownEditor 
             value={content} 
@@ -228,7 +272,7 @@ The chunker will respect your heading hierarchy and create semantically coherent
           <span className="text-xs text-muted-foreground">
             {wordCount.toLocaleString()} words • ~{tokenCount.toLocaleString()} tokens
           </span>
-          <SourceUrlBadge />
+          <SourceUrlBadge sourceUrl={sourceUrl ?? null} onClear={() => onSourceUrlChange?.(null)} />
         </div>
         
         <button 
