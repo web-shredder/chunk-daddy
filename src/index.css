@@ -622,3 +622,137 @@ code {
 .min-w-0 {
   min-width: 0;
 }
+
+/* ============================================
+   Chunk Boundary Preview Styles
+   Premium, modern visual indicators for chunking
+   ============================================ */
+
+/* Boundary indicator container */
+.chunk-boundary-indicator {
+  @apply relative w-full py-3 select-none;
+  animation: chunk-boundary-fade-in 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+/* Gradient dashed line */
+.chunk-boundary-line {
+  @apply absolute left-0 right-0 top-1/2 h-px;
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    hsl(var(--primary) / 0.3) 15%,
+    hsl(var(--primary) / 0.4) 50%,
+    hsl(var(--primary) / 0.3) 85%,
+    transparent 100%
+  );
+}
+
+/* Center floating pill */
+.chunk-boundary-pill {
+  @apply absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2;
+  @apply flex items-center gap-2 px-3 py-1.5;
+  @apply bg-surface/95 backdrop-blur-md;
+  @apply border border-border rounded-full;
+  @apply shadow-lg shadow-black/20;
+  @apply transition-all duration-200;
+  box-shadow: 
+    0 0 0 1px hsl(var(--primary) / 0.15),
+    0 4px 12px -2px hsl(0 0% 0% / 0.25),
+    0 0 20px -4px hsl(var(--primary) / 0.15);
+}
+
+.chunk-boundary-indicator:hover .chunk-boundary-pill {
+  @apply border-primary/40;
+  box-shadow: 
+    0 0 0 1px hsl(var(--primary) / 0.3),
+    0 4px 16px -2px hsl(0 0% 0% / 0.3),
+    0 0 24px -4px hsl(var(--primary) / 0.25);
+}
+
+/* Animated dot indicator */
+.chunk-boundary-dot {
+  @apply w-2 h-2 rounded-full;
+  background: hsl(var(--primary));
+  box-shadow: 0 0 6px 1px hsl(var(--primary) / 0.5);
+  animation: chunk-dot-pulse 2s ease-in-out infinite;
+}
+
+/* Labels */
+.chunk-boundary-label {
+  @apply text-xs font-medium text-foreground;
+}
+
+.chunk-boundary-tokens {
+  @apply text-xs text-muted-foreground font-mono;
+}
+
+.chunk-boundary-cascade {
+  @apply text-2xs text-muted-foreground/70 font-mono;
+}
+
+/* Reason badges */
+.chunk-boundary-reason {
+  @apply flex items-center gap-1 text-2xs uppercase tracking-wider;
+  @apply px-1.5 py-0.5 rounded;
+  @apply bg-muted/50 text-muted-foreground;
+}
+
+.chunk-boundary-reason.heading {
+  @apply bg-primary/10 text-primary;
+}
+
+/* Margin indicators for alternating chunk colors */
+.chunk-margin-indicator {
+  @apply absolute left-0 top-0 bottom-0 w-1 rounded-r;
+  transition: opacity 0.2s ease;
+}
+
+.chunk-margin-0 { background: hsl(var(--primary) / 0.4); }
+.chunk-margin-1 { background: hsl(200 100% 50% / 0.4); }
+.chunk-margin-2 { background: hsl(280 100% 60% / 0.4); }
+.chunk-margin-3 { background: hsl(340 100% 55% / 0.4); }
+
+.chunk-margin-start {
+  @apply rounded-tr;
+}
+
+.chunk-margin-end {
+  @apply rounded-br;
+}
+
+/* Animations */
+@keyframes chunk-boundary-fade-in {
+  from {
+    opacity: 0;
+    transform: scaleX(0.8);
+  }
+  to {
+    opacity: 1;
+    transform: scaleX(1);
+  }
+}
+
+@keyframes chunk-dot-pulse {
+  0%, 100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.7;
+    transform: scale(0.9);
+  }
+}
+
+/* Toggle button active state */
+.chunk-preview-toggle-active {
+  @apply bg-primary/15 text-primary border-primary/30;
+  box-shadow: 0 0 8px -2px hsl(var(--primary) / 0.3);
+}
+
+/* Stats indicator in toolbar */
+.chunk-stats-pill {
+  @apply flex items-center gap-1.5 px-2 py-1;
+  @apply text-2xs text-muted-foreground;
+  @apply bg-muted/30 rounded-full;
+  @apply border border-border/50;
+}
