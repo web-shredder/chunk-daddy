@@ -11,6 +11,7 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { cn, stripLeadingHeadingCascade } from '@/lib/utils';
 import { calculatePassageScore } from '@/lib/similarity';
+import { getTierFromScore, getTierLabel, TIER_COLORS } from '@/lib/tier-colors';
 import { toast } from 'sonner';
 import type { LayoutAwareChunk } from '@/lib/layout-chunker';
 import type { ChunkScore } from '@/hooks/useAnalysis';
@@ -44,12 +45,16 @@ function stripMarkdown(text: string): string {
     .trim();
 }
 
-function getScoreTier(score: number) {
-  if (score >= 90) return { label: 'Excellent', color: 'bg-green-500', textColor: 'text-green-600', bgLight: 'bg-green-50 dark:bg-green-950/30' };
-  if (score >= 75) return { label: 'Good', color: 'bg-blue-500', textColor: 'text-blue-600', bgLight: 'bg-blue-50 dark:bg-blue-950/30' };
-  if (score >= 60) return { label: 'Moderate', color: 'bg-yellow-500', textColor: 'text-yellow-600', bgLight: 'bg-yellow-50 dark:bg-yellow-950/30' };
-  if (score >= 40) return { label: 'Weak', color: 'bg-orange-500', textColor: 'text-orange-600', bgLight: 'bg-orange-50 dark:bg-orange-950/30' };
-  return { label: 'Poor', color: 'bg-red-500', textColor: 'text-red-600', bgLight: 'bg-red-50 dark:bg-red-950/30' };
+function getScoreTierStyles(score: number) {
+  const tier = getTierFromScore(score);
+  const colors = TIER_COLORS[tier];
+  return {
+    label: getTierLabel(score),
+    dotColor: `bg-[hsl(var(--tier-${tier}))]`,
+    textColor: colors.text,
+    bgLight: colors.bg,
+    badge: colors.badge,
+  };
 }
 
 function getTierDescription(score: number): string {
@@ -68,7 +73,7 @@ function ScoreOverviewSection({
   score: number; 
   assignedQuery?: string;
 }) {
-  const tier = getScoreTier(score);
+  const tier = getScoreTierStyles(score);
   
   return (
     <div className="p-4 space-y-4 min-w-0">
@@ -87,7 +92,7 @@ function ScoreOverviewSection({
         <div className="flex-1 space-y-1.5 min-w-0">
           <div className="h-3 bg-muted rounded-full overflow-hidden">
             <div 
-              className={cn("h-full transition-all duration-500", tier.color)}
+              className={cn("h-full transition-all duration-500", tier.dotColor)}
               style={{ width: `${score}%` }}
             />
           </div>
@@ -571,10 +576,7 @@ function RelatedQueriesSection({
                 {/* Score badge */}
                 <span className={cn(
                   "px-2 py-0.5 rounded font-mono font-medium",
-                  score >= 75 ? "bg-blue-500/10 text-blue-600" :
-                  score >= 60 ? "bg-yellow-500/10 text-yellow-600" :
-                  score >= 40 ? "bg-orange-500/10 text-orange-600" :
-                  "bg-red-500/10 text-red-600"
+                  getScoreTierStyles(score).badge
                 )}>
                   {score}
                 </span>

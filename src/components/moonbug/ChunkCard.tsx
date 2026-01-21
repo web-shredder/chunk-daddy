@@ -2,6 +2,7 @@ import { useMemo } from 'react';
 import { cn, stripLeadingHeadingCascade } from '@/lib/utils';
 import { Badge } from '@/components/ui/badge';
 import { FileText, Hash, Zap, ChevronRight } from 'lucide-react';
+import { getTierFromScore, getTierLabel, TIER_COLORS } from '@/lib/tier-colors';
 
 interface ChunkCardProps {
   chunk: {
@@ -18,12 +19,15 @@ interface ChunkCardProps {
   onClick: () => void;
 }
 
-function getScoreTier(score: number) {
-  if (score >= 90) return { label: 'Excellent', bgColor: 'bg-green-500', textColor: 'text-green-600', borderColor: 'border-l-green-500' };
-  if (score >= 75) return { label: 'Good', bgColor: 'bg-blue-500', textColor: 'text-blue-600', borderColor: 'border-l-blue-500' };
-  if (score >= 60) return { label: 'Moderate', bgColor: 'bg-yellow-500', textColor: 'text-yellow-600', borderColor: 'border-l-yellow-500' };
-  if (score >= 40) return { label: 'Weak', bgColor: 'bg-orange-500', textColor: 'text-orange-600', borderColor: 'border-l-orange-500' };
-  return { label: 'Poor', bgColor: 'bg-red-500', textColor: 'text-red-600', borderColor: 'border-l-red-500' };
+function getScoreTierStyles(score: number) {
+  const tier = getTierFromScore(score);
+  const colors = TIER_COLORS[tier];
+  return {
+    label: getTierLabel(score),
+    dotColor: `bg-[hsl(var(--tier-${tier}))]`,
+    textColor: colors.text,
+    borderColor: colors.borderLeft,
+  };
 }
 
 // Strip markdown formatting
@@ -38,7 +42,7 @@ function stripMarkdown(text: string): string {
 }
 
 export function ChunkCard({ chunk, isSelected, onClick }: ChunkCardProps) {
-  const tier = getScoreTier(chunk.score);
+  const tierStyles = getScoreTierStyles(chunk.score);
   
   // Build breadcrumb from headingPath (show last 2-3 levels max)
   const breadcrumb = useMemo(() => {
@@ -81,7 +85,7 @@ export function ChunkCard({ chunk, isSelected, onClick }: ChunkCardProps) {
       className={cn(
         "w-full text-left p-3 rounded-lg border-l-4 transition-all",
         "bg-card hover:bg-muted/50 hover:shadow-sm",
-        tier.borderColor,
+        tierStyles.borderColor,
         isSelected && "ring-2 ring-accent bg-accent/5"
       )}
     >
@@ -116,13 +120,13 @@ export function ChunkCard({ chunk, isSelected, onClick }: ChunkCardProps) {
           variant="outline" 
           className={cn(
             "shrink-0 font-mono text-[10px] px-1.5 py-0 h-5 gap-1",
-            tier.textColor
+            tierStyles.textColor
           )}
         >
-          <div className={cn("w-1.5 h-1.5 rounded-full shrink-0", tier.bgColor)} />
+          <div className={cn("w-1.5 h-1.5 rounded-full shrink-0", tierStyles.dotColor)} />
           {chunk.score}
           <span className="hidden sm:inline text-[9px] opacity-70">
-            {tier.label}
+            {tierStyles.label}
           </span>
         </Badge>
       </div>

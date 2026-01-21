@@ -1,5 +1,7 @@
 // Score metadata and quality utilities for Chunk Daddy
 
+import { getTierFromScore, TIER_COLORS, type ScoreTier } from './tier-colors';
+
 export interface ScoreMetadata {
   label: string;
   range: string;
@@ -82,14 +84,15 @@ export const SCORE_METADATA: Record<string, ScoreMetadata> = {
   }
 };
 
-export type ScoreQuality = 'excellent' | 'good' | 'fair' | 'weak' | 'poor';
+// Use ScoreTier from tier-colors for consistency (renamed from 'fair' to 'moderate')
+export type ScoreQuality = ScoreTier;
 
 export function getScoreQuality(metricKey: string, value: number): ScoreQuality | null {
   // Only calculate quality for metrics with absolute scales
   if (metricKey === 'cosine') {
     if (value >= 0.9) return 'excellent';
     if (value >= 0.7) return 'good';
-    if (value >= 0.5) return 'fair';
+    if (value >= 0.5) return 'moderate';
     if (value >= 0.3) return 'weak';
     return 'poor';
   }
@@ -97,7 +100,7 @@ export function getScoreQuality(metricKey: string, value: number): ScoreQuality 
   if (metricKey === 'chamfer' || metricKey === 'sentenceChamfer') {
     if (value >= 0.85) return 'excellent';
     if (value >= 0.7) return 'good';
-    if (value >= 0.5) return 'fair';
+    if (value >= 0.5) return 'moderate';
     if (value >= 0.3) return 'weak';
     return 'poor';
   }
@@ -106,7 +109,7 @@ export function getScoreQuality(metricKey: string, value: number): ScoreQuality 
     // Query coverage thresholds
     if (value >= 0.85) return 'excellent';
     if (value >= 0.75) return 'good';
-    if (value >= 0.6) return 'fair';
+    if (value >= 0.6) return 'moderate';
     if (value >= 0.45) return 'weak';
     return 'poor';
   }
@@ -115,17 +118,14 @@ export function getScoreQuality(metricKey: string, value: number): ScoreQuality 
     // Chunk focus thresholds (slightly lower since chunks can have some context)
     if (value >= 0.8) return 'excellent';
     if (value >= 0.65) return 'good';
-    if (value >= 0.5) return 'fair';
+    if (value >= 0.5) return 'moderate';
     if (value >= 0.35) return 'weak';
     return 'poor';
   }
 
   if (metricKey === 'passageScore' || metricKey === 'daddyScore') {
-    if (value >= 90) return 'excellent';
-    if (value >= 75) return 'good';
-    if (value >= 60) return 'fair';
-    if (value >= 40) return 'weak';
-    return 'poor';
+    // Use the centralized tier system
+    return getTierFromScore(value);
   }
   
   // Distance metrics and dot product have no absolute quality scale
@@ -133,17 +133,6 @@ export function getScoreQuality(metricKey: string, value: number): ScoreQuality 
 }
 
 export function getQualityColorClass(quality: ScoreQuality): string {
-  // Using muted, design-system-compliant colors
-  switch (quality) {
-    case 'excellent':
-      return 'bg-primary/15 text-primary';
-    case 'good':
-      return 'bg-primary/10 text-primary/80';
-    case 'fair':
-      return 'bg-muted text-muted-foreground';
-    case 'weak':
-      return 'bg-muted/80 text-muted-foreground/80';
-    case 'poor':
-      return 'bg-muted/60 text-muted-foreground/60';
-  }
+  // Use centralized tier colors
+  return TIER_COLORS[quality].badge;
 }

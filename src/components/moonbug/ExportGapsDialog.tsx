@@ -147,12 +147,12 @@ export function ExportGapsDialog({
             </Badge>
           )}
           {moderate.length > 0 && (
-            <Badge variant="secondary" className="text-xs bg-yellow-500/10 text-yellow-600 border-yellow-500/30">
+            <Badge variant="secondary" className="text-xs bg-[hsl(var(--tier-moderate-bg))] text-[hsl(var(--tier-moderate))] border-[hsl(var(--tier-moderate)/0.3)]">
               {moderate.length} Moderate (expand existing)
             </Badge>
           )}
           {minor.length > 0 && (
-            <Badge variant="secondary" className="text-xs bg-green-500/10 text-green-600 border-green-500/30">
+            <Badge variant="secondary" className="text-xs bg-[hsl(var(--tier-good-bg))] text-[hsl(var(--tier-good))] border-[hsl(var(--tier-good)/0.3)]">
               {minor.length} Minor (optimize existing)
             </Badge>
           )}

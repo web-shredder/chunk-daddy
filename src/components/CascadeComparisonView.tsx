@@ -327,10 +327,9 @@ function SummaryStats({
               variant={overallImprovement > 0 ? 'default' : 'secondary'}
               className={cn(
                 "text-sm font-mono",
-                overallImprovement > 5 && "bg-green-600",
-                overallImprovement > 0 && overallImprovement <= 5 && "bg-green-500",
+                overallImprovement > 0 && "bg-[hsl(var(--success))] text-[hsl(var(--success-foreground))]",
                 overallImprovement === 0 && "bg-muted text-muted-foreground",
-                overallImprovement < 0 && "bg-red-500"
+                overallImprovement < 0 && "bg-[hsl(var(--destructive))] text-[hsl(var(--destructive-foreground))]"
               )}
             >
               {overallImprovement >= 0 ? '+' : ''}{overallImprovement.toFixed(1)}%

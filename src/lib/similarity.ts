@@ -1,5 +1,18 @@
 // Similarity calculation utilities for Chunk Daddy
 
+import { 
+  getTierFromScore, 
+  getTierDefinition, 
+  getTierColors,
+  getTierLabel,
+  TIER_COLORS, 
+  type ScoreTier 
+} from './tier-colors';
+
+// Re-export tier utilities for backward compatibility
+export { getTierFromScore, getTierDefinition, getTierColors, getTierLabel, TIER_COLORS };
+export type { ScoreTier };
+
 /**
  * Calculate cosine similarity between two vectors
  * Returns value between -1 and 1 (1 = identical direction)
@@ -255,31 +268,18 @@ export function getPassageScoreRecommendation(score: number): string {
 export const getDaddyScoreRecommendation = getPassageScoreRecommendation;
 
 /**
- * Get tier color classes for Passage Score display - using muted colors
+ * Get tier color classes for Passage Score display
+ * Now uses centralized tier-colors system
  */
 export function getPassageScoreTierColorClass(tier: PassageScoreTier): string {
-  const colors: Record<PassageScoreTier, string> = {
-    excellent: 'text-emerald-500',
-    good: 'text-emerald-400',
-    moderate: 'text-amber-500',
-    weak: 'text-orange-500',
-    poor: 'text-rose-400'
-  };
-  return colors[tier];
+  return TIER_COLORS[tier].text;
 }
 
 // Alias for backward compatibility
 export const getDaddyScoreTierColorClass = getPassageScoreTierColorClass;
 
 export function getPassageScoreTierBgClass(tier: PassageScoreTier): string {
-  const colors: Record<PassageScoreTier, string> = {
-    excellent: 'bg-emerald-500/15 text-emerald-500',
-    good: 'bg-emerald-400/15 text-emerald-400',
-    moderate: 'bg-amber-500/15 text-amber-500',
-    weak: 'bg-orange-500/15 text-orange-500',
-    poor: 'bg-rose-400/15 text-rose-400'
-  };
-  return colors[tier];
+  return TIER_COLORS[tier].badge;
 }
 
 // Alias for backward compatibility
