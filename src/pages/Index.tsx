@@ -54,6 +54,7 @@ const Index = () => {
   const [layoutChunks, setLayoutChunks] = useState<LayoutAwareChunk[]>([]);
   const [contentHashAtAnalysis, setContentHashAtAnalysis] = useState<string>("");
   const [optimizedContent, setOptimizedContent] = useState<string>("");
+  const [sourceUrl, setSourceUrl] = useState<string | null>(null);
   const [optimizationResult, setOptimizationResult] = useState<FullOptimizationResult | null>(null);
   const [architectureAnalysis, setArchitectureAnalysis] = useState<ArchitectureAnalysis | null>(null);
   const [architectureTasks, setArchitectureTasks] = useState<ArchitectureTask[]>([]);
@@ -614,6 +615,8 @@ const Index = () => {
           tokenCount={tokenCount}
           chunkerOptions={chunkerOptions}
           onOptionsChange={handleSettingsChange}
+          sourceUrl={sourceUrl}
+          onSourceUrlChange={setSourceUrl}
         />
       )}
 
