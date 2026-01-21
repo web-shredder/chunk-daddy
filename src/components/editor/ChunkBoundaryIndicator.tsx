@@ -1,5 +1,5 @@
 import { cn } from '@/lib/utils';
-import { Scissors, Hash } from 'lucide-react';
+import { Scissors, Hash, Sparkles } from 'lucide-react';
 
 interface ChunkBoundaryIndicatorProps {
   chunkIndex: number;
@@ -8,6 +8,23 @@ interface ChunkBoundaryIndicatorProps {
   reason: 'heading' | 'token-limit';
   headingPath?: string[];
   isLast?: boolean;
+}
+
+function getChunkDisplayName(chunkIndex: number, headingPath: string[]): string {
+  if (chunkIndex === 0) return 'Hero Chunk';
+  
+  const closestHeading = headingPath.length > 0 
+    ? headingPath[headingPath.length - 1] 
+    : null;
+  
+  if (closestHeading) {
+    const truncated = closestHeading.length > 25 
+      ? closestHeading.slice(0, 22) + '...' 
+      : closestHeading;
+    return `Chunk ${chunkIndex + 1}: ${truncated}`;
+  }
+  
+  return `Chunk ${chunkIndex + 1}`;
 }
 
 export function ChunkBoundaryIndicator({
@@ -28,8 +45,11 @@ export function ChunkBoundaryIndicator({
       {/* Center pill */}
       <div className="chunk-boundary-pill">
         <div className="chunk-boundary-dot" />
+        {chunkIndex === 0 && (
+          <Sparkles className="h-3 w-3 text-yellow-500 mr-1" />
+        )}
         <span className="chunk-boundary-label">
-          Chunk {chunkIndex + 1}
+          {getChunkDisplayName(chunkIndex, headingPath)}
         </span>
         <span className="chunk-boundary-tokens">
           ~{tokenCount} tokens
