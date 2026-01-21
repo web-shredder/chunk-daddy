@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
@@ -7,6 +7,12 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { Progress } from '@/components/ui/progress';
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from '@/components/ui/tooltip';
 import {
   Dialog,
   DialogContent,
@@ -33,10 +39,33 @@ import {
   Search,
   Star,
   AlertCircle,
+  BarChart3,
 } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
+
+// ============================================================
+// INTENT COLORS FOR DISTRIBUTION CHART
+// ============================================================
+
+const INTENT_COLORS: Record<string, string> = {
+  definition: 'hsl(142, 76%, 36%)',
+  process: 'hsl(217, 91%, 60%)',
+  comparison: 'hsl(24, 95%, 53%)',
+  evaluation: 'hsl(330, 81%, 60%)',
+  problem: 'hsl(0, 84%, 60%)',
+  specification: 'hsl(262, 83%, 58%)',
+};
+
+const INTENT_LABELS: Record<string, string> = {
+  definition: 'Definition',
+  process: 'Process',
+  comparison: 'Compare',
+  evaluation: 'Evaluate',
+  problem: 'Problem',
+  specification: 'Specific',
+};
 
 // ============================================================
 // TYPES
@@ -122,6 +151,68 @@ interface QueryAutoSuggestProps {
   existingQueries: string[];
   onAddQueries: (queries: string[]) => void;
   onSetPrimaryQuery?: (query: string) => void;
+}
+
+// ============================================================
+// INTENT DISTRIBUTION CHART COMPONENT
+// ============================================================
+
+function IntentDistributionChart({ suggestions }: { suggestions: QuerySuggestion[] }) {
+  const distribution = useMemo(() => {
+    const counts: Record<string, number> = {};
+    suggestions.forEach(s => {
+      counts[s.intentType] = (counts[s.intentType] || 0) + 1;
+    });
+    return Object.entries(counts)
+      .map(([type, count]) => ({ type, count }))
+      .sort((a, b) => b.count - a.count);
+  }, [suggestions]);
+
+  if (distribution.length === 0) return null;
+
+  const total = suggestions.length;
+
+  return (
+    <TooltipProvider>
+      <div className="rounded-lg border border-border/50 bg-muted/30 p-3 space-y-2">
+        <div className="flex items-center gap-2">
+          <BarChart3 className="h-4 w-4 text-muted-foreground" />
+          <span className="text-xs font-medium text-muted-foreground">Intent Distribution</span>
+          <Badge variant="secondary" className="text-xs ml-auto">{total} queries</Badge>
+        </div>
+        <div className="flex h-3 rounded-full overflow-hidden bg-muted/50">
+          {distribution.map(({ type, count }) => (
+            <Tooltip key={type}>
+              <TooltipTrigger asChild>
+                <div
+                  className="h-full transition-all hover:opacity-80 cursor-pointer first:rounded-l-full last:rounded-r-full"
+                  style={{
+                    width: `${(count / total) * 100}%`,
+                    backgroundColor: INTENT_COLORS[type] || 'hsl(var(--muted-foreground))',
+                  }}
+                />
+              </TooltipTrigger>
+              <TooltipContent side="top" className="text-xs">
+                <p className="font-medium">{INTENT_LABELS[type] || type}</p>
+                <p className="text-muted-foreground">{count} queries ({Math.round((count / total) * 100)}%)</p>
+              </TooltipContent>
+            </Tooltip>
+          ))}
+        </div>
+        <div className="flex flex-wrap gap-x-3 gap-y-1">
+          {distribution.map(({ type, count }) => (
+            <span key={type} className="text-xs text-muted-foreground flex items-center gap-1.5">
+              <span
+                className="w-2 h-2 rounded-full shrink-0"
+                style={{ backgroundColor: INTENT_COLORS[type] || 'hsl(var(--muted-foreground))' }}
+              />
+              {count} {INTENT_LABELS[type] || type}
+            </span>
+          ))}
+        </div>
+      </div>
+    </TooltipProvider>
+  );
 }
 
 // ============================================================
@@ -518,6 +609,11 @@ export function QueryAutoSuggest({
             </div>
           </div>
         </div>
+      )}
+
+      {/* Intent Distribution Chart */}
+      {suggestions.length > 0 && !isAnalyzing && (
+        <IntentDistributionChart suggestions={suggestions} />
       )}
 
       {/* Suggestions & Gaps Tabs */}
