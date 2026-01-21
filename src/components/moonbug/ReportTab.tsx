@@ -1,41 +1,13 @@
 import { useState, useMemo } from 'react';
-import {
-  FileBarChart,
-  Copy,
-  FileText,
-  FileJson,
-  Play,
-  TrendingUp,
-  TrendingDown,
-  Minus,
-  ChevronDown,
-  ChevronRight,
-  ArrowRight,
-  Clock,
-  Layers,
-  Target,
-  Sparkles,
-  Check,
-  RotateCcw,
-  AlertTriangle,
-  Lightbulb,
-  MoreHorizontal,
-  Download,
-} from 'lucide-react';
-import { ScrollArea } from '@/components/ui/scroll-area';
-import { Button } from '@/components/ui/button';
+import { FileBarChart } from 'lucide-react';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Badge } from '@/components/ui/badge';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger, DropdownMenuSeparator } from '@/components/ui/dropdown-menu';
-import { toast } from 'sonner';
-import { cn } from '@/lib/utils';
-import { MarkdownEditor } from '@/components/MarkdownEditor';
-import { formatScore, getScoreColorClass, formatImprovement, getImprovementColorClass, calculatePassageScore } from '@/lib/similarity';
-import { generateFormalTextReport } from '@/lib/report-generator';
-import { useIsMobile } from '@/hooks/use-mobile';
-import { ContentBriefCard } from '@/components/optimizer/ContentBriefCard';
-import type { FullOptimizationResult, ValidatedChunk, ChangeExplanation, FurtherOptimizationSuggestion, TradeOffConsideration } from '@/lib/optimizer-types';
+import { Button } from '@/components/ui/button';
+import { ScrollArea } from '@/components/ui/scroll-area';
+import { ReportSummary, ReportActionItems, ReportExports, type ActionItem, type ActionItems } from './report';
+import { getTierFromScore } from '@/lib/tier-colors';
+import type { FullOptimizationResult, ContentBrief } from '@/lib/optimizer-types';
+import type { LayoutAwareChunk } from '@/lib/layout-chunker';
 
 interface ReportTabProps {
   hasOptimizationResult: boolean;
@@ -43,11 +15,13 @@ interface ReportTabProps {
   optimizedContent: string;
   originalContent: string;
   keywords: string[];
+  layoutChunks?: LayoutAwareChunk[];
   onApplyContent: (content: string) => void;
   onGoToOptimize: () => void;
   onReanalyze: () => void;
   onSaveProject?: () => void;
   projectName?: string;
+  onNavigateToOutputs?: (chunkIndex?: number) => void;
 }
 
 export function ReportTab({
@@ -56,769 +30,195 @@ export function ReportTab({
   optimizedContent,
   originalContent,
   keywords,
+  layoutChunks,
   onApplyContent,
   onGoToOptimize,
   onReanalyze,
   onSaveProject,
   projectName,
+  onNavigateToOutputs,
 }: ReportTabProps) {
-  const [editableContent, setEditableContent] = useState(optimizedContent);
-  const [expandedChunks, setExpandedChunks] = useState<Set<number>>(new Set([0]));
-  const [showSuggestions, setShowSuggestions] = useState(true);
-  const [showTradeOffs, setShowTradeOffs] = useState(true);
-  const [showContent, setShowContent] = useState(false);
-  const isMobile = useIsMobile();
+  const [activeSubTab, setActiveSubTab] = useState('summary');
 
-  // Sync editable content when optimizedContent changes
-  useMemo(() => {
-    setEditableContent(optimizedContent);
-  }, [optimizedContent]);
+  // Calculate action items
+  const actionItems = useMemo<ActionItems>(() => {
+    if (!optimizationResult) return { critical: [], recommended: [], optional: [] };
+    
+    const critical: ActionItem[] = [];
+    const recommended: ActionItem[] = [];
+    const optional: ActionItem[] = [];
+    
+    // Check for score decreases and weak scores
+    optimizationResult.optimizedChunks?.forEach((chunk, index) => {
+      const origScores = optimizationResult.originalFullScores?.[index] || {};
+      const optScores = optimizationResult.optimizedFullScores?.[index] || {};
+      
+      let totalOrig = 0;
+      let totalOpt = 0;
+      let count = 0;
+      
+      Object.keys(optScores).forEach(query => {
+        if (origScores[query]) {
+          totalOrig += origScores[query].passageScore;
+          totalOpt += optScores[query].passageScore;
+          count++;
+        }
+      });
+      
+      if (count > 0) {
+        const avgOriginal = Math.round(totalOrig / count);
+        const avgOptimized = Math.round(totalOpt / count);
+        const scoreDelta = avgOptimized - avgOriginal;
+        
+        if (scoreDelta < -2) {
+          critical.push({
+            type: 'score_decrease',
+            title: `Chunk ${index + 1} score decreased`,
+            description: `Score went from ${avgOriginal} to ${avgOptimized} (${scoreDelta}). Review and possibly reject.`,
+            chunkIndex: index,
+          });
+        } else if (avgOptimized < 60 && avgOptimized >= 40) {
+          recommended.push({
+            type: 'weak_score',
+            title: `Chunk ${index + 1} still underperforming`,
+            description: `Score is ${avgOptimized} (${getTierFromScore(avgOptimized)} tier). May need manual rewrite.`,
+            chunkIndex: index,
+          });
+        }
+      }
+    });
+    
+    // Check for content briefs (critical)
+    optimizationResult.contentBriefs?.forEach((brief: ContentBrief) => {
+      critical.push({
+        type: 'content_gap',
+        title: `Create content for: "${brief.targetQuery}"`,
+        description: 'No existing content addresses this query. Brief generated.',
+        brief,
+      });
+    });
+    
+    // Check for large chunks (optional)
+    layoutChunks?.forEach((chunk, index) => {
+      if (chunk.metadata.tokenEstimate > 600) {
+        optional.push({
+          type: 'large_chunk',
+          title: `Consider splitting Chunk ${index + 1}`,
+          description: `${chunk.metadata.tokenEstimate} tokens, may have mixed topics.`,
+          chunkIndex: index,
+        });
+      }
+    });
+    
+    return { critical, recommended, optional };
+  }, [optimizationResult, layoutChunks]);
 
+  const criticalCount = actionItems.critical.length;
+
+  // Empty state
   if (!hasOptimizationResult || !optimizationResult) {
     return (
-      <div className="flex-1 flex items-center justify-center p-4">
-        <div className="empty-state">
-          <FileBarChart size={48} strokeWidth={1} />
-          <h3>No optimization report yet</h3>
-          <p>Run the optimizer to generate a comprehensive report</p>
-          <button className="btn-secondary" onClick={onGoToOptimize}>
-            Go to Optimize
-          </button>
+      <div className="flex-1 flex items-center justify-center p-8">
+        <div className="text-center space-y-4">
+          <FileBarChart className="h-12 w-12 text-muted-foreground mx-auto" />
+          <h3 className="text-lg font-medium text-foreground">No optimization results yet</h3>
+          <p className="text-sm text-muted-foreground max-w-md">
+            Run optimization from the Optimization tab to generate a report.
+          </p>
+          <Button onClick={onGoToOptimize} variant="outline">
+            Go to Optimization →
+          </Button>
         </div>
       </div>
     );
   }
 
-  const handleCopy = () => {
-    navigator.clipboard.writeText(editableContent);
-    toast.success('Content copied to clipboard');
+  const handleNavigateToChunk = (chunkIndex: number) => {
+    if (onNavigateToOutputs) {
+      onNavigateToOutputs(chunkIndex);
+    }
   };
 
-  const handleExportMarkdown = () => {
-    const blob = new Blob([editableContent], { type: 'text/markdown' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = `optimized-content-${new Date().toISOString().slice(0, 10)}.md`;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    URL.revokeObjectURL(url);
-    toast.success('Exported as Markdown');
-  };
-
-  const handleExportReport = () => {
-    const report = {
-      exportedAt: new Date().toISOString(),
-      projectName: projectName || 'Untitled',
-      stats: {
-        originalWordCount: stats.originalWordCount,
-        optimizedWordCount: stats.optimizedWordCount,
-        wordCountDiff: stats.wordCountDiff,
-        chunksOptimized: stats.chunksOptimized,
-        totalChanges: stats.totalChanges,
-        overallOriginalAvg: stats.overallOriginalAvg,
-        overallOptimizedAvg: stats.overallOptimizedAvg,
-        overallPercentChange: stats.overallPercentChange,
-      },
-      originalContent: optimizationResult.originalContent,
-      optimizedContent: editableContent,
-      analysis: optimizationResult.analysis,
-      chunks: optimizationResult.optimizedChunks.map((chunk, idx) => {
-        const origScores = optimizationResult.originalFullScores?.[idx] || {};
-        const optScores = optimizationResult.optimizedFullScores?.[idx] || {};
-        
-        return {
-          chunkNumber: chunk.chunk_number,
-          heading: chunk.heading,
-          originalText: chunk.original_text,  // COMPLETE text
-          optimizedText: chunk.optimized_text, // COMPLETE text
-          changes: chunk.changes_applied.map(change => ({
-            changeId: change.change_id,
-            changeType: change.change_type,
-            before: change.before,  // Exact text changed
-            after: change.after,    // Exact replacement
-            reason: change.reason,
-            expectedImprovement: change.expected_improvement,
-            actualScores: change.actual_scores ? {
-              newScore: change.actual_scores.new_score,
-              improvementPct: change.actual_scores.improvement_pct,
-            } : null,
-          })),
-          scores: {
-            original: Object.fromEntries(
-              Object.entries(origScores).map(([query, scores]) => [query, scores])
-            ),
-            optimized: Object.fromEntries(
-              Object.entries(optScores).map(([query, scores]) => [query, scores])
-            ),
-            byQuery: chunk.scores,
-          },
-        };
-      }),
-      explanations: optimizationResult.explanations,
-      summary: optimizationResult.summary,
-      contentBriefs: optimizationResult.contentBriefs,
-    };
-    const blob = new Blob([JSON.stringify(report, null, 2)], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = `optimization-report-${new Date().toISOString().slice(0, 10)}.json`;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    URL.revokeObjectURL(url);
-    toast.success('Exported full report as JSON');
-  };
-
-  const handleApplyEdits = () => {
-    onApplyContent(editableContent);
-    toast.success('Content updated');
-  };
-
-  const copyAllBriefs = () => {
-    if (!optimizationResult?.contentBriefs?.length) return;
-    
-    const markdown = `# Content Briefs\n\n` + optimizationResult.contentBriefs.map((brief, i) => `
-## Brief ${i + 1}: ${brief.suggestedHeading}
-
-**Target Query:** ${brief.targetQuery}  
-**Placement:** ${brief.placementDescription}  
-**Target Length:** ${brief.targetWordCount.min}-${brief.targetWordCount.max} words
-
-### Key Points
-${brief.keyPoints.map(p => `- [ ] ${p}`).join('\n')}
-
-### Draft Opening
-${brief.draftOpening}
-
-### Gap Analysis
-${brief.gapAnalysis}
-`).join('\n---\n');
-
-    navigator.clipboard.writeText(markdown);
-    toast.success(`${optimizationResult.contentBriefs.length} content briefs copied as markdown`);
-  };
-
-  const toggleChunk = (idx: number) => {
-    setExpandedChunks(prev => {
-      const next = new Set(prev);
-      if (next.has(idx)) {
-        next.delete(idx);
-      } else {
-        next.add(idx);
-      }
-      return next;
-    });
-  };
-
-  // Calculate stats
-  const stats = useMemo(() => {
-    const chunks = optimizationResult.optimizedChunks;
-    const summary = optimizationResult.summary;
-
-    const originalWordCount = originalContent.trim().split(/\s+/).length;
-    const optimizedWordCount = optimizedContent.trim().split(/\s+/).length;
-    const wordCountDiff = optimizedWordCount - originalWordCount;
-
-    return {
-      chunksOptimized: chunks.length,
-      totalChanges: chunks.reduce((sum, c) => sum + c.changes_applied.length, 0),
-      queriesTargeted: keywords.length,
-      originalWordCount,
-      optimizedWordCount,
-      wordCountDiff,
-      overallOriginalAvg: summary?.overallOriginalAvg ?? 0,
-      overallOptimizedAvg: summary?.overallOptimizedAvg ?? 0,
-      overallPercentChange: summary?.overallPercentChange ?? 0,
-      timestamp: optimizationResult.timestamp,
-    };
-  }, [optimizationResult, originalContent, optimizedContent, keywords]);
-
-  // Calculate per-chunk improvements
-  const chunkImprovements = useMemo(() => {
-    return optimizationResult.optimizedChunks.map((chunk, idx) => {
-      const originalScores = optimizationResult.originalFullScores?.[idx] || {};
-      const optimizedScores = optimizationResult.optimizedFullScores?.[idx] || {};
-      
-      let totalOriginal = 0;
-      let totalOptimized = 0;
-      let count = 0;
-
-      Object.keys(optimizedScores).forEach(query => {
-        if (originalScores[query] && optimizedScores[query]) {
-          totalOriginal += originalScores[query].passageScore;
-          totalOptimized += optimizedScores[query].passageScore;
-          count++;
-        }
-      });
-
-      const avgOriginal = count > 0 ? totalOriginal / count : 0;
-      const avgOptimized = count > 0 ? totalOptimized / count : 0;
-      const improvement = avgOriginal > 0 ? ((avgOptimized - avgOriginal) / avgOriginal) * 100 : 0;
-
-      return {
-        chunk,
-        avgOriginal,
-        avgOptimized,
-        improvement,
-        changeCount: chunk.changes_applied.length,
-      };
-    });
-  }, [optimizationResult]);
-
-  const handleExportFormalReport = () => {
-    const report = generateFormalTextReport({
-      projectName,
-      originalContent,
-      optimizedContent: editableContent,
-      optimizationResult,
-      keywords,
-      stats,
-      chunkImprovements,
-    });
-
-    const blob = new Blob([report], { type: 'text/plain' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = `optimization-report-${new Date().toISOString().slice(0, 10)}.txt`;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    URL.revokeObjectURL(url);
-    toast.success('Exported formal report as TXT');
-  };
-
-  const ImprovementIcon = ({ value }: { value: number }) => {
-    if (value > 1) return <TrendingUp className="h-4 w-4 text-success" />;
-    if (value < -1) return <TrendingDown className="h-4 w-4 text-destructive" />;
-    return <Minus className="h-4 w-4 text-muted-foreground" />;
-  };
-
-  const severityColors: Record<string, string> = {
-    minor: 'text-muted-foreground',
-    moderate: 'text-warning',
-    significant: 'text-destructive',
-  };
-
-  const impactColors: Record<string, string> = {
-    high: 'text-success',
-    medium: 'text-primary',
-    low: 'text-muted-foreground',
-    unlikely: 'text-muted-foreground/50',
+  const handleViewBrief = (brief: ContentBrief) => {
+    // For now, just navigate to outputs. Could open a modal in future.
+    if (onNavigateToOutputs) {
+      onNavigateToOutputs();
+    }
   };
 
   return (
     <div className="flex-1 flex flex-col overflow-hidden">
       {/* Header */}
-      <div className="min-h-12 md:h-14 px-4 md:px-6 py-2 md:py-0 border-b border-border flex flex-wrap items-center justify-between gap-2 bg-surface shrink-0">
-        <div className="flex items-center gap-2 md:gap-3">
-          <h3 className="text-xs md:text-sm font-medium text-foreground flex items-center gap-2">
+      <div className="min-h-12 md:h-14 px-4 md:px-6 py-2 md:py-0 border-b border-border flex items-center justify-between gap-2 bg-surface shrink-0">
+        <div className="flex items-center gap-3">
+          <h3 className="text-sm font-medium text-foreground flex items-center gap-2">
             <FileBarChart className="h-4 w-4 text-accent" />
-            <span className="hidden sm:inline">Optimization Report</span>
-            <span className="sm:hidden">Report</span>
+            Final Report
           </h3>
           <Badge variant="outline" className="text-[10px] hidden sm:inline-flex">
-            {new Date(stats.timestamp).toLocaleDateString()}
+            {new Date(optimizationResult.timestamp).toLocaleDateString()}
           </Badge>
         </div>
-
-        {/* Desktop: Full buttons */}
-        {!isMobile && (
-          <div className="flex items-center gap-2">
-            <Button variant="ghost" size="sm" onClick={handleCopy}>
-              <Copy className="h-4 w-4 mr-1.5" />
-              Copy
+        <div className="flex items-center gap-2">
+          {onSaveProject && (
+            <Button size="sm" onClick={onSaveProject}>
+              Save Project
             </Button>
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button variant="ghost" size="sm">
-                  <Download className="h-4 w-4 mr-1.5" />
-                  Export
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="bg-elevated">
-                <DropdownMenuItem onClick={handleExportMarkdown}>
-                  <FileText className="h-4 w-4 mr-2" />
-                  Markdown (.md)
-                </DropdownMenuItem>
-                <DropdownMenuItem onClick={handleExportReport}>
-                  <FileJson className="h-4 w-4 mr-2" />
-                  Full Report (.json)
-                </DropdownMenuItem>
-                <DropdownMenuSeparator />
-                <DropdownMenuItem onClick={handleExportFormalReport}>
-                  <FileText className="h-4 w-4 mr-2" />
-                  Formal Report (.txt)
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
-            <Button variant="outline" size="sm" onClick={onReanalyze}>
-              <Play className="h-4 w-4 mr-1.5" />
-              Re-analyze
-            </Button>
-            {onSaveProject && (
-              <Button size="sm" onClick={onSaveProject}>
-                Save Project
-              </Button>
-            )}
-          </div>
-        )}
-
-        {/* Mobile: Condensed menu */}
-        {isMobile && (
-          <div className="flex items-center gap-2">
-            <Button variant="ghost" size="sm" onClick={handleCopy}>
-              <Copy className="h-4 w-4" />
-            </Button>
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button variant="ghost" size="sm">
-                  <MoreHorizontal className="h-4 w-4" />
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="bg-elevated">
-                <DropdownMenuItem onClick={handleExportMarkdown}>
-                  <FileText className="h-4 w-4 mr-2" />
-                  Export Markdown
-                </DropdownMenuItem>
-                <DropdownMenuItem onClick={handleExportReport}>
-                  <FileJson className="h-4 w-4 mr-2" />
-                  Export JSON
-                </DropdownMenuItem>
-                <DropdownMenuItem onClick={handleExportFormalReport}>
-                  <FileText className="h-4 w-4 mr-2" />
-                  Export Formal Report
-                </DropdownMenuItem>
-                <DropdownMenuSeparator />
-                <DropdownMenuItem onClick={onReanalyze}>
-                  <Play className="h-4 w-4 mr-2" />
-                  Re-analyze
-                </DropdownMenuItem>
-                {onSaveProject && (
-                  <DropdownMenuItem onClick={onSaveProject}>
-                    <Check className="h-4 w-4 mr-2" />
-                    Save Project
-                  </DropdownMenuItem>
-                )}
-              </DropdownMenuContent>
-            </DropdownMenu>
-          </div>
-        )}
+          )}
+        </div>
       </div>
 
-      <ScrollArea className="flex-1">
-        <div className="p-4 md:p-6 max-w-5xl mx-auto space-y-6 md:space-y-8">
-          {/* Journey Overview */}
-          <section className="panel">
-            <div className="panel-header">
-              <h4 className="text-label flex items-center gap-2">
-                <ArrowRight className="h-4 w-4" />
-                Optimization Journey
-              </h4>
+      {/* Sub-tabs */}
+      <div className="flex-1 overflow-hidden">
+        <Tabs value={activeSubTab} onValueChange={setActiveSubTab} className="h-full flex flex-col">
+          <div className="px-4 md:px-6 pt-4 border-b border-border">
+            <TabsList className="bg-muted/50">
+              <TabsTrigger value="summary" className="text-xs md:text-sm">
+                Summary
+              </TabsTrigger>
+              <TabsTrigger value="actions" className="text-xs md:text-sm relative">
+                Action Items
+                {criticalCount > 0 && (
+                  <Badge 
+                    className="ml-2 h-5 min-w-5 px-1.5 text-[10px] bg-[hsl(var(--destructive))] text-white border-0"
+                  >
+                    {criticalCount}
+                  </Badge>
+                )}
+              </TabsTrigger>
+              <TabsTrigger value="exports" className="text-xs md:text-sm">
+                Exports
+              </TabsTrigger>
+            </TabsList>
+          </div>
+
+          <ScrollArea className="flex-1">
+            <div className="p-4 md:p-6 max-w-4xl">
+              <TabsContent value="summary" className="mt-0">
+                <ReportSummary optimizationResult={optimizationResult} />
+              </TabsContent>
+
+              <TabsContent value="actions" className="mt-0">
+                <ReportActionItems
+                  actionItems={actionItems}
+                  onNavigateToChunk={handleNavigateToChunk}
+                  onViewBrief={handleViewBrief}
+                />
+              </TabsContent>
+
+              <TabsContent value="exports" className="mt-0">
+                <ReportExports
+                  content={originalContent}
+                  optimizedContent={optimizedContent}
+                  optimizationResult={optimizationResult}
+                  keywords={keywords}
+                  projectName={projectName}
+                />
+              </TabsContent>
             </div>
-            <div className="flex flex-wrap items-center justify-center md:justify-between gap-3 md:gap-4">
-              <div className="flex flex-wrap items-center justify-center gap-2 md:gap-3">
-                <div className="p-2 md:p-3 bg-muted/30 rounded-lg text-center min-w-[70px] md:min-w-[100px]">
-                  <div className="text-base md:text-lg font-bold text-foreground">{stats.originalWordCount}</div>
-                  <div className="text-[8px] md:text-[10px] uppercase tracking-wider text-muted-foreground">Original</div>
-                </div>
-                <ArrowRight className="h-3 w-3 md:h-4 md:w-4 text-muted-foreground" />
-                <div className="p-2 md:p-3 bg-muted/30 rounded-lg text-center min-w-[70px] md:min-w-[100px]">
-                  <div className="text-base md:text-lg font-bold text-foreground">{stats.chunksOptimized}</div>
-                  <div className="text-[8px] md:text-[10px] uppercase tracking-wider text-muted-foreground">Chunks</div>
-                </div>
-                <ArrowRight className="h-3 w-3 md:h-4 md:w-4 text-muted-foreground" />
-                <div className="p-2 md:p-3 bg-accent/10 border border-accent/30 rounded-lg text-center min-w-[70px] md:min-w-[100px]">
-                  <div className="text-base md:text-lg font-bold text-accent">{stats.optimizedWordCount}</div>
-                  <div className="text-[8px] md:text-[10px] uppercase tracking-wider text-muted-foreground">Optimized</div>
-                </div>
-              </div>
-              <div className="flex items-center gap-2 text-xs md:text-sm text-muted-foreground">
-                <Clock className="h-3 w-3 md:h-4 md:w-4" />
-                {stats.wordCountDiff > 0 ? '+' : ''}{stats.wordCountDiff} words
-              </div>
-            </div>
-          </section>
-
-          {/* Score Improvement Hero */}
-          <section className="panel">
-            <div className="panel-header">
-              <h4 className="text-label flex items-center gap-2">
-                <TrendingUp className="h-4 w-4" />
-                Score Improvement
-              </h4>
-            </div>
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 md:gap-6">
-              {/* Original */}
-              <div className="p-3 md:p-4 bg-muted/20 rounded-lg text-center">
-                <div className="text-xs uppercase tracking-wider text-muted-foreground mb-2">Original</div>
-                <div className={cn(
-                  "text-2xl md:text-3xl font-bold",
-                  getScoreColorClass(stats.overallOriginalAvg / 100)
-                )}>
-                  {stats.overallOriginalAvg.toFixed(1)}
-                </div>
-                <div className="text-[10px] md:text-xs text-muted-foreground mt-1">Avg Passage Score</div>
-              </div>
-
-              {/* Arrow with improvement */}
-              <div className="flex flex-col items-center justify-center">
-                <div className={cn(
-                  "text-xl md:text-2xl font-bold flex items-center gap-2",
-                  getImprovementColorClass(stats.overallPercentChange)
-                )}>
-                  <ImprovementIcon value={stats.overallPercentChange} />
-                  {formatImprovement(stats.overallPercentChange)}
-                </div>
-                <div className="text-[10px] md:text-xs text-muted-foreground mt-1">Improvement</div>
-              </div>
-
-              {/* Optimized */}
-              <div className="p-3 md:p-4 bg-accent/10 border border-accent/30 rounded-lg text-center">
-                <div className="text-xs uppercase tracking-wider text-muted-foreground mb-2">Optimized</div>
-                <div className={cn(
-                  "text-2xl md:text-3xl font-bold",
-                  getScoreColorClass(stats.overallOptimizedAvg / 100)
-                )}>
-                  {stats.overallOptimizedAvg.toFixed(1)}
-                </div>
-                <div className="text-[10px] md:text-xs text-muted-foreground mt-1">Avg Passage Score</div>
-              </div>
-            </div>
-
-            {/* Quick stats row */}
-            <div className="grid grid-cols-3 gap-3 md:gap-4 mt-4 md:mt-6 pt-4 md:pt-6 border-t border-border">
-              <div className="text-center">
-                <div className="text-xl md:text-2xl font-bold text-foreground">{stats.chunksOptimized}</div>
-                <div className="text-[10px] md:text-xs text-muted-foreground">Chunks</div>
-              </div>
-              <div className="text-center">
-                <div className="text-xl md:text-2xl font-bold text-foreground">{stats.totalChanges}</div>
-                <div className="text-[10px] md:text-xs text-muted-foreground">Changes</div>
-              </div>
-              <div className="text-center">
-                <div className="text-xl md:text-2xl font-bold text-foreground">{optimizationResult.explanations.length}</div>
-                <div className="text-[10px] md:text-xs text-muted-foreground">Explanations</div>
-              </div>
-            </div>
-          </section>
-
-          {/* Chunk-by-Chunk Breakdown */}
-          <section className="panel">
-            <div className="panel-header">
-              <h4 className="text-label flex items-center gap-2">
-                <Layers className="h-4 w-4" />
-                Chunk-by-Chunk Breakdown
-              </h4>
-            </div>
-            <div className="space-y-2">
-              {chunkImprovements.map((item, idx) => (
-                <Collapsible
-                  key={idx}
-                  open={expandedChunks.has(idx)}
-                  onOpenChange={() => toggleChunk(idx)}
-                >
-                  <CollapsibleTrigger className="w-full">
-                    <div className="flex flex-wrap items-center justify-between gap-2 p-2 md:p-3 bg-muted/20 hover:bg-muted/30 rounded-lg transition-colors">
-                      <div className="flex items-center gap-2 md:gap-3">
-                        {expandedChunks.has(idx) ? (
-                          <ChevronDown className="h-4 w-4 text-muted-foreground" />
-                        ) : (
-                          <ChevronRight className="h-4 w-4 text-muted-foreground" />
-                        )}
-                        <Badge variant="outline" className="text-[10px]">Chunk {item.chunk.chunk_number}</Badge>
-                        {item.chunk.heading && (
-                          <span className="text-xs md:text-sm text-muted-foreground truncate max-w-[100px] md:max-w-[200px] hidden sm:inline">
-                            {item.chunk.heading}
-                          </span>
-                        )}
-                      </div>
-                      <div className="flex items-center gap-2 md:gap-4">
-                        <div className="text-xs md:text-sm font-mono">
-                          <span className="text-muted-foreground">{item.avgOriginal.toFixed(0)}</span>
-                          <span className="text-muted-foreground mx-1 md:mx-2">→</span>
-                          <span className={getScoreColorClass(item.avgOptimized / 100)}>
-                            {item.avgOptimized.toFixed(0)}
-                          </span>
-                        </div>
-                        <div className={cn(
-                          "flex items-center gap-1 text-xs md:text-sm font-medium min-w-[60px] md:min-w-[80px] justify-end",
-                          getImprovementColorClass(item.improvement)
-                        )}>
-                          <ImprovementIcon value={item.improvement} />
-                          {formatImprovement(item.improvement)}
-                        </div>
-                        <Badge variant="secondary" className="min-w-[50px] md:min-w-[60px] justify-center text-[10px]">
-                          {item.changeCount} {isMobile ? '' : 'change'}{item.changeCount !== 1 && !isMobile ? 's' : ''}
-                        </Badge>
-                      </div>
-                    </div>
-                  </CollapsibleTrigger>
-                  <CollapsibleContent>
-                    <div className="mt-2 ml-4 md:ml-7 p-3 md:p-4 bg-background border border-border rounded-lg space-y-4">
-                      {/* Before/After Comparison */}
-                      <Collapsible defaultOpen={false}>
-                        <CollapsibleTrigger className="flex items-center gap-2 text-xs md:text-sm font-medium text-muted-foreground hover:text-foreground transition-colors">
-                          <ChevronRight className="h-3 w-3 md:h-4 md:w-4" />
-                          View Before / After Comparison
-                        </CollapsibleTrigger>
-                        <CollapsibleContent className="mt-3 space-y-4">
-                          {/* Original Text */}
-                          <div>
-                            <h5 className="text-[10px] md:text-xs uppercase tracking-wider text-muted-foreground mb-2 flex items-center gap-2">
-                              <span className="w-2 h-2 rounded-full bg-destructive/60" />
-                              Original Text
-                            </h5>
-                            <div className="p-3 bg-destructive/5 border border-destructive/20 rounded-md max-h-64 overflow-y-auto">
-                              <pre className="text-xs md:text-sm whitespace-pre-wrap font-sans text-muted-foreground">
-                                {item.chunk.original_text || '(No original text available)'}
-                              </pre>
-                            </div>
-                          </div>
-
-                          {/* Optimized Text */}
-                          <div>
-                            <h5 className="text-[10px] md:text-xs uppercase tracking-wider text-muted-foreground mb-2 flex items-center gap-2">
-                              <span className="w-2 h-2 rounded-full bg-success/60" />
-                              Optimized Text
-                            </h5>
-                            <div className="p-3 bg-success/5 border border-success/20 rounded-md max-h-64 overflow-y-auto">
-                              <pre className="text-xs md:text-sm whitespace-pre-wrap font-sans text-foreground">
-                                {item.chunk.optimized_text || '(No optimized text available)'}
-                              </pre>
-                            </div>
-                          </div>
-                        </CollapsibleContent>
-                      </Collapsible>
-
-                      {/* Changes applied */}
-                      <div className="space-y-2">
-                        <h5 className="text-[10px] md:text-xs uppercase tracking-wider text-muted-foreground">Changes Applied</h5>
-                        {item.chunk.changes_applied.map((change, changeIdx) => {
-                          const explanation = optimizationResult.explanations.find(
-                            e => e.change_id === change.change_id
-                          );
-                          return (
-                            <div key={changeIdx} className="p-2 md:p-3 bg-surface border border-border/50 rounded text-xs md:text-sm">
-                              <div className="flex flex-wrap items-center gap-2 mb-2">
-                                <Badge variant="outline" className="text-[10px]">
-                                  {change.change_type.replace('_', ' ')}
-                                </Badge>
-                                {change.actual_scores && (
-                                  <span className={cn(
-                                    "text-[10px] md:text-xs font-mono",
-                                    getImprovementColorClass(change.actual_scores.improvement_pct)
-                                  )}>
-                                    {formatImprovement(change.actual_scores.improvement_pct)}
-                                  </span>
-                                )}
-                              </div>
-                              <p className="text-muted-foreground text-xs md:text-sm mb-2">{change.reason}</p>
-                              
-                              {/* Before/After for individual change */}
-                              {(change.before || change.after) && (
-                                <div className="mt-2 pt-2 border-t border-border/50 space-y-1">
-                                  <div className="flex flex-wrap items-start gap-2">
-                                    <span className="text-[10px] md:text-xs font-medium text-destructive/80 shrink-0">Before:</span>
-                                    <span className="text-[10px] md:text-xs line-through text-muted-foreground/70 break-all">
-                                      "{change.before}"
-                                    </span>
-                                  </div>
-                                  <div className="flex flex-wrap items-start gap-2">
-                                    <span className="text-[10px] md:text-xs font-medium text-success/80 shrink-0">After:</span>
-                                    <span className="text-[10px] md:text-xs text-foreground break-all">
-                                      "{change.after}"
-                                    </span>
-                                  </div>
-                                </div>
-                              )}
-                              
-                              {explanation && (
-                                <div className="mt-2 pt-2 border-t border-border/50">
-                                  <p className="text-primary text-[10px] md:text-xs">{explanation.impact_summary}</p>
-                                </div>
-                              )}
-                            </div>
-                          );
-                        })}
-                      </div>
-                    </div>
-                  </CollapsibleContent>
-                </Collapsible>
-              ))}
-            </div>
-          </section>
-
-          {/* Further Suggestions */}
-          {optimizationResult.summary?.furtherSuggestions && optimizationResult.summary.furtherSuggestions.length > 0 && (
-            <Collapsible open={showSuggestions} onOpenChange={setShowSuggestions}>
-              <section className="panel">
-                <CollapsibleTrigger className="w-full">
-                  <div className="panel-header flex items-center justify-between">
-                    <h4 className="text-label flex items-center gap-2">
-                      <Lightbulb className="h-4 w-4" />
-                      <span className="hidden sm:inline">Further Optimization Suggestions</span>
-                      <span className="sm:hidden">Suggestions</span>
-                      <Badge variant="secondary" className="ml-2">
-                        {optimizationResult.summary.furtherSuggestions.length}
-                      </Badge>
-                    </h4>
-                    {showSuggestions ? (
-                      <ChevronDown className="h-4 w-4 text-muted-foreground" />
-                    ) : (
-                      <ChevronRight className="h-4 w-4 text-muted-foreground" />
-                    )}
-                  </div>
-                </CollapsibleTrigger>
-                <CollapsibleContent>
-                  <div className="space-y-3 mt-4">
-                    {optimizationResult.summary.furtherSuggestions.map((suggestion, idx) => (
-                      <div key={idx} className="p-3 md:p-4 bg-muted/20 rounded-lg space-y-2">
-                        <div className="flex flex-wrap items-start justify-between gap-2 md:gap-4">
-                          <p className="text-xs md:text-sm text-foreground flex-1">{suggestion.suggestion}</p>
-                          <Badge variant="outline" className={cn("shrink-0 text-[10px]", impactColors[suggestion.expectedImpact])}>
-                            {suggestion.expectedImpact}
-                          </Badge>
-                        </div>
-                        <p className="text-[10px] md:text-xs text-muted-foreground">{suggestion.reasoning}</p>
-                      </div>
-                    ))}
-                  </div>
-                </CollapsibleContent>
-              </section>
-            </Collapsible>
-          )}
-
-          {/* Trade-off Considerations */}
-          {optimizationResult.summary?.tradeOffConsiderations && optimizationResult.summary.tradeOffConsiderations.length > 0 && (
-            <Collapsible open={showTradeOffs} onOpenChange={setShowTradeOffs}>
-              <section className="panel">
-                <CollapsibleTrigger className="w-full">
-                  <div className="panel-header flex items-center justify-between">
-                    <h4 className="text-label flex items-center gap-2">
-                      <AlertTriangle className="h-4 w-4" />
-                      <span className="hidden sm:inline">Trade-off Considerations</span>
-                      <span className="sm:hidden">Trade-offs</span>
-                      <Badge variant="secondary" className="ml-2">
-                        {optimizationResult.summary.tradeOffConsiderations.length}
-                      </Badge>
-                    </h4>
-                    {showTradeOffs ? (
-                      <ChevronDown className="h-4 w-4 text-muted-foreground" />
-                    ) : (
-                      <ChevronRight className="h-4 w-4 text-muted-foreground" />
-                    )}
-                  </div>
-                </CollapsibleTrigger>
-                <CollapsibleContent>
-                  <div className="space-y-3 mt-4">
-                    {optimizationResult.summary.tradeOffConsiderations.map((tradeoff, idx) => (
-                      <div key={idx} className="p-3 md:p-4 bg-muted/20 rounded-lg">
-                        <div className="flex flex-wrap items-start justify-between gap-2 md:gap-4">
-                          <div className="flex flex-wrap items-start gap-2 md:gap-3 flex-1">
-                            <Badge variant="outline" className="uppercase text-[8px] md:text-[10px]">
-                              {tradeoff.category}
-                            </Badge>
-                            <p className="text-xs md:text-sm text-foreground flex-1">{tradeoff.concern}</p>
-                          </div>
-                          <Badge variant="outline" className={cn("shrink-0 text-[10px]", severityColors[tradeoff.severity])}>
-                            {tradeoff.severity}
-                          </Badge>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </CollapsibleContent>
-              </section>
-            </Collapsible>
-          )}
-
-          {/* Content Briefs for Unhoused Queries */}
-          {optimizationResult?.contentBriefs && optimizationResult.contentBriefs.length > 0 && (
-            <Card className="border-2 border-dashed border-amber-300 dark:border-amber-600">
-              <CardHeader>
-                <div className="flex items-center justify-between flex-wrap gap-2">
-                  <div>
-                    <CardTitle className="flex items-center gap-2 text-base">
-                      <FileText className="w-5 h-5 text-amber-600" />
-                      New Content Recommended
-                    </CardTitle>
-                    <p className="text-sm text-muted-foreground mt-1">
-                      {optimizationResult.contentBriefs.length} queries need new sections
-                    </p>
-                  </div>
-                  <Button variant="outline" size="sm" onClick={copyAllBriefs}>
-                    <Copy className="w-4 h-4 mr-2" />
-                    Copy All Briefs
-                  </Button>
-                </div>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                {optimizationResult.contentBriefs.map((brief, index) => (
-                  <ContentBriefCard key={brief.targetQuery} brief={brief} index={index} />
-                ))}
-                
-                <div className="pt-4 border-t">
-                  <p className="text-sm text-muted-foreground mb-2">
-                    Written new content based on these briefs?
-                  </p>
-                  <Button variant="outline" onClick={onReanalyze}>
-                    Re-analyze with Updated Content
-                  </Button>
-                </div>
-              </CardContent>
-            </Card>
-          )}
-
-          {/* Optimized Content */}
-          <Collapsible open={showContent} onOpenChange={setShowContent}>
-            <section className="panel">
-              <CollapsibleTrigger className="w-full">
-                <div className="panel-header flex items-center justify-between">
-                  <h4 className="text-label flex items-center gap-2">
-                    <Sparkles className="h-4 w-4" />
-                    Optimized Content
-                  </h4>
-                  {showContent ? (
-                    <ChevronDown className="h-4 w-4 text-muted-foreground" />
-                  ) : (
-                    <ChevronRight className="h-4 w-4 text-muted-foreground" />
-                  )}
-                </div>
-              </CollapsibleTrigger>
-              <CollapsibleContent>
-                <div className="mt-4 border border-border rounded-lg overflow-hidden">
-                  <div className="h-[300px] md:h-[400px]">
-                    <MarkdownEditor
-                      value={editableContent}
-                      onChange={setEditableContent}
-                      placeholder="Optimized content..."
-                    />
-                  </div>
-                  {editableContent !== optimizedContent && (
-                    <div className="p-3 md:p-4 border-t border-border bg-surface flex flex-col sm:flex-row items-center justify-between gap-2">
-                      <span className="text-xs md:text-sm text-muted-foreground">You have unsaved edits</span>
-                      <div className="flex items-center gap-2">
-                        <Button variant="ghost" size="sm" onClick={() => setEditableContent(optimizedContent)}>
-                          <RotateCcw className="h-4 w-4 mr-1.5" />
-                          Reset
-                        </Button>
-                        <Button size="sm" onClick={handleApplyEdits}>
-                          <Check className="h-4 w-4 mr-1.5" />
-                          Apply
-                        </Button>
-                      </div>
-                    </div>
-                  )}
-                </div>
-              </CollapsibleContent>
-            </section>
-          </Collapsible>
-        </div>
-      </ScrollArea>
+          </ScrollArea>
+        </Tabs>
+      </div>
     </div>
   );
 }
