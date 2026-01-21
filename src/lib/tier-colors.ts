@@ -122,3 +122,23 @@ export function getScoreChangeColor(change: number): string {
   if (change < 0) return SCORE_CHANGE_COLORS.negative;
   return SCORE_CHANGE_COLORS.neutral;
 }
+
+/**
+ * Diagnostic message colors
+ * For error, warning, info, and success states
+ */
+export const DIAGNOSTIC_COLORS = {
+  error: 'text-[hsl(var(--destructive))]',
+  warning: 'text-[hsl(var(--warning))]',
+  info: 'text-[hsl(var(--info))]',
+  success: 'text-[hsl(var(--success))]',
+};
+
+/**
+ * Metric visualization colors
+ * For progress bars and similarity displays
+ */
+export const METRIC_COLORS = {
+  cosine: 'bg-[hsl(var(--metric-cosine))]',
+  chamfer: 'bg-[hsl(var(--metric-chamfer))]',
+};

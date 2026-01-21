@@ -11,7 +11,7 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { cn, stripLeadingHeadingCascade } from '@/lib/utils';
 import { calculatePassageScore } from '@/lib/similarity';
-import { getTierFromScore, getTierLabel, TIER_COLORS } from '@/lib/tier-colors';
+import { getTierFromScore, getTierLabel, TIER_COLORS, SCORE_CHANGE_COLORS, getScoreChangeColor, DIAGNOSTIC_COLORS, METRIC_COLORS } from '@/lib/tier-colors';
 import { toast } from 'sonner';
 import type { LayoutAwareChunk } from '@/lib/layout-chunker';
 import type { ChunkScore } from '@/hooks/useAnalysis';
@@ -196,14 +196,14 @@ function TechnicalScoreSection({
                 <div className="font-mono text-lg font-semibold">
                   {cosine.toFixed(3)}
                 </div>
-                <div className="text-[10px] text-green-600 font-mono">
+                <div className={cn("text-[10px] font-mono", SCORE_CHANGE_COLORS.positive)}>
                   +{(cosineContribution * 100).toFixed(1)} pts
                 </div>
               </div>
             </div>
             <div className="h-2 bg-muted rounded-full overflow-hidden">
               <div 
-                className="h-full bg-blue-500 transition-all"
+                className={cn("h-full transition-all", METRIC_COLORS.cosine)}
                 style={{ width: `${cosine * 100}%` }}
               />
             </div>
@@ -225,14 +225,14 @@ function TechnicalScoreSection({
                 <div className="font-mono text-lg font-semibold">
                   {chamfer.toFixed(3)}
                 </div>
-                <div className="text-[10px] text-green-600 font-mono">
+                <div className={cn("text-[10px] font-mono", SCORE_CHANGE_COLORS.positive)}>
                   +{(chamferContribution * 100).toFixed(1)} pts
                 </div>
               </div>
             </div>
             <div className="h-2 bg-muted rounded-full overflow-hidden">
               <div 
-                className="h-full bg-purple-500 transition-all"
+                className={cn("h-full transition-all", METRIC_COLORS.chamfer)}
                 style={{ width: `${chamfer * 100}%` }}
               />
             </div>
@@ -395,15 +395,15 @@ function DiagnosticSection({
               key={i}
               className="p-3 rounded-lg border border-border flex items-start gap-3 text-sm min-w-0"
             >
-              {issue.type === 'error' && <AlertCircle className="h-4 w-4 text-red-500 shrink-0 mt-0.5" />}
-              {issue.type === 'warning' && <AlertTriangle className="h-4 w-4 text-orange-500 shrink-0 mt-0.5" />}
-              {issue.type === 'info' && <Info className="h-4 w-4 text-blue-500 shrink-0 mt-0.5" />}
+              {issue.type === 'error' && <AlertCircle className={cn("h-4 w-4 shrink-0 mt-0.5", DIAGNOSTIC_COLORS.error)} />}
+              {issue.type === 'warning' && <AlertTriangle className={cn("h-4 w-4 shrink-0 mt-0.5", DIAGNOSTIC_COLORS.warning)} />}
+              {issue.type === 'info' && <Info className={cn("h-4 w-4 shrink-0 mt-0.5", DIAGNOSTIC_COLORS.info)} />}
               <span className="text-foreground break-words">{issue.message}</span>
             </div>
           ))}
         </div>
       ) : (
-        <div className="flex items-center gap-2 text-sm text-green-600">
+        <div className={cn("flex items-center gap-2 text-sm", DIAGNOSTIC_COLORS.success)}>
           <CheckCircle2 className="h-4 w-4" />
           No obvious issues detected
         </div>
@@ -553,7 +553,7 @@ function RelatedQueriesSection({
                   <span className="text-primary font-medium">Current</span>
                 )}
                 {!isCurrent && scoreDelta > 10 && (
-                  <span className="flex items-center gap-1 text-green-600">
+                  <span className={cn("flex items-center gap-1", SCORE_CHANGE_COLORS.positive)}>
                     <TrendingUp className="h-3 w-3" />
                     Better match
                   </span>
@@ -561,7 +561,7 @@ function RelatedQueriesSection({
                 {!isCurrent && scoreDelta !== 0 && (
                   <span className={cn(
                     "font-mono font-medium",
-                    scoreDelta > 0 ? "text-green-600" : "text-red-500"
+                    getScoreChangeColor(scoreDelta)
                   )}>
                     {scoreDelta > 0 ? "+" : ""}{scoreDelta}
                   </span>
@@ -589,7 +589,7 @@ function RelatedQueriesSection({
       {/* Helpful hint */}
       {hasBetterMatch && (
         <div className="flex items-start gap-2 p-2 rounded-lg border border-border text-xs text-muted-foreground">
-          <Lightbulb className="h-3.5 w-3.5 shrink-0 mt-0.5 text-yellow-500" />
+          <Lightbulb className={cn("h-3.5 w-3.5 shrink-0 mt-0.5", DIAGNOSTIC_COLORS.warning)} />
           <span>
             One or more queries would significantly improve this chunk's score. Click to reassign.
           </span>
