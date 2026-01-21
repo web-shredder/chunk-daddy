@@ -40,10 +40,12 @@ import {
   Star,
   AlertCircle,
   BarChart3,
+  Download,
 } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
+import { downloadQueryIntelligenceCSV } from '@/lib/csv-export';
 
 // ============================================================
 // INTENT COLORS FOR DISTRIBUTION CHART
@@ -433,31 +435,54 @@ export function QueryAutoSuggest({
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
             <Brain className="h-5 w-5 text-primary" />
-            <h4 className="font-semibold text-sm">AI Query Intelligence</h4>
+            <h4 className="font-semibold text-sm">Query Intelligence with AI</h4>
           </div>
-          <Button
-            onClick={() => runAnalysis()} 
-            disabled={isAnalyzing || !content}
-            size="sm"
-            variant={detectedTopic ? 'outline' : 'default'}
-          >
-            {isAnalyzing ? (
-              <>
-                <Loader2 className="h-4 w-4 animate-spin mr-1.5" />
-                Analyzing...
-              </>
-            ) : detectedTopic ? (
-              <>
-                <RefreshCw className="h-4 w-4 mr-1.5" />
-                Re-analyze
-              </>
-            ) : (
-              <>
-                <Sparkles className="h-4 w-4 mr-1.5" />
-                Detect Topic & Suggest Queries
-              </>
+          <div className="flex items-center gap-2">
+            {detectedTopic && !isAnalyzing && (
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => {
+                  downloadQueryIntelligenceCSV({
+                    detectedTopic,
+                    primaryQuery,
+                    intelligence,
+                    suggestions,
+                    gaps,
+                  }, detectedTopic.primaryEntity);
+                  toast.success('CSV exported', {
+                    description: `Saved query intelligence for "${detectedTopic.primaryEntity}"`,
+                  });
+                }}
+              >
+                <Download className="h-4 w-4 mr-1.5" />
+                Export CSV
+              </Button>
             )}
-          </Button>
+            <Button
+              onClick={() => runAnalysis()} 
+              disabled={isAnalyzing || !content}
+              size="sm"
+              variant={detectedTopic ? 'outline' : 'default'}
+            >
+              {isAnalyzing ? (
+                <>
+                  <Loader2 className="h-4 w-4 animate-spin mr-1.5" />
+                  Analyzing...
+                </>
+              ) : detectedTopic ? (
+                <>
+                  <RefreshCw className="h-4 w-4 mr-1.5" />
+                  Re-analyze
+                </>
+              ) : (
+                <>
+                  <Sparkles className="h-4 w-4 mr-1.5" />
+                  Detect Topic & Suggest Queries
+                </>
+              )}
+            </Button>
+          </div>
         </div>
         
         {/* Progress bar */}
