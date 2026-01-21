@@ -167,7 +167,7 @@ export function MarkdownEditor({
 }: MarkdownEditorProps) {
   const [copied, setCopied] = useState(false);
   const [isUpdatingFromProp, setIsUpdatingFromProp] = useState(false);
-  const [internalShowChunkPreview, setInternalShowChunkPreview] = useState(false);
+  const [internalShowChunkPreview, setInternalShowChunkPreview] = useState(true);
   
   // Use external control if provided, otherwise internal state
   const showChunkPreview = externalShowChunkPreview ?? internalShowChunkPreview;
