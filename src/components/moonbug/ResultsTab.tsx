@@ -689,9 +689,9 @@ export function ResultsTab({
                     <div className="flex items-center justify-between mb-3">
                       <h4 className="text-xs font-medium">Query Coverage</h4>
                       <div className="flex items-center gap-1.5 text-[10px]">
-                        <span className="text-emerald-600 dark:text-emerald-400">✓ {result.coverageSummary.covered}</span>
-                        <span className="text-amber-600 dark:text-amber-400">⚠ {result.coverageSummary.weak}</span>
-                        <span className="text-rose-500">✗ {result.coverageSummary.gaps}</span>
+                        <span className="text-[hsl(var(--tier-good))]">✓ {result.coverageSummary.covered}</span>
+                        <span className="text-[hsl(var(--tier-moderate))]">⚠ {result.coverageSummary.weak}</span>
+                        <span className="text-[hsl(var(--tier-poor))]">✗ {result.coverageSummary.gaps}</span>
                       </div>
                     </div>
                     
@@ -705,9 +705,9 @@ export function ResultsTab({
                         >
                           <span className={cn(
                             "w-4 text-center shrink-0 pt-0.5",
-                            entry.status === 'covered' && "text-emerald-600 dark:text-emerald-400",
-                            entry.status === 'weak' && "text-amber-600 dark:text-amber-400",
-                            entry.status === 'gap' && "text-rose-500"
+                            entry.status === 'covered' && "text-[hsl(var(--tier-good))]",
+                            entry.status === 'weak' && "text-[hsl(var(--tier-moderate))]",
+                            entry.status === 'gap' && "text-[hsl(var(--tier-poor))]"
                           )}>
                             {entry.status === 'covered' ? '✓' : entry.status === 'weak' ? '⚠' : '✗'}
                           </span>

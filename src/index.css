@@ -106,6 +106,20 @@
     --sidebar-accent-foreground: 0 0% 98%;
     --sidebar-border: 0 0% 18%;
     --sidebar-ring: 72 100% 55%;
+
+    /* Score Tier Colors - Single Source of Truth */
+    --tier-excellent: 142 76% 50%;
+    --tier-good: 142 76% 42%;
+    --tier-moderate: 45 93% 47%;
+    --tier-weak: 24 94% 50%;
+    --tier-poor: 0 84% 60%;
+
+    /* Tier Background Colors (for badges, cards) */
+    --tier-excellent-bg: 142 76% 50% / 0.15;
+    --tier-good-bg: 142 76% 42% / 0.12;
+    --tier-moderate-bg: 45 93% 47% / 0.12;
+    --tier-weak-bg: 24 94% 50% / 0.12;
+    --tier-poor-bg: 0 84% 60% / 0.12;
   }
 }
 
