@@ -12,6 +12,7 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Button } from '@/components/ui/button';
+import { Separator } from '@/components/ui/separator';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
 import type { ChunkerOptions } from '@/lib/layout-chunker';
@@ -19,6 +20,7 @@ import type { FanoutNode, FanoutTree, FanoutIntentType } from '@/lib/optimizer-t
 import { cn } from '@/lib/utils';
 import { FanoutListView } from './FanoutListView';
 import { ExportFanoutDialog } from './ExportFanoutDialog';
+import { QueryAutoSuggest } from './QueryAutoSuggest';
 
 // Fanout tree node types for recursive display
 interface ExpandedQuery {
@@ -59,6 +61,7 @@ interface AnalyzeTabProps {
   isAnalyzing: boolean;
   progress: number;
   onGoToContent: () => void;
+  content?: string;
 }
 export function AnalyzeTab({
   hasChunks,
@@ -69,7 +72,8 @@ export function AnalyzeTab({
   onAnalyze,
   isAnalyzing,
   progress,
-  onGoToContent
+  onGoToContent,
+  content = '',
 }: AnalyzeTabProps) {
   const [newQuery, setNewQuery] = useState('');
   const [isGenerating, setIsGenerating] = useState(false);
@@ -267,16 +271,37 @@ export function AnalyzeTab({
   const canAnalyze = keywords.some(k => k.trim()) && !isAnalyzing;
   const selectedCount = expandedQueries.filter(q => q.selected).length;
   return <div className="flex-1 overflow-auto p-4 md:p-6 bg-background">
-      <div className="max-w-4xl mx-auto">
-        {/* Queries */}
+      <div className="max-w-4xl mx-auto space-y-6">
+        
+        {/* AI Query Intelligence - PRIMARY */}
+        <div className="panel">
+          <QueryAutoSuggest 
+            content={content}
+            existingQueries={keywords}
+            onAddQueries={(queries) => onKeywordsChange([...keywords, ...queries])}
+            onSetPrimaryQuery={(query) => {
+              if (!keywords.includes(query)) {
+                onKeywordsChange([query, ...keywords.filter(k => k !== query)]);
+              }
+            }}
+          />
+        </div>
+
+        {/* Divider */}
+        <div className="relative">
+          <Separator />
+          <div className="absolute inset-0 flex items-center justify-center">
+            <span className="bg-background px-3 text-xs text-muted-foreground">
+              or add queries manually
+            </span>
+          </div>
+        </div>
+
+        {/* Manual Queries */}
         <div className="panel">
           <div className="panel-header">
-            <h3>Queries</h3>
+            <h3>Query List ({keywords.length})</h3>
           </div>
-
-          <DismissableTip tipId="analyze-queries" className="mb-2">
-            Enter the exact search queries your audience will ask Google. Use "Run Fanout" to generate related questions.
-          </DismissableTip>
 
           {/* Fanout Mode Toggle */}
           <div className="flex items-center gap-2 mb-2">
