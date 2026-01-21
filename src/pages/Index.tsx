@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { Loader2 } from "lucide-react";
-import { TopBar, TabBar, ContentTab, AnalyzeTab, ResultsTab, ArchitectureTab, OptimizeTab, OutputsTab, ReportTab, type TabId } from "@/components/moonbug";
+import { TopBar, WorkflowStepper, ContentTab, AnalyzeTab, ResultsTab, ArchitectureTab, OptimizeTab, OutputsTab, ReportTab, type WorkflowStep } from "@/components/moonbug";
 import { useApiKey } from "@/hooks/useApiKey";
 import { useAnalysis, type AnalysisResult } from "@/hooks/useAnalysis";
 import { useAuth } from "@/hooks/useAuth";
@@ -39,7 +39,7 @@ const Index = () => {
     deleteProject,
   } = useProjects();
 
-  const [activeTab, setActiveTab] = useState<TabId>('content');
+  const [activeTab, setActiveTab] = useState<string>('content');
   const [content, setContent] = useState("");
   const [keywords, setKeywords] = useState<string[]>([]);
   // Track intent types for queries (from fanout)
@@ -541,6 +541,30 @@ const Index = () => {
   const hasAnalysis = !!result;
   const hasOptimizationResult = !!optimizationResult;
   const contentModified = hasAnalysis && content !== contentHashAtAnalysis;
+  const hasOutputs = streamedChunks.length > 0 || streamedArchitectureTasks.length > 0 || streamedBriefs.length > 0;
+
+  // Workflow steps definition
+  const WORKFLOW_STEPS: WorkflowStep[] = [
+    { id: 'content', label: 'Content' },
+    { id: 'analyze', label: 'Queries', shortLabel: 'Queries' },
+    { id: 'results', label: 'Chunk Analysis', shortLabel: 'Analysis' },
+    { id: 'architecture', label: 'Structure', shortLabel: 'Structure' },
+    { id: 'optimize', label: 'Optimization', shortLabel: 'Optimize' },
+    { id: 'outputs', label: 'Outputs' },
+    { id: 'report', label: 'Final Report', shortLabel: 'Report' },
+  ];
+
+  // Compute completed steps based on state
+  const completedStepIds = (() => {
+    const completed: string[] = [];
+    if (hasContent) completed.push('content');
+    if (keywords.length > 0) completed.push('analyze');
+    if (hasAnalysis) completed.push('results');
+    if (architectureAnalysis) completed.push('architecture');
+    if (hasOptimizationResult) completed.push('optimize');
+    if (hasOutputs) completed.push('outputs');
+    return completed;
+  })();
 
   if (authLoading) {
     return (
@@ -567,13 +591,11 @@ const Index = () => {
         onDeleteProject={handleDeleteProject}
       />
       
-      <TabBar
-        activeTab={activeTab}
-        onTabChange={setActiveTab}
-        hasContent={hasContent}
-        hasAnalysis={hasAnalysis}
-        hasOptimizationResult={hasOptimizationResult}
-        hasOutputs={streamedChunks.length > 0 || streamedArchitectureTasks.length > 0 || streamedBriefs.length > 0}
+      <WorkflowStepper
+        steps={WORKFLOW_STEPS}
+        currentStepId={activeTab}
+        completedStepIds={completedStepIds}
+        onStepClick={setActiveTab}
         isAnalyzing={isAnalyzing}
         isSaving={isSaving}
         hasUnsavedChanges={hasUnsavedChanges}
