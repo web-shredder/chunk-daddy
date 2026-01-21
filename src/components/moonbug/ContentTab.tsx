@@ -1,7 +1,10 @@
 import { useState } from 'react';
-import { ChevronRight, Loader2, Settings2 } from 'lucide-react';
+import { ChevronRight, Loader2, Settings2, Globe, Download, X, ChevronDown, ExternalLink } from 'lucide-react';
 import { MarkdownEditor } from '@/components/MarkdownEditor';
 import { ChunkingSettings } from '@/components/ChunkingSettings';
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
+import { Input } from '@/components/ui/input';
+import { Badge } from '@/components/ui/badge';
 import {
   Dialog,
   DialogContent,
@@ -10,6 +13,8 @@ import {
   DialogFooter,
 } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
+import { toast } from 'sonner';
+import { fetchUrlContent } from '@/lib/url-fetcher';
 import type { ChunkerOptions } from '@/lib/layout-chunker';
 
 interface ContentTabProps {
@@ -21,6 +26,8 @@ interface ContentTabProps {
   tokenCount: number;
   chunkerOptions: ChunkerOptions;
   onOptionsChange: (options: ChunkerOptions) => void;
+  sourceUrl?: string | null;
+  onSourceUrlChange?: (url: string | null) => void;
 }
 
 export function ContentTab({
@@ -31,9 +38,15 @@ export function ContentTab({
   wordCount,
   tokenCount,
   chunkerOptions,
-  onOptionsChange
+  onOptionsChange,
+  sourceUrl,
+  onSourceUrlChange,
 }: ContentTabProps) {
   const [showSettingsDialog, setShowSettingsDialog] = useState(false);
+  const [urlInput, setUrlInput] = useState('');
+  const [isFetching, setIsFetching] = useState(false);
+  const [isUrlSectionOpen, setIsUrlSectionOpen] = useState(false);
+  
   const hasContent = content.trim().length > 0;
   
   const handleChunkClick = () => {
@@ -43,6 +56,124 @@ export function ContentTab({
   const handleConfirmChunk = () => {
     setShowSettingsDialog(false);
     onChunk();
+  };
+
+  const handleFetchUrl = async () => {
+    const trimmedUrl = urlInput.trim();
+    if (!trimmedUrl) return;
+    
+    // Basic URL validation
+    let url = trimmedUrl;
+    if (!url.startsWith('http://') && !url.startsWith('https://')) {
+      url = `https://${url}`;
+    }
+    
+    setIsFetching(true);
+    try {
+      const result = await fetchUrlContent(url);
+      
+      // Set the content
+      onChange(result.markdown);
+      onSourceUrlChange?.(result.sourceUrl);
+      
+      const wordCount = result.content.split(/\s+/).filter(Boolean).length;
+      toast.success(`Imported content from ${new URL(result.sourceUrl).hostname}`, {
+        description: `${result.title} — ${wordCount.toLocaleString()} words`,
+      });
+      
+      // Clear URL input and close section
+      setUrlInput('');
+      setIsUrlSectionOpen(false);
+      
+    } catch (error) {
+      console.error('Fetch error:', error);
+      toast.error('Failed to fetch URL', {
+        description: error instanceof Error ? error.message : 'Could not retrieve content from this URL',
+      });
+    } finally {
+      setIsFetching(false);
+    }
+  };
+
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter' && urlInput.trim() && !isFetching) {
+      e.preventDefault();
+      handleFetchUrl();
+    }
+  };
+
+  const UrlImportSection = () => (
+    <Collapsible open={isUrlSectionOpen} onOpenChange={setIsUrlSectionOpen}>
+      <CollapsibleTrigger asChild>
+        <button className="flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground transition-colors mb-3">
+          <Globe className="h-4 w-4" />
+          <span>Import from URL</span>
+          <ChevronDown className={`h-4 w-4 transition-transform ${isUrlSectionOpen ? 'rotate-180' : ''}`} />
+        </button>
+      </CollapsibleTrigger>
+      <CollapsibleContent>
+        <div className="flex gap-2 mb-4">
+          <Input
+            placeholder="https://example.com/article"
+            value={urlInput}
+            onChange={(e) => setUrlInput(e.target.value)}
+            onKeyDown={handleKeyDown}
+            className="flex-1"
+            disabled={isFetching}
+          />
+          <Button
+            onClick={handleFetchUrl}
+            disabled={!urlInput.trim() || isFetching}
+            size="default"
+          >
+            {isFetching ? (
+              <>
+                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                Fetching...
+              </>
+            ) : (
+              <>
+                <Download className="h-4 w-4 mr-2" />
+                Fetch
+              </>
+            )}
+          </Button>
+        </div>
+      </CollapsibleContent>
+    </Collapsible>
+  );
+
+  const SourceUrlBadge = () => {
+    if (!sourceUrl) return null;
+    
+    let hostname = '';
+    try {
+      hostname = new URL(sourceUrl).hostname;
+    } catch {
+      hostname = sourceUrl;
+    }
+    
+    return (
+      <Badge variant="outline" className="gap-1.5 text-xs font-normal">
+        <Globe className="h-3 w-3" />
+        <span className="hidden sm:inline">Source:</span>
+        <a
+          href={sourceUrl}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="hover:underline max-w-[200px] truncate"
+        >
+          {hostname}
+        </a>
+        <button
+          onClick={() => onSourceUrlChange?.(null)}
+          className="ml-1 hover:text-destructive transition-colors"
+          title="Clear source"
+        >
+          <X className="h-3 w-3" />
+        </button>
+      </Badge>
+    );
   };
 
   if (!hasContent) {
@@ -56,6 +187,8 @@ export function ContentTab({
         </div>
         
         <div className="w-full max-w-3xl px-4 md:px-6 mt-8">
+          <UrlImportSection />
+          
           <MarkdownEditor 
             value={content} 
             onChange={onChange} 
@@ -77,11 +210,13 @@ The chunker will respect your heading hierarchy and create semantically coherent
       {/* Editor Container */}
       <div className="flex-1 overflow-auto p-4 md:p-6">
         <div className="max-w-4xl mx-auto">
+          <UrlImportSection />
+          
           <MarkdownEditor 
             value={content} 
             onChange={onChange} 
             placeholder="Start typing or paste your content here..." 
-            minHeight="calc(100vh - 280px)" 
+            minHeight="calc(100vh - 340px)" 
             maxHeight="none" 
           />
         </div>
@@ -89,9 +224,12 @@ The chunker will respect your heading hierarchy and create semantically coherent
 
       {/* Footer */}
       <div className="min-h-14 md:h-16 border-t border-border flex flex-col sm:flex-row items-center justify-between gap-2 px-4 md:px-6 py-3 md:py-0 bg-surface shrink-0">
-        <span className="text-xs text-muted-foreground">
-          {wordCount.toLocaleString()} words • ~{tokenCount.toLocaleString()} tokens
-        </span>
+        <div className="flex items-center gap-3">
+          <span className="text-xs text-muted-foreground">
+            {wordCount.toLocaleString()} words • ~{tokenCount.toLocaleString()} tokens
+          </span>
+          <SourceUrlBadge />
+        </div>
         
         <button 
           onClick={handleChunkClick} 
