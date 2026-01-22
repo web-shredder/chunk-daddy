@@ -1,8 +1,9 @@
 import { useMemo } from 'react';
 import { cn, stripLeadingHeadingCascade } from '@/lib/utils';
 import { Badge } from '@/components/ui/badge';
-import { FileText, Hash, Zap, ChevronRight, AlertCircle, TrendingUp } from 'lucide-react';
+import { FileText, Hash, Zap, ChevronRight, AlertCircle, TrendingUp, AlertTriangle } from 'lucide-react';
 import { getTierFromScore, getTierLabel, TIER_COLORS } from '@/lib/tier-colors';
+import { ScoreTriple } from './ScoreTriple';
 import type { ChunkDiagnosis, FailureMode } from '@/lib/diagnostic-scoring';
 
 interface ChunkCardProps {
@@ -15,10 +16,16 @@ interface ChunkCardProps {
     text: string;
     tokenEstimate?: number;
     assignedQuery?: string;
+    // New: three-score system
+    retrievalScore?: number;
+    rerankScore?: number;
+    citationScore?: number;
+    flaggedReason?: string | null;
   };
   isSelected: boolean;
   onClick: () => void;
   diagnosis?: ChunkDiagnosis;
+  showTripleScore?: boolean; // Whether to show three scores or just passage score
 }
 
 function getScoreTierStyles(score: number) {
@@ -54,8 +61,14 @@ const DIAGNOSIS_BADGES: Record<FailureMode, { label: string; color: string; shor
   'already_optimized': { label: 'Optimized ✓', shortLabel: 'Good', color: 'bg-[hsl(var(--tier-good-bg))] text-[hsl(var(--tier-good))] border-[hsl(var(--tier-good)/0.3)]' },
 };
 
-export function ChunkCard({ chunk, isSelected, onClick, diagnosis }: ChunkCardProps) {
+export function ChunkCard({ chunk, isSelected, onClick, diagnosis, showTripleScore = false }: ChunkCardProps) {
   const tierStyles = getScoreTierStyles(chunk.score);
+  
+  // Determine if we should show triple scores
+  const hasTripleScores = showTripleScore && 
+    chunk.retrievalScore !== undefined && 
+    chunk.rerankScore !== undefined && 
+    chunk.citationScore !== undefined;
   
   // Build breadcrumb from headingPath (show last 2-3 levels max)
   const breadcrumb = useMemo(() => {
@@ -131,20 +144,31 @@ export function ChunkCard({ chunk, isSelected, onClick, diagnosis }: ChunkCardPr
           </h4>
         </div>
         
-        {/* Right: Score badge */}
-        <Badge 
-          variant="outline" 
-          className={cn(
-            "shrink-0 font-mono text-[10px] px-1.5 py-0 h-5 gap-1",
-            tierStyles.textColor
-          )}
-        >
-          <div className={cn("w-1.5 h-1.5 rounded-full shrink-0", tierStyles.dotColor)} />
-          {chunk.score}
-          <span className="hidden sm:inline text-[9px] opacity-70">
-            {tierStyles.label}
-          </span>
-        </Badge>
+        {/* Right: Score display */}
+        {hasTripleScores ? (
+          <ScoreTriple
+            retrieval={chunk.retrievalScore!}
+            rerank={chunk.rerankScore!}
+            citation={chunk.citationScore!}
+            size="xs"
+            showLabels={true}
+            flaggedReason={chunk.flaggedReason}
+          />
+        ) : (
+          <Badge 
+            variant="outline" 
+            className={cn(
+              "shrink-0 font-mono text-[10px] px-1.5 py-0 h-5 gap-1",
+              tierStyles.textColor
+            )}
+          >
+            <div className={cn("w-1.5 h-1.5 rounded-full shrink-0", tierStyles.dotColor)} />
+            {chunk.score}
+            <span className="hidden sm:inline text-[9px] opacity-70">
+              {tierStyles.label}
+            </span>
+          </Badge>
+        )}
       </div>
       
       {/* Assigned Query + Diagnosis */}
