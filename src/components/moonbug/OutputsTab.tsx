@@ -75,6 +75,9 @@ interface OutputsTabProps {
   // Verification summary
   verificationSummary?: VerificationSummary | null;
   
+  // Skipped chunks count (already optimal)
+  skippedOptimalCount?: number;
+  
   // Actions
   onApplyChanges: () => void;
   onCopyContent: () => void;
@@ -421,6 +424,7 @@ export function OutputsTab({
   optimizedChunks,
   generatedBriefs,
   verificationSummary,
+  skippedOptimalCount = 0,
   onApplyChanges,
   onCopyContent,
   onExportReport,
@@ -550,6 +554,13 @@ export function OutputsTab({
           {isComplete && verificationSummary && (
             <Card className="glass border-primary/20">
               <CardContent className="py-4">
+                {/* Skipped optimal chunks notice */}
+                {skippedOptimalCount > 0 && (
+                  <div className="text-sm text-muted-foreground mb-4 pb-3 border-b border-border/50 flex items-center gap-2">
+                    <TrendingUp className="h-4 w-4 text-[hsl(var(--tier-good))]" />
+                    {skippedOptimalCount} chunk{skippedOptimalCount > 1 ? 's' : ''} skipped (already optimal)
+                  </div>
+                )}
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-center">
                   <div>
                     <p className="text-2xl font-bold text-primary tabular-nums">

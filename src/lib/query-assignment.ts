@@ -3,6 +3,57 @@
 
 import type { FanoutIntentType } from './optimizer-types';
 
+// ============ Exclusion Reason Types ============
+
+export type ExcludeReason = 'no_assignment' | 'already_optimal' | 'below_threshold' | null;
+
+/**
+ * Determine why a chunk should be excluded from optimization.
+ * Returns null if the chunk should be included.
+ */
+export function getExcludeReason(
+  chunkIndex: number,
+  assignment: QueryAssignment | null,
+  preOptimizationScore: number,
+  forceOptimizeSet: Set<number>
+): ExcludeReason {
+  // No query assigned to this chunk
+  if (!assignment) {
+    return 'no_assignment';
+  }
+  
+  // User explicitly wants to optimize this chunk
+  if (forceOptimizeSet.has(chunkIndex)) {
+    return null;
+  }
+  
+  // Already in Good tier or above - skip optimization
+  if (preOptimizationScore >= 75) {
+    return 'already_optimal';
+  }
+  
+  // Score too low to be worth optimizing (optional threshold)
+  if (preOptimizationScore < 20) {
+    return 'below_threshold';
+  }
+  
+  return null; // Include in optimization
+}
+
+/**
+ * Get human-readable label for exclusion reason
+ */
+export function getExcludeReasonLabel(reason: ExcludeReason): string {
+  switch (reason) {
+    case 'no_assignment': return 'No query assigned';
+    case 'already_optimal': return 'Already optimal';
+    case 'below_threshold': return 'Score too low';
+    default: return '';
+  }
+}
+
+// ============ Core Types ============
+
 export interface QueryAssignment {
   query: string;
   assignedChunkIndex: number;
