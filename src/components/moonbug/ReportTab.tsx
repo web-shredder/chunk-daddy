@@ -8,6 +8,7 @@ import { ReportSummary, ReportActionItems, ReportExports, type ActionItem, type 
 import { getTierFromScore } from '@/lib/tier-colors';
 import type { FullOptimizationResult, ContentBrief } from '@/lib/optimizer-types';
 import type { LayoutAwareChunk } from '@/lib/layout-chunker';
+import type { AnalysisResult } from '@/hooks/useAnalysis';
 
 interface ReportTabProps {
   hasOptimizationResult: boolean;
@@ -22,6 +23,7 @@ interface ReportTabProps {
   onSaveProject?: () => void;
   projectName?: string;
   onNavigateToOutputs?: (chunkIndex?: number) => void;
+  analysisResult?: AnalysisResult | null;
 }
 
 export function ReportTab({
@@ -37,6 +39,7 @@ export function ReportTab({
   onSaveProject,
   projectName,
   onNavigateToOutputs,
+  analysisResult,
 }: ReportTabProps) {
   const [activeSubTab, setActiveSubTab] = useState('summary');
 
@@ -195,7 +198,11 @@ export function ReportTab({
           <ScrollArea className="flex-1">
             <div className="p-4 md:p-6 max-w-4xl">
               <TabsContent value="summary" className="mt-0">
-                <ReportSummary optimizationResult={optimizationResult} />
+                <ReportSummary 
+                  optimizationResult={optimizationResult} 
+                  analysisResult={analysisResult}
+                  onNavigateToChunk={handleNavigateToChunk}
+                />
               </TabsContent>
 
               <TabsContent value="actions" className="mt-0">

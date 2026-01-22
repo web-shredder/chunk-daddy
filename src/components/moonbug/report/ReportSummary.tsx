@@ -1,14 +1,23 @@
 import { useMemo } from 'react';
 import { Card, CardContent } from '@/components/ui/card';
+import { Separator } from '@/components/ui/separator';
 import { getTierFromScore, TIER_COLORS, TIER_DEFINITIONS, type ScoreTier, type TierDefinition } from '@/lib/tier-colors';
 import { cn } from '@/lib/utils';
 import type { FullOptimizationResult, ContentBrief } from '@/lib/optimizer-types';
+import type { AnalysisResult } from '@/hooks/useAnalysis';
+import { DocumentHealthHero } from './DocumentHealthHero';
+import { FailureModeChart } from './FailureModeChart';
+import { PriorityBreakdownGrid } from './PriorityBreakdownGrid';
+import { StageScoreBreakdown } from './StageScoreBreakdown';
+import { TopIssuesPanel } from './TopIssuesPanel';
 
 interface ReportSummaryProps {
   optimizationResult: FullOptimizationResult;
+  analysisResult?: AnalysisResult | null;
+  onNavigateToChunk?: (chunkIndex: number) => void;
 }
 
-export function ReportSummary({ optimizationResult }: ReportSummaryProps) {
+export function ReportSummary({ optimizationResult, analysisResult, onNavigateToChunk }: ReportSummaryProps) {
   const metrics = useMemo(() => {
     const chunks = optimizationResult.optimizedChunks || [];
     const originalScores = optimizationResult.originalFullScores || {};
@@ -74,9 +83,33 @@ export function ReportSummary({ optimizationResult }: ReportSummaryProps) {
     };
   }, [optimizationResult]);
 
+  const hasDiagnostics = analysisResult?.diagnostics && analysisResult.diagnostics.length > 0;
+
   return (
-    <div className="space-y-6">
-      {/* Metric Cards */}
+    <div className="space-y-8">
+      {/* NEW: Document Health Dashboard */}
+      {hasDiagnostics && (
+        <>
+          <DocumentHealthHero diagnostics={analysisResult.diagnostics} />
+          
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            <FailureModeChart diagnostics={analysisResult.diagnostics} />
+            <div className="space-y-6">
+              <PriorityBreakdownGrid diagnostics={analysisResult.diagnostics} />
+              <TopIssuesPanel 
+                diagnostics={analysisResult.diagnostics} 
+                onNavigateToChunk={onNavigateToChunk}
+              />
+            </div>
+          </div>
+          
+          <StageScoreBreakdown diagnostics={analysisResult.diagnostics} />
+          
+          <Separator className="my-6" />
+        </>
+      )}
+
+      {/* Optimization Metrics */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         <MetricCard
           label="Average Score"

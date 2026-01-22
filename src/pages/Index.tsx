@@ -1035,6 +1035,7 @@ const Index = () => {
             setActiveTab('outputs');
             // Could store chunkIndex for highlighting in outputs tab in the future
           }}
+          analysisResult={result}
         />
       )}
 
