@@ -1,10 +1,11 @@
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent, CardHeader, CardTitle, CardFooter } from '@/components/ui/card';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { Progress } from '@/components/ui/progress';
 import { ScrollArea } from '@/components/ui/scroll-area';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { 
   CheckCircle2, 
   FileText, 
@@ -19,16 +20,27 @@ import {
   Package,
   AlertCircle,
   RefreshCw,
+  Clock,
+  AlertTriangle,
+  Flag,
+  Eye,
+  Lightbulb,
+  TrendingUp,
+  TrendingDown,
+  Minus,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import type { 
   ArchitectureTask,
   ContentBrief,
+  VerificationSummary,
 } from '@/lib/optimizer-types';
 import { toast } from 'sonner';
 
-interface StreamedChunk {
+// Extended StreamedChunk with verification data
+interface StreamedChunkWithScores {
   chunk_number: number;
+  originalChunkIndex: number;
   original_text: string;
   optimized_text: string;
   assignedQuery?: string;
@@ -37,6 +49,15 @@ interface StreamedChunk {
   optimizedScore?: number;
   scoreChange?: number;
   explanation?: string;
+  // Verification data
+  beforeScores?: { semantic: number; lexical: number; citation: number; composite: number };
+  afterScores?: { semantic: number; lexical: number; citation: number; composite: number };
+  deltas?: { semantic: number; lexical: number; citation: number; composite: number };
+  improved?: boolean;
+  verified?: boolean;
+  changes_applied?: Array<{ type: string; description: string }>;
+  unaddressable?: string[];
+  thinking?: string;
 }
 
 interface OutputsTabProps {
@@ -48,15 +69,347 @@ interface OutputsTabProps {
   
   // Incremental results (populated as they stream in)
   appliedArchitectureTasks: ArchitectureTask[];
-  optimizedChunks: StreamedChunk[];
+  optimizedChunks: StreamedChunkWithScores[];
   generatedBriefs: ContentBrief[];
+  
+  // Verification summary
+  verificationSummary?: VerificationSummary | null;
   
   // Actions
   onApplyChanges: () => void;
   onCopyContent: () => void;
   onExportReport: () => void;
   onGoToOptimize: () => void;
+  onGoToReport?: () => void;
   onRetry?: () => void;
+  onViewInDocument?: (chunkIndex: number) => void;
+}
+
+// Score column component for the verification grid
+function ScoreColumn({ 
+  label, 
+  before, 
+  after 
+}: { 
+  label: string; 
+  before: number; 
+  after: number;
+}) {
+  const delta = Math.round((after - before) * 10) / 10;
+  const isPositive = delta > 0;
+  const isNegative = delta < 0;
+  
+  return (
+    <div className="text-center">
+      <div className="text-xs text-muted-foreground mb-1 font-medium">{label}</div>
+      <div className="flex items-center justify-center gap-1.5">
+        <span className="text-muted-foreground tabular-nums">{Math.round(before)}</span>
+        <ArrowRight className="h-3 w-3 text-muted-foreground/50" />
+        <span className={cn(
+          "font-semibold tabular-nums",
+          isPositive && "text-green-600 dark:text-green-400",
+          isNegative && "text-red-600 dark:text-red-400"
+        )}>
+          {Math.round(after)}
+        </span>
+      </div>
+      <div className={cn(
+        "text-xs tabular-nums font-medium mt-0.5",
+        isPositive && "text-green-600 dark:text-green-400",
+        isNegative && "text-red-600 dark:text-red-400",
+        !isPositive && !isNegative && "text-muted-foreground"
+      )}>
+        {delta > 0 ? '+' : ''}{delta}
+      </div>
+    </div>
+  );
+}
+
+// Individual optimized chunk card with tabs
+function OptimizedChunkCard({ 
+  chunk, 
+  onCopy,
+  onViewInDocument,
+}: { 
+  chunk: StreamedChunkWithScores;
+  onCopy: (text: string) => void;
+  onViewInDocument?: (chunkIndex: number) => void;
+}) {
+  const [viewMode, setViewMode] = useState<'diff' | 'before' | 'after' | 'reasoning'>('diff');
+  
+  const isVerified = chunk.verified === true;
+  const isImproved = chunk.improved === true;
+  const hasDeclined = chunk.deltas?.composite !== undefined && chunk.deltas.composite < 0;
+  const hasChanges = chunk.changes_applied && chunk.changes_applied.length > 0;
+  const hasUnaddressable = chunk.unaddressable && chunk.unaddressable.length > 0;
+  
+  // Simple diff highlighting
+  const renderDiff = () => {
+    const before = chunk.original_text || '';
+    const after = chunk.optimized_text || '';
+    
+    if (before === after) {
+      return <p className="text-muted-foreground italic text-sm">No changes made</p>;
+    }
+    
+    return (
+      <div className="grid md:grid-cols-2 gap-3">
+        <div className="space-y-1">
+          <p className="text-xs font-medium text-muted-foreground flex items-center gap-1">
+            <Minus className="h-3 w-3 text-red-500" /> Before
+          </p>
+          <div className="p-3 rounded-lg bg-red-50/50 dark:bg-red-950/20 text-sm whitespace-pre-wrap break-words border border-red-200/50 dark:border-red-800/30 max-h-48 overflow-y-auto">
+            {before}
+          </div>
+        </div>
+        <div className="space-y-1">
+          <p className="text-xs font-medium text-muted-foreground flex items-center gap-1">
+            <TrendingUp className="h-3 w-3 text-green-500" /> After
+          </p>
+          <div className="p-3 rounded-lg bg-green-50/50 dark:bg-green-950/20 text-sm whitespace-pre-wrap break-words border border-green-200/50 dark:border-green-800/30 max-h-48 overflow-y-auto">
+            {after}
+          </div>
+        </div>
+      </div>
+    );
+  };
+  
+  return (
+    <Card className={cn(
+      "transition-all",
+      isImproved && "border-green-300/50 dark:border-green-700/50",
+      hasDeclined && "border-red-300/50 dark:border-red-700/50"
+    )}>
+      {/* Header */}
+      <CardHeader className="pb-2">
+        <div className="flex items-center justify-between flex-wrap gap-2">
+          <div className="flex items-center gap-2 min-w-0">
+            <span className="font-semibold text-sm shrink-0">
+              Chunk {chunk.originalChunkIndex + 1}
+            </span>
+            {chunk.heading && (
+              <span className="text-muted-foreground text-sm truncate">
+                — {chunk.heading}
+              </span>
+            )}
+          </div>
+          <div className="flex items-center gap-2 shrink-0">
+            {isVerified ? (
+              <Badge variant="outline" className="text-green-600 border-green-300 dark:border-green-700 text-xs">
+                <CheckCircle2 className="h-3 w-3 mr-1" /> Verified
+              </Badge>
+            ) : (
+              <Badge variant="outline" className="text-yellow-600 border-yellow-300 dark:border-yellow-700 text-xs">
+                <Clock className="h-3 w-3 mr-1" /> Pending
+              </Badge>
+            )}
+            {isImproved && (
+              <Badge variant="default" className="bg-green-600 text-xs">
+                <TrendingUp className="h-3 w-3 mr-1" /> Improved
+              </Badge>
+            )}
+            {hasDeclined && (
+              <Badge variant="destructive" className="text-xs">
+                <TrendingDown className="h-3 w-3 mr-1" /> Declined
+              </Badge>
+            )}
+          </div>
+        </div>
+        {chunk.assignedQuery && (
+          <p className="text-xs text-muted-foreground mt-1">
+            Optimized for: <span className="font-medium">"{chunk.assignedQuery}"</span>
+          </p>
+        )}
+      </CardHeader>
+      
+      {/* Score Comparison Grid (only if verified) */}
+      {isVerified && chunk.beforeScores && chunk.afterScores && (
+        <div className="px-6 py-3 bg-muted/30 border-y">
+          <div className="grid grid-cols-4 gap-4">
+            <ScoreColumn 
+              label="Semantic" 
+              before={chunk.beforeScores.semantic} 
+              after={chunk.afterScores.semantic}
+            />
+            <ScoreColumn 
+              label="Lexical" 
+              before={chunk.beforeScores.lexical} 
+              after={chunk.afterScores.lexical}
+            />
+            <ScoreColumn 
+              label="Citation" 
+              before={chunk.beforeScores.citation} 
+              after={chunk.afterScores.citation}
+            />
+            <ScoreColumn 
+              label="Composite" 
+              before={chunk.beforeScores.composite} 
+              after={chunk.afterScores.composite}
+            />
+          </div>
+        </div>
+      )}
+      
+      <CardContent className="pt-4">
+        {/* View Mode Tabs */}
+        <Tabs value={viewMode} onValueChange={(v) => setViewMode(v as typeof viewMode)}>
+          <TabsList className="mb-3 h-8">
+            <TabsTrigger value="diff" className="text-xs h-7">
+              <Eye className="h-3 w-3 mr-1" /> Diff
+            </TabsTrigger>
+            <TabsTrigger value="before" className="text-xs h-7">Before</TabsTrigger>
+            <TabsTrigger value="after" className="text-xs h-7">After</TabsTrigger>
+            <TabsTrigger value="reasoning" className="text-xs h-7">
+              <Lightbulb className="h-3 w-3 mr-1" /> Reasoning
+            </TabsTrigger>
+          </TabsList>
+          
+          <TabsContent value="diff" className="mt-0">
+            {renderDiff()}
+          </TabsContent>
+          
+          <TabsContent value="before" className="mt-0">
+            <div className="p-3 bg-red-50/50 dark:bg-red-950/20 rounded-lg text-sm whitespace-pre-wrap break-words border border-red-200/30 dark:border-red-800/30 max-h-64 overflow-y-auto">
+              {chunk.original_text}
+            </div>
+          </TabsContent>
+          
+          <TabsContent value="after" className="mt-0">
+            <div className="p-3 bg-green-50/50 dark:bg-green-950/20 rounded-lg text-sm whitespace-pre-wrap break-words border border-green-200/30 dark:border-green-800/30 max-h-64 overflow-y-auto">
+              {chunk.optimized_text}
+            </div>
+          </TabsContent>
+          
+          <TabsContent value="reasoning" className="mt-0">
+            {chunk.thinking ? (
+              <div className="p-3 bg-blue-50/50 dark:bg-blue-950/20 rounded-lg text-sm border border-blue-200/30 dark:border-blue-800/30">
+                <p className="font-medium mb-2 text-blue-700 dark:text-blue-300">AI's reasoning:</p>
+                <p className="whitespace-pre-wrap text-muted-foreground">{chunk.thinking}</p>
+              </div>
+            ) : (
+              <p className="text-muted-foreground text-sm italic p-3">
+                No reasoning captured for this optimization.
+              </p>
+            )}
+          </TabsContent>
+        </Tabs>
+        
+        {/* Changes Applied */}
+        {hasChanges && (
+          <div className="mt-4">
+            <p className="text-xs font-medium mb-2 text-muted-foreground">Changes Made:</p>
+            <div className="flex flex-wrap gap-1.5">
+              {chunk.changes_applied!.map((change, i) => (
+                <Badge key={i} variant="secondary" className="text-xs font-normal">
+                  <span className="font-medium capitalize">{change.type.replace(/_/g, ' ')}</span>
+                  {change.description && `: ${change.description.slice(0, 40)}${change.description.length > 40 ? '…' : ''}`}
+                </Badge>
+              ))}
+            </div>
+          </div>
+        )}
+        
+        {/* Unaddressable Issues */}
+        {hasUnaddressable && (
+          <div className="mt-4 p-3 bg-yellow-50/50 dark:bg-yellow-950/20 rounded-lg border border-yellow-200/50 dark:border-yellow-800/30">
+            <p className="text-sm font-medium text-yellow-700 dark:text-yellow-300 mb-1 flex items-center gap-1">
+              <AlertTriangle className="h-4 w-4" />
+              Couldn't auto-fix:
+            </p>
+            <ul className="text-sm text-yellow-600 dark:text-yellow-400 list-disc pl-5 space-y-0.5">
+              {chunk.unaddressable!.map((issue, i) => (
+                <li key={i}>{issue}</li>
+              ))}
+            </ul>
+          </div>
+        )}
+      </CardContent>
+      
+      {/* Footer Actions */}
+      <CardFooter className="border-t pt-3 flex justify-between flex-wrap gap-2">
+        <div className="flex gap-2">
+          <Button 
+            variant="outline" 
+            size="sm" 
+            className="h-7 text-xs"
+            onClick={() => onCopy(chunk.optimized_text)}
+          >
+            <Copy className="h-3 w-3 mr-1" /> Copy
+          </Button>
+          {onViewInDocument && (
+            <Button 
+              variant="outline" 
+              size="sm"
+              className="h-7 text-xs"
+              onClick={() => onViewInDocument(chunk.originalChunkIndex)}
+            >
+              <Eye className="h-3 w-3 mr-1" /> View in Doc
+            </Button>
+          )}
+        </div>
+        {hasDeclined && (
+          <Button variant="outline" size="sm" className="h-7 text-xs text-red-600 border-red-200 hover:bg-red-50">
+            <Flag className="h-3 w-3 mr-1" /> Flag for Manual Edit
+          </Button>
+        )}
+      </CardFooter>
+    </Card>
+  );
+}
+
+// Content brief card
+function ContentBriefCard({ brief }: { brief: ContentBrief }) {
+  const copyBrief = () => {
+    const briefText = 
+      `## ${brief.suggestedHeading}\n\n` +
+      `Query: ${brief.targetQuery}\n\n` +
+      `Key points:\n${brief.keyPoints?.map(p => `- ${p}`).join('\n') || ''}\n\n` +
+      `Draft opening: ${brief.draftOpening || ''}\n\n` +
+      `Target word count: ${brief.targetWordCount?.min || 300}-${brief.targetWordCount?.max || 500}`;
+    navigator.clipboard.writeText(briefText);
+    toast.success('Brief copied to clipboard');
+  };
+  
+  return (
+    <div className="p-4 rounded-lg border border-orange-200/50 bg-orange-50/30 dark:bg-orange-950/20 dark:border-orange-800/30">
+      <div className="flex items-start justify-between mb-2">
+        <p className="font-medium">{brief.suggestedHeading}</p>
+        <Badge variant="outline" className="text-xs shrink-0">
+          ~{brief.targetWordCount?.min || 300}-{brief.targetWordCount?.max || 500} words
+        </Badge>
+      </div>
+      
+      <p className="text-xs text-muted-foreground mb-2">
+        For query: <span className="font-medium">"{brief.targetQuery}"</span>
+      </p>
+      
+      <p className="text-xs text-muted-foreground mb-3">
+        Placement: {brief.placementDescription}
+      </p>
+      
+      {brief.keyPoints && brief.keyPoints.length > 0 && (
+        <div className="mb-3">
+          <p className="text-xs font-medium mb-1">Key points:</p>
+          <ul className="text-xs text-muted-foreground space-y-0.5 list-disc list-inside">
+            {brief.keyPoints.map((point, i) => (
+              <li key={i}>{point}</li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      {brief.draftOpening && (
+        <div className="mb-3">
+          <p className="text-xs font-medium mb-1">Draft opening:</p>
+          <p className="text-xs text-muted-foreground italic">"{brief.draftOpening}"</p>
+        </div>
+      )}
+
+      <Button size="sm" variant="outline" className="text-xs h-7" onClick={copyBrief}>
+        <Copy className="h-3 w-3 mr-1" /> Copy Brief
+      </Button>
+    </div>
+  );
 }
 
 export function OutputsTab({
@@ -67,11 +420,14 @@ export function OutputsTab({
   appliedArchitectureTasks,
   optimizedChunks,
   generatedBriefs,
+  verificationSummary,
   onApplyChanges,
   onCopyContent,
   onExportReport,
   onGoToOptimize,
+  onGoToReport,
   onRetry,
+  onViewInDocument,
 }: OutputsTabProps) {
   const [expandedSections, setExpandedSections] = useState<Record<string, boolean>>({
     architecture: true,
@@ -89,38 +445,61 @@ export function OutputsTab({
 
   const isComplete = !isOptimizing && hasAnyOutput;
   
-  // Calculate summary stats
-  const chunksImproved = optimizedChunks.filter(c => (c.scoreChange || 0) > 0).length;
-  const chunksDeclined = optimizedChunks.filter(c => (c.scoreChange || 0) < 0).length;
-  const avgScoreBefore = optimizedChunks.length > 0 
-    ? Math.round(optimizedChunks.reduce((sum, c) => sum + (c.originalScore || 0), 0) / optimizedChunks.length)
-    : 0;
-  const avgScoreAfter = optimizedChunks.length > 0
-    ? Math.round(optimizedChunks.reduce((sum, c) => sum + (c.optimizedScore || 0), 0) / optimizedChunks.length)
-    : 0;
+  // Calculate summary stats from verification or fallback
+  const stats = useMemo(() => {
+    if (verificationSummary) {
+      return {
+        chunksImproved: verificationSummary.chunksImproved,
+        chunksDeclined: verificationSummary.chunksDeclined,
+        avgBefore: verificationSummary.avgCompositeBefore,
+        avgAfter: verificationSummary.avgCompositeAfter,
+        avgImprovement: verificationSummary.avgImprovement,
+      };
+    }
+    // Fallback calculation
+    const improved = optimizedChunks.filter(c => c.improved === true).length;
+    const declined = optimizedChunks.filter(c => c.deltas?.composite !== undefined && c.deltas.composite < 0).length;
+    return {
+      chunksImproved: improved,
+      chunksDeclined: declined,
+      avgBefore: 0,
+      avgAfter: 0,
+      avgImprovement: 0,
+    };
+  }, [verificationSummary, optimizedChunks]);
+  
+  const handleCopy = (text: string) => {
+    navigator.clipboard.writeText(text);
+    toast.success('Copied to clipboard');
+  };
+  
+  // Progress phase description
+  const getProgressDescription = () => {
+    if (progress < 20) return 'Applying structural fixes...';
+    if (progress < 70) return `Optimizing chunks (${optimizedChunks.length} complete)...`;
+    if (progress < 95) return 'Verifying improvements...';
+    return 'Complete!';
+  };
 
   return (
     <div className="flex-1 overflow-auto">
       <ScrollArea className="h-full">
-        <div className="p-4 md:p-6 max-w-4xl mx-auto space-y-6">
+        <div className="p-4 md:p-6 max-w-4xl mx-auto space-y-6 pb-24">
           
           {/* ============ PROGRESS HEADER ============ */}
           {isOptimizing && (
-            <Card className="border-accent/30 bg-accent/5">
-              <CardContent className="pt-6">
-                <div className="flex items-center justify-between mb-3">
-                  <div className="flex items-center gap-3">
-                    <Loader2 className="h-5 w-5 animate-spin text-accent" />
-                    <div>
-                      <p className="font-medium text-sm">{currentStep}</p>
-                      <p className="text-xs text-muted-foreground">
-                        Processing optimization...
-                      </p>
-                    </div>
-                  </div>
-                  <span className="text-sm font-mono text-accent">{progress}%</span>
-                </div>
-                <Progress value={progress} className="h-2" />
+            <Card className="border-primary/30 bg-primary/5">
+              <CardHeader className="pb-2">
+                <CardTitle className="flex items-center gap-2 text-base">
+                  <Loader2 className="h-5 w-5 animate-spin text-primary" />
+                  {currentStep || 'Processing...'}
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <Progress value={progress} className="h-2 mb-2" />
+                <p className="text-sm text-muted-foreground">
+                  {getProgressDescription()}
+                </p>
               </CardContent>
             </Card>
           )}
@@ -167,6 +546,43 @@ export function OutputsTab({
             </Card>
           )}
 
+          {/* ============ VERIFICATION SUMMARY ============ */}
+          {isComplete && verificationSummary && (
+            <Card className="glass border-primary/20">
+              <CardContent className="py-4">
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-center">
+                  <div>
+                    <p className="text-2xl font-bold text-primary tabular-nums">
+                      {verificationSummary.optimizedCount}
+                    </p>
+                    <p className="text-xs text-muted-foreground">Chunks Optimized</p>
+                  </div>
+                  <div>
+                    <p className="text-2xl font-bold text-green-600 tabular-nums">
+                      {verificationSummary.chunksImproved}
+                    </p>
+                    <p className="text-xs text-muted-foreground">Improved</p>
+                  </div>
+                  <div>
+                    <p className="text-2xl font-bold text-red-600 tabular-nums">
+                      {verificationSummary.chunksDeclined}
+                    </p>
+                    <p className="text-xs text-muted-foreground">Declined</p>
+                  </div>
+                  <div>
+                    <p className={cn(
+                      "text-2xl font-bold tabular-nums",
+                      verificationSummary.avgImprovement > 0 ? "text-green-600" : "text-red-600"
+                    )}>
+                      {verificationSummary.avgImprovement > 0 ? '+' : ''}{verificationSummary.avgImprovement.toFixed(1)}
+                    </p>
+                    <p className="text-xs text-muted-foreground">Avg. Improvement</p>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
           {/* ============ ARCHITECTURE OUTPUTS ============ */}
           {appliedArchitectureTasks.length > 0 && (
             <Collapsible open={expandedSections.architecture} onOpenChange={() => toggleSection('architecture')}>
@@ -177,7 +593,7 @@ export function OutputsTab({
                       <CardTitle className="flex items-center gap-2 text-sm">
                         {expandedSections.architecture ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
                         <Wrench className="h-4 w-4 text-muted-foreground" />
-                        Architecture Fixes Applied
+                        Structural Changes
                       </CardTitle>
                       <Badge variant="secondary">
                         {appliedArchitectureTasks.length} applied
@@ -221,13 +637,13 @@ export function OutputsTab({
                     <div className="flex items-center justify-between">
                       <CardTitle className="flex items-center gap-2 text-sm">
                         {expandedSections.chunks ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
-                        <Sparkles className="h-4 w-4 text-accent" />
+                        <Sparkles className="h-4 w-4 text-primary" />
                         Optimized Chunks
                       </CardTitle>
                       <div className="flex items-center gap-2">
-                        {isComplete && avgScoreBefore > 0 && (
+                        {stats.avgBefore > 0 && (
                           <Badge variant="outline" className="font-mono text-xs">
-                            {avgScoreBefore} → {avgScoreAfter}
+                            {Math.round(stats.avgBefore)} → {Math.round(stats.avgAfter)}
                           </Badge>
                         )}
                         <Badge variant="secondary">
@@ -240,75 +656,12 @@ export function OutputsTab({
                 <CollapsibleContent>
                   <CardContent className="pt-0 space-y-4">
                     {optimizedChunks.map((chunk, idx) => (
-                      <div 
+                      <OptimizedChunkCard 
                         key={idx}
-                        className={cn(
-                          "p-4 rounded-lg border",
-                          (chunk.scoreChange || 0) > 0 && "border-green-200 bg-green-50/30 dark:bg-green-950/20 dark:border-green-800/50",
-                          (chunk.scoreChange || 0) < 0 && "border-red-200 bg-red-50/30 dark:bg-red-950/20 dark:border-red-800/50",
-                          (chunk.scoreChange || 0) === 0 && "border-border"
-                        )}
-                      >
-                        {/* Header */}
-                        <div className="flex items-center justify-between mb-3">
-                          <div className="flex items-center gap-2">
-                            <span className="font-medium text-sm">Chunk {chunk.chunk_number}</span>
-                            {chunk.heading && (
-                              <span className="text-sm text-muted-foreground">
-                                — {chunk.heading}
-                              </span>
-                            )}
-                          </div>
-                          {chunk.originalScore !== undefined && chunk.optimizedScore !== undefined && (
-                            <div className="flex items-center gap-2 text-sm">
-                              <span className="text-muted-foreground font-mono">{chunk.originalScore}</span>
-                              <ArrowRight className="h-3 w-3 text-muted-foreground" />
-                              <Badge variant={(chunk.scoreChange || 0) > 0 ? 'default' : (chunk.scoreChange || 0) < 0 ? 'destructive' : 'secondary'}>
-                                {chunk.optimizedScore}
-                              </Badge>
-                              <span className={cn(
-                                "text-xs font-medium",
-                                (chunk.scoreChange || 0) > 0 && "text-green-600",
-                                (chunk.scoreChange || 0) < 0 && "text-red-600"
-                              )}>
-                                {(chunk.scoreChange || 0) > 0 ? '+' : ''}{chunk.scoreChange || 0}
-                              </span>
-                            </div>
-                          )}
-                        </div>
-
-                        {/* Query */}
-                        {chunk.assignedQuery && (
-                          <p className="text-xs text-muted-foreground mb-3">
-                            Query: "{chunk.assignedQuery}"
-                          </p>
-                        )}
-
-                        {/* Before/After */}
-                        <div className="grid md:grid-cols-2 gap-3">
-                          <div className="space-y-1">
-                            <p className="text-xs font-medium text-muted-foreground">Before</p>
-                            <div className="p-2 rounded bg-muted/50 text-xs max-h-32 overflow-y-auto">
-                              {chunk.original_text?.slice(0, 400)}
-                              {(chunk.original_text?.length || 0) > 400 && '...'}
-                            </div>
-                          </div>
-                          <div className="space-y-1">
-                            <p className="text-xs font-medium text-muted-foreground">After</p>
-                            <div className="p-2 rounded bg-accent/10 text-xs max-h-32 overflow-y-auto">
-                              {chunk.optimized_text?.slice(0, 400)}
-                              {(chunk.optimized_text?.length || 0) > 400 && '...'}
-                            </div>
-                          </div>
-                        </div>
-
-                        {/* Explanation */}
-                        {chunk.explanation && (
-                          <p className="text-xs text-muted-foreground mt-3 italic">
-                            Why this helps: {chunk.explanation}
-                          </p>
-                        )}
-                      </div>
+                        chunk={chunk}
+                        onCopy={handleCopy}
+                        onViewInDocument={onViewInDocument}
+                      />
                     ))}
                   </CardContent>
                 </CollapsibleContent>
@@ -326,112 +679,64 @@ export function OutputsTab({
                       <CardTitle className="flex items-center gap-2 text-sm">
                         {expandedSections.briefs ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
                         <FileText className="h-4 w-4 text-orange-500" />
-                        Content Briefs (New Sections to Write)
+                        Content Briefs for Gaps
                       </CardTitle>
                       <Badge variant="secondary">
                         {generatedBriefs.length} briefs
                       </Badge>
                     </div>
+                    <p className="text-xs text-muted-foreground text-left mt-1">
+                      New content needed to cover unassigned queries
+                    </p>
                   </CardHeader>
                 </CollapsibleTrigger>
                 <CollapsibleContent>
                   <CardContent className="pt-0 space-y-4">
                     {generatedBriefs.map((brief, idx) => (
-                      <div key={idx} className="p-4 rounded-lg border border-orange-200/50 bg-orange-50/30 dark:bg-orange-950/20 dark:border-orange-800/30">
-                        <div className="flex items-start justify-between mb-2">
-                          <p className="font-medium">{brief.suggestedHeading}</p>
-                          <Badge variant="outline" className="text-xs">
-                            ~{brief.targetWordCount?.min || 300}-{brief.targetWordCount?.max || 500} words
-                          </Badge>
-                        </div>
-                        
-                        <p className="text-xs text-muted-foreground mb-2">
-                          For query: "{brief.targetQuery}"
-                        </p>
-                        
-                        <p className="text-xs text-muted-foreground mb-3">
-                          Placement: {brief.placementDescription}
-                        </p>
-                        
-                        {brief.keyPoints && brief.keyPoints.length > 0 && (
-                          <div className="mb-3">
-                            <p className="text-xs font-medium mb-1">Key points:</p>
-                            <ul className="text-xs text-muted-foreground space-y-0.5 list-disc list-inside">
-                              {brief.keyPoints.map((point, i) => (
-                                <li key={i}>{point}</li>
-                              ))}
-                            </ul>
-                          </div>
-                        )}
-
-                        {brief.draftOpening && (
-                          <div className="mb-3">
-                            <p className="text-xs font-medium mb-1">Draft opening:</p>
-                            <p className="text-xs text-muted-foreground italic">
-                              "{brief.draftOpening}"
-                            </p>
-                          </div>
-                        )}
-
-                        <div className="flex gap-2">
-                          <Button 
-                            size="sm" 
-                            variant="outline" 
-                            className="text-xs h-7"
-                            onClick={() => {
-                              const briefText = 
-                                `## ${brief.suggestedHeading}\n\n` +
-                                `Query: ${brief.targetQuery}\n\n` +
-                                `Key points:\n${brief.keyPoints?.map(p => `- ${p}`).join('\n') || ''}\n\n` +
-                                `Draft opening: ${brief.draftOpening || ''}\n\n` +
-                                `Target word count: ${brief.targetWordCount?.min || 300}-${brief.targetWordCount?.max || 500}`;
-                              navigator.clipboard.writeText(briefText);
-                              toast.success('Brief copied to clipboard');
-                            }}
-                          >
-                            <Copy className="h-3 w-3 mr-1" />
-                            Copy Brief
-                          </Button>
-                        </div>
-                      </div>
+                      <ContentBriefCard key={idx} brief={brief} />
                     ))}
                   </CardContent>
                 </CollapsibleContent>
               </Card>
             </Collapsible>
           )}
-
-          {/* ============ ACTIONS FOOTER ============ */}
-          {isComplete && (
-            <Card className="border-accent/30 bg-accent/5">
-              <CardContent className="py-4">
-                <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-                  <div>
-                    <p className="font-medium text-sm">Optimization Complete</p>
-                    <p className="text-xs text-muted-foreground">
-                      {chunksImproved} chunks improved, {chunksDeclined} declined
-                    </p>
-                  </div>
-                  <div className="flex flex-wrap gap-2">
-                    <Button variant="outline" size="sm" onClick={onExportReport}>
-                      <Download className="h-4 w-4 mr-1" />
-                      Export Report
-                    </Button>
-                    <Button variant="outline" size="sm" onClick={onCopyContent}>
-                      <Copy className="h-4 w-4 mr-1" />
-                      Copy Content
-                    </Button>
-                    <Button size="sm" onClick={onApplyChanges}>
-                      <ArrowRight className="h-4 w-4 mr-1" />
-                      Apply Changes
-                    </Button>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-          )}
         </div>
       </ScrollArea>
+      
+      {/* ============ STICKY FOOTER ============ */}
+      {isComplete && (
+        <div className="absolute bottom-0 left-0 right-0 bg-background/95 backdrop-blur-sm border-t p-4">
+          <div className="max-w-4xl mx-auto flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+            <div className="text-sm text-muted-foreground">
+              <span className="font-medium">{optimizedChunks.length}</span> chunks optimized
+              {verificationSummary && (
+                <span className="ml-2">
+                  • <span className="text-green-600">{stats.chunksImproved} improved</span>
+                  {stats.chunksDeclined > 0 && (
+                    <span className="text-red-600">, {stats.chunksDeclined} declined</span>
+                  )}
+                </span>
+              )}
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <Button variant="outline" size="sm" onClick={onExportReport}>
+                <Download className="h-4 w-4 mr-2" /> Export All
+              </Button>
+              <Button variant="outline" size="sm" onClick={onCopyContent}>
+                <Copy className="h-4 w-4 mr-2" /> Copy Content
+              </Button>
+              <Button size="sm" onClick={onApplyChanges}>
+                <CheckCircle2 className="h-4 w-4 mr-2" /> Apply to Content
+              </Button>
+              {onGoToReport && (
+                <Button variant="secondary" size="sm" onClick={onGoToReport}>
+                  View Report <ArrowRight className="h-4 w-4 ml-2" />
+                </Button>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
