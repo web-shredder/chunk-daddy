@@ -174,7 +174,23 @@ OUTPUT FORMAT (JSON):
 }`;
 
   const response = await callAI(systemPrompt, content.slice(0, 12000), 'json_object', 4096);
-  return JSON.parse(response);
+  const parsed = parseAIResponse(response, {
+    detectedTopicFocus: {
+      primaryEntity: 'Unknown topic',
+      entityType: 'concept',
+      contentPurpose: 'explain',
+      targetAction: 'learn about the topic',
+      confidence: 0.5,
+    },
+    contentType: 'guide',
+    primaryAudience: { role: 'general reader', expertiseLevel: 'mixed', intent: 'learn' },
+    coreEntities: [],
+    topicHierarchy: { broadCategory: 'General', specificNiche: 'Unknown', exactFocus: 'Unknown' },
+    semanticClusters: [],
+    contentStructure: {},
+    implicitKnowledge: [],
+  });
+  return parsed;
 }
 
 // ============================================================
@@ -230,7 +246,14 @@ ${content.slice(0, 3000)}
 Generate the PRIMARY query this content should rank for:`;
 
   const response = await callAI(systemPrompt, userPrompt, 'json_object', 2048);
-  return JSON.parse(response);
+  const parsed = parseAIResponse(response, {
+    query: `What is ${topicFocus.primaryEntity}`,
+    searchIntent: 'informational',
+    confidence: 0.5,
+    reasoning: 'Default fallback query',
+    variants: [],
+  });
+  return parsed;
 }
 
 // ============================================================
@@ -351,9 +374,9 @@ ${content.slice(0, 6000)}
 Generate query suggestions:`;
 
   const response = await callAI(systemPrompt, userPrompt, 'json_object', 8192);
-  const parsed = JSON.parse(response);
+  const parsed = parseAIResponse(response, { suggestions: [] });
   
-  return parsed.suggestions || parsed;
+  return parsed.suggestions || parsed.items || [];
 }
 
 // ============================================================
@@ -468,9 +491,9 @@ ${implicitKnowledge}
 Identify coverage gaps for "${topicFocus.primaryEntity}" content:`;
 
   const response = await callAI(systemPrompt, userPrompt, 'json_object', 6144);
-  const parsed = JSON.parse(response);
+  const parsed = parseAIResponse(response, { gaps: [] });
   
-  return parsed.gaps || parsed;
+  return parsed.gaps || parsed.items || [];
 }
 
 // ============================================================
@@ -552,6 +575,83 @@ interface CoverageGap {
   suggestedFix: string;
   relatedEntities: string[];
   estimatedEffort: string;
+}
+
+// ============================================================
+// ROBUST JSON PARSING
+// ============================================================
+
+function parseAIResponse(response: string, defaultValue: any = null): any {
+  // First, try direct parsing
+  try {
+    return JSON.parse(response);
+  } catch (e) {
+    console.log('Direct JSON parse failed, attempting recovery...');
+  }
+
+  // Try to extract JSON from markdown code blocks
+  const codeBlockMatch = response.match(/```(?:json)?\s*([\s\S]*?)```/);
+  if (codeBlockMatch) {
+    try {
+      return JSON.parse(codeBlockMatch[1].trim());
+    } catch (e) {
+      console.log('Code block JSON parse failed');
+    }
+  }
+
+  // Try to find JSON object boundaries
+  const jsonMatch = response.match(/\{[\s\S]*\}/);
+  if (jsonMatch) {
+    try {
+      return JSON.parse(jsonMatch[0]);
+    } catch (e) {
+      console.log('JSON object extraction failed');
+    }
+  }
+
+  // Attempt to fix common truncation issues
+  let cleaned = response.trim();
+  
+  // Fix unterminated strings by finding the last complete property
+  const lastCompleteComma = cleaned.lastIndexOf('",');
+  const lastCompleteBrace = cleaned.lastIndexOf('"}');
+  const lastCompletePosition = Math.max(lastCompleteComma, lastCompleteBrace);
+  
+  if (lastCompletePosition > 0) {
+    // Truncate to last complete property and try to close the structure
+    let truncated = cleaned.substring(0, lastCompletePosition + 2);
+    
+    // Count open braces and brackets to close them
+    const openBraces = (truncated.match(/\{/g) || []).length;
+    const closeBraces = (truncated.match(/\}/g) || []).length;
+    const openBrackets = (truncated.match(/\[/g) || []).length;
+    const closeBrackets = (truncated.match(/\]/g) || []).length;
+    
+    // Close any unclosed structures
+    truncated += ']'.repeat(Math.max(0, openBrackets - closeBrackets));
+    truncated += '}'.repeat(Math.max(0, openBraces - closeBraces));
+    
+    try {
+      const result = JSON.parse(truncated);
+      console.log('JSON recovered after truncation fix');
+      return result;
+    } catch (e) {
+      console.log('Truncation fix failed:', e);
+    }
+  }
+
+  // Last resort: try to extract array content
+  const arrayMatch = response.match(/\[[\s\S]*?\]/);
+  if (arrayMatch) {
+    try {
+      return { items: JSON.parse(arrayMatch[0]) };
+    } catch (e) {
+      console.log('Array extraction failed');
+    }
+  }
+
+  console.error('All JSON parsing attempts failed, returning default');
+  return defaultValue;
 }
 
 // ============================================================
