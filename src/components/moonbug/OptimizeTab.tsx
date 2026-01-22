@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { 
   Sparkles, 
   ArrowLeft,
@@ -12,6 +12,7 @@ import { toast } from 'sonner';
 import { ChunkReviewPanel } from '@/components/optimizer/ChunkReviewPanel';
 import { OptimizationPlanPanel } from './OptimizationPlanPanel';
 import { useOptimizer } from '@/hooks/useOptimizer';
+import { useDebug } from '@/contexts/DebugContext';
 import { calculatePassageScore } from '@/lib/similarity';
 import { 
   computeQueryAssignments, 
@@ -96,6 +97,24 @@ export function OptimizeTab({
   const [generateBriefs, setGenerateBriefs] = useState(true);
   
   const { step, progress, error, optimize, reset } = useOptimizer();
+  const { logEvent } = useDebug();
+
+  // Log when plan is displayed
+  useEffect(() => {
+    if (currentScores && currentScores.length > 0 && viewState === 'assignment') {
+      logEvent('OPTIMIZATION_PLAN_DISPLAYED', {
+        chunksToOptimize: queryAssignments?.chunkAssignments?.filter(ca => ca.assignedQuery).length || 0,
+        architectureTasks: applyArchitecture ? selectedArchitectureTasks.length : 0,
+        contentBriefs: generateBriefs ? queryAssignments?.unassignedQueries?.length || 0 : 0,
+        totalChunks: currentScores.length,
+        totalQueries: keywords.length,
+      }, {
+        viewState,
+        applyArchitecture,
+        generateBriefs,
+      });
+    }
+  }, [viewState, currentScores?.length]);
 
   // Compute query assignments from current scores
   const { assignmentMap, chunkScores, chunkTexts } = useMemo(() => {
@@ -616,46 +635,50 @@ export function OptimizeTab({
         query: ca.assignedQuery!.query,
       }));
 
-    // Log what user SEES vs what ACTUALLY gets sent
-    console.log('\n=== USER CLICKED "CONFIRM & OPTIMIZE" ===');
-    
-    console.log('What user SAW in plan:');
-    console.log({
-      chunksToOptimize: queryAssignments.chunkAssignments.filter(ca => ca.assignedQuery).length,
+    const expectedPlan = {
+      chunksToOptimize: chunkAssignmentsForStreaming.length,
       architectureTasks: applyArchitecture ? selectedArchitectureTasks.length : 0,
       contentBriefs: generateBriefs ? queryAssignments.unassignedQueries.length : 0,
-    });
-    
-    console.log('\nWhat is ACTUALLY being sent to edge function:');
-    console.log(JSON.stringify({
-      content: `${content?.length || 0} chars`,
-      queries: keywords?.length,
-      chunkAssignments: chunkAssignmentsForStreaming.length,
-      unassignedQueries: queryAssignments.unassignedQueries.length,
-      architectureTasks: applyArchitecture ? selectedArchitectureTasks.length : 0,
-      generateBriefs,
-      applyArchitecture,
-    }, null, 2));
-    
-    console.log('\nChunk assignments detail:');
-    chunkAssignmentsForStreaming.forEach(ca => {
-      console.log(`  Chunk ${ca.chunkIndex}: "${ca.query}"`);
-    });
-    
-    if (queryAssignments.unassignedQueries.length > 0) {
-      console.log('\nUnassigned queries (for briefs):');
-      queryAssignments.unassignedQueries.forEach(q => {
-        console.log(`  - "${q}"`);
-      });
-    }
+    };
 
-    await onStreamingOptimize({
-      applyArchitecture,
-      architectureTasks: selectedArchitectureTasks,
-      generateBriefs,
-      unassignedQueries: queryAssignments.unassignedQueries,
-      chunkAssignments: chunkAssignmentsForStreaming,
+    // Log via debug context
+    logEvent('OPTIMIZATION_STARTED', {
+      plan: expectedPlan,
+      totalActions: expectedPlan.chunksToOptimize + expectedPlan.architectureTasks + expectedPlan.contentBriefs,
+      chunkAssignments: chunkAssignmentsForStreaming.map(ca => ({
+        chunkIndex: ca.chunkIndex,
+        query: ca.query.slice(0, 50) + (ca.query.length > 50 ? '...' : ''),
+      })),
+      unassignedQueries: queryAssignments.unassignedQueries.slice(0, 5),
+      flags: { applyArchitecture, generateBriefs },
+    }, {
+      buttonText: 'Confirm & Optimize',
+      userExpects: `${expectedPlan.chunksToOptimize} chunks, ${expectedPlan.architectureTasks} tasks, ${expectedPlan.contentBriefs} briefs`,
     });
+
+    // Console log for backwards compatibility
+    console.log('\n=== USER CLICKED "CONFIRM & OPTIMIZE" ===');
+    console.log('Expected plan:', expectedPlan);
+    console.log('Chunk assignments:', chunkAssignmentsForStreaming.length);
+
+    try {
+      await onStreamingOptimize({
+        applyArchitecture,
+        architectureTasks: selectedArchitectureTasks,
+        generateBriefs,
+        unassignedQueries: queryAssignments.unassignedQueries,
+        chunkAssignments: chunkAssignmentsForStreaming,
+      });
+      
+      logEvent('OPTIMIZATION_COMPLETE', {
+        plan: expectedPlan,
+      }, {});
+    } catch (err) {
+      logEvent('OPTIMIZATION_FAILED', {
+        plan: expectedPlan,
+        error: err instanceof Error ? err.message : 'Unknown error',
+      }, {}, true);
+    }
   };
 
   // Determine which step/progress to show

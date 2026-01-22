@@ -16,6 +16,7 @@ import { Button } from '@/components/ui/button';
 import { Separator } from '@/components/ui/separator';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
+import { useDebug } from '@/contexts/DebugContext';
 import type { ChunkerOptions } from '@/lib/layout-chunker';
 import type { FanoutNode, FanoutTree, FanoutIntentType } from '@/lib/optimizer-types';
 import { cn } from '@/lib/utils';

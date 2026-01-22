@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { Loader2 } from "lucide-react";
 import { TopBar, DebugPanel, WorkflowStepper, ContentTab, AnalyzeTab, ResultsTab, ArchitectureTab, OptimizeTab, OutputsTab, ReportTab, type WorkflowStep } from "@/components/moonbug";
+import { DebugProvider } from "@/contexts/DebugContext";
 import { useApiKey } from "@/hooks/useApiKey";
 import { useAnalysis, type AnalysisResult } from "@/hooks/useAnalysis";
 import { useAuth } from "@/hooks/useAuth";
@@ -579,7 +580,8 @@ const Index = () => {
   if (!user) return null;
 
   return (
-    <div className="h-screen flex flex-col bg-background overflow-hidden">
+    <DebugProvider currentTab={activeTab}>
+      <div className="h-screen flex flex-col bg-background overflow-hidden">
       <TopBar
         projectName={localProjectName}
         projects={projects}
@@ -822,11 +824,17 @@ const Index = () => {
         optimizationResult={optimizationResult}
         optimizedContent={optimizedContent}
         completedSteps={completedStepIds}
-        isStreamingOptimization={isStreamingOptimization}
-        streamingStep={streamingStep}
-        streamingProgress={streamingProgress}
+        streaming={{
+          isStreaming: isStreamingOptimization,
+          progress: streamingProgress,
+          currentStep: streamingStep,
+          architectureTasksStreamed: streamedArchitectureTasks.length,
+          chunksStreamed: streamedChunks.length,
+          briefsStreamed: streamedBriefs.length,
+        }}
       />
-    </div>
+      </div>
+    </DebugProvider>
   );
 };
 
