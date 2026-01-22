@@ -52,6 +52,9 @@ export interface ValidatedChange extends Change {
 export interface ValidatedChunk extends Omit<OptimizedChunk, 'changes_applied'> {
   changes_applied: ValidatedChange[];
   scores?: Record<string, number>;
+  // For streaming optimization - track original position and assigned query
+  originalChunkIndex?: number;
+  query?: string;
 }
 
 export interface ChangeExplanation {
@@ -147,6 +150,8 @@ export interface FullOptimizationResult {
   contentBriefs: ContentBrief[];
   // All original chunks for full document reconstruction
   allOriginalChunks: OriginalChunkInfo[];
+  // Applied architecture tasks from streaming optimization
+  appliedArchitectureTasks?: ArchitectureTask[];
 }
 
 // Architecture analysis types

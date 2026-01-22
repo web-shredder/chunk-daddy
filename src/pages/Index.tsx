@@ -72,6 +72,7 @@ const Index = () => {
   // Streaming optimization state
   interface StreamedChunk {
     chunk_number: number;
+    originalChunkIndex: number; // 0-indexed position in layoutChunks
     original_text: string;
     optimized_text: string;
     assignedQuery?: string;
@@ -555,6 +556,7 @@ const Index = () => {
                     
                     const newChunk: StreamedChunk = {
                       chunk_number: originalChunkIndex + 1, // 1-indexed for display
+                      originalChunkIndex, // 0-indexed for mapping back to layoutChunks
                       original_text: data.originalText,
                       optimized_text: data.optimizedText,
                       assignedQuery: data.query,
@@ -674,12 +676,14 @@ const Index = () => {
       // Build a FullOptimizationResult from accumulated streaming data
       const streamedResult: FullOptimizationResult = {
         analysis: { topic_segments: [], optimization_opportunities: [] },
-        optimizedChunks: accumulatedChunks.map((chunk, idx) => ({
+        optimizedChunks: accumulatedChunks.map((chunk) => ({
           chunk_number: chunk.chunk_number,
+          originalChunkIndex: chunk.originalChunkIndex,
           heading: chunk.heading,
           original_text: chunk.original_text,
           optimized_text: chunk.optimized_text,
           changes_applied: [], // Streaming doesn't provide detailed changes
+          query: chunk.assignedQuery,
         })),
         explanations: [],
         originalContent: content,
@@ -692,14 +696,16 @@ const Index = () => {
           heading: lc.headingPath?.slice(-1)[0] || null,
           headingPath: lc.headingPath || [],
         })),
+        appliedArchitectureTasks: applyArchitecture ? accumulatedArchitectureTasks : [],
       };
       
-      // Build optimized content from streamed chunks
+      // Build optimized content from streamed chunks using originalChunkIndex
       const optimizedChunkMap = new Map<number, string>();
       accumulatedChunks.forEach(chunk => {
-        optimizedChunkMap.set(chunk.chunk_number - 1, chunk.optimized_text);
+        optimizedChunkMap.set(chunk.originalChunkIndex, chunk.optimized_text);
       });
       
+      // Reconstruct full document - merge optimized chunks with unchanged originals
       const reconstructedContent = layoutChunks.map((lc, idx) => {
         const heading = lc.headingPath?.slice(-1)[0];
         const body = optimizedChunkMap.has(idx) 
@@ -707,6 +713,15 @@ const Index = () => {
           : lc.textWithoutCascade;
         return heading ? `## ${heading}\n\n${body}` : body;
       }).join('\n\n');
+      
+      console.log('Reconstructed document:', {
+        totalChunks: layoutChunks.length,
+        optimizedChunks: optimizedChunkMap.size,
+        unchangedChunks: layoutChunks.length - optimizedChunkMap.size,
+        finalLength: reconstructedContent.length,
+        briefsGenerated: accumulatedBriefs.length,
+        architectureTasksApplied: accumulatedArchitectureTasks.length,
+      });
       
       // Save to state
       setOptimizationResult(streamedResult);
@@ -737,6 +752,9 @@ const Index = () => {
       setStreamingStep('Optimization complete!');
       setStreamingProgress(100);
       setIsStreamingOptimization(false);
+      
+      // Success feedback
+      toast.success(`Optimization complete: ${accumulatedChunks.length} chunks optimized${accumulatedBriefs.length > 0 ? `, ${accumulatedBriefs.length} briefs generated` : ''}`);
       
     } catch (error) {
       const errorMessage = failureReason || (error instanceof Error ? error.message : 'Unknown error');
