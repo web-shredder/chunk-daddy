@@ -5,6 +5,7 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { supabase } from '@/integrations/supabase/client';
+import { useDebug } from '@/contexts/DebugContext';
 import { ArchitectureReport } from '@/components/analysis/ArchitectureReport';
 import { ArchitectureTasksPanel } from './ArchitectureTasksPanel';
 import { calculatePassageScore } from '@/lib/similarity';
@@ -122,6 +123,7 @@ export function ArchitectureTab({
   architectureTasks,
   onTasksChange,
 }: ArchitectureTabProps) {
+  const { logEvent } = useDebug();
 
   // Helper to generate a suggested heading from a query
   const generateSuggestedHeading = useCallback((query: string): string => {
@@ -238,6 +240,15 @@ export function ArchitectureTab({
 
   const handleAnalyzeArchitecture = async () => {
     setIsAnalyzing(true);
+    
+    logEvent('ARCHITECTURE_ANALYSIS_STARTED', {
+      chunksCount: chunks.length,
+      queriesCount: keywords.length,
+      existingGaps: gapTasks.length,
+    }, {
+      buttonText: 'Run Architecture Analysis',
+    });
+    
     try {
       // Build chunk scores in the format the API expects
       const formattedChunkScores = chunkScores.map((cs) => {
@@ -284,10 +295,25 @@ export function ArchitectureTab({
           return priorityOrder[a.priority] - priorityOrder[b.priority];
         });
         onTasksChange(allTasks);
+        
+        // Log success with task breakdown
+        logEvent('ARCHITECTURE_ANALYSIS_COMPLETE', {
+          issuesFound: data.result.issues?.length || 0,
+          structureTasks: structureTasks.length,
+          gapTasks: gapTasks.length,
+          totalTasks: allTasks.length,
+          highPriority: allTasks.filter(t => t.priority === 'high').length,
+          mediumPriority: allTasks.filter(t => t.priority === 'medium').length,
+          lowPriority: allTasks.filter(t => t.priority === 'low').length,
+        }, {});
+        
         toast.success(`Architecture analysis complete: ${data.result.issues?.length || 0} issues, ${gapTasks.length} content gaps`);
       }
     } catch (err) {
       console.error('Architecture analysis failed:', err);
+      logEvent('ARCHITECTURE_ANALYSIS_FAILED', {
+        error: err instanceof Error ? err.message : 'Unknown error',
+      }, {}, true);
       toast.error('Failed to analyze architecture');
     } finally {
       setIsAnalyzing(false);

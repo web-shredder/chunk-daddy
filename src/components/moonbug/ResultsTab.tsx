@@ -16,6 +16,7 @@ import { ChunkDetailsPanel } from './ChunkDetailsPanel';
 import { ExportGapsDialog } from './ExportGapsDialog';
 import { downloadCSV } from '@/lib/csv-export';
 import { useIsMobile } from '@/hooks/use-mobile';
+import { useDebug } from '@/contexts/DebugContext';
 import { 
   computeQueryAssignments, 
   reassignQuery,
@@ -229,6 +230,7 @@ export function ResultsTab({
   const [scoreFilter, setScoreFilter] = useState<'all' | 'problems' | 'good'>('problems');
   const [sortBy, setSortBy] = useState<'score' | 'index' | 'heading'>('score');
   const isMobile = useIsMobile();
+  const { logEvent } = useDebug();
 
   // Build chunk score data for query assignment calculations (must come first)
   const chunkScoreData = useMemo((): ChunkScoreData[] => {
@@ -316,7 +318,29 @@ export function ResultsTab({
   const problemCount = chunksWithScores.filter(c => c.passageScore < 60).length;
   const goodCount = chunksWithScores.filter(c => c.passageScore >= 75).length;
 
-
+  // Log analysis results when they become available
+  useEffect(() => {
+    if (hasResults && chunksWithScores.length > 0) {
+      const scores = chunksWithScores.map(c => c.passageScore);
+      const avgScore = scores.length > 0 ? scores.reduce((a, b) => a + b, 0) / scores.length : 0;
+      const minScore = scores.length > 0 ? Math.min(...scores) : 0;
+      const maxScore = scores.length > 0 ? Math.max(...scores) : 0;
+      
+      logEvent('ANALYSIS_RESULTS_DISPLAYED', {
+        totalChunks: chunksWithScores.length,
+        totalQueries: keywords.length,
+        problemCount,
+        goodCount,
+        avgScore: Math.round(avgScore),
+        minScore: Math.round(minScore),
+        maxScore: Math.round(maxScore),
+        documentChamfer: result?.documentChamfer?.toFixed(4) || 'N/A',
+      }, {
+        viewMode,
+        scoreFilter,
+      });
+    }
+  }, [hasResults, chunksWithScores.length]);
   // Get per-query detailed scores for a chunk (for the RelatedQueriesSection)
   const getPerQueryScores = useCallback((chunkIndex: number): Record<string, { passage: number; cosine: number; chamfer: number }> => {
     const score = chunkScores[chunkIndex];
