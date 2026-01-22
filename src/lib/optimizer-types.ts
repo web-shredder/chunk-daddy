@@ -55,6 +55,13 @@ export interface ValidatedChunk extends Omit<OptimizedChunk, 'changes_applied'> 
   // For streaming optimization - track original position and assigned query
   originalChunkIndex?: number;
   query?: string;
+  // Verification results (populated after verify_optimizations)
+  beforeScores?: { semantic: number; lexical: number; citation: number; composite: number };
+  afterScores?: { semantic: number; lexical: number; citation: number; composite: number };
+  deltas?: { semantic: number; lexical: number; citation: number; composite: number };
+  improved?: boolean;
+  verified?: boolean;
+  unaddressable?: string[];
 }
 
 export interface ChangeExplanation {
@@ -135,6 +142,41 @@ export interface OriginalChunkInfo {
   headingPath: string[];
 }
 
+// Verification result types
+export interface VerificationScores {
+  semantic: number;
+  lexical: number;
+  citation: number;
+  composite: number;
+}
+
+export interface UnchangedChunkInfo {
+  chunkIndex: number;
+  heading: string;
+  reason: 'no_assignment' | 'user_excluded' | 'already_optimal';
+  currentScores: VerificationScores;
+  bestMatchingQuery: string;
+  bestMatchScore: number;
+}
+
+export interface VerificationSummary {
+  totalChunks: number;
+  optimizedCount: number;
+  unchangedCount: number;
+  avgCompositeBefore: number;
+  avgCompositeAfter: number;
+  avgImprovement: number;
+  chunksImproved: number;
+  chunksDeclined: number;
+  queryCoverage: {
+    total: number;
+    wellCovered: number;
+    partiallyCovered: number;
+    gaps: number;
+    gapQueries: string[];
+  };
+}
+
 export interface FullOptimizationResult {
   analysis: ContentAnalysis;
   optimizedChunks: ValidatedChunk[];
@@ -152,6 +194,9 @@ export interface FullOptimizationResult {
   allOriginalChunks: OriginalChunkInfo[];
   // Applied architecture tasks from streaming optimization
   appliedArchitectureTasks?: ArchitectureTask[];
+  // Verification results
+  verificationSummary?: VerificationSummary;
+  unchangedChunks?: UnchangedChunkInfo[];
 }
 
 // Architecture analysis types

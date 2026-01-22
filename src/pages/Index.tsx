@@ -81,6 +81,48 @@ const Index = () => {
     optimizedScore?: number;
     scoreChange?: number;
     explanation?: string;
+    // Verification results (populated after verify_optimizations)
+    beforeScores?: { semantic: number; lexical: number; citation: number; composite: number };
+    afterScores?: { semantic: number; lexical: number; citation: number; composite: number };
+    deltas?: { semantic: number; lexical: number; citation: number; composite: number };
+    improved?: boolean;
+    verified?: boolean;
+    changes_applied?: string[];
+    unaddressable?: string[];
+  }
+  
+  // Verification result types
+  interface UnchangedChunkResult {
+    chunkIndex: number;
+    heading: string;
+    reason: 'no_assignment' | 'user_excluded' | 'already_optimal';
+    currentScores: { semantic: number; lexical: number; citation: number; composite: number };
+    bestMatchingQuery: string;
+    bestMatchScore: number;
+  }
+  
+  interface VerificationSummary {
+    totalChunks: number;
+    optimizedCount: number;
+    unchangedCount: number;
+    avgCompositeBefore: number;
+    avgCompositeAfter: number;
+    avgImprovement: number;
+    chunksImproved: number;
+    chunksDeclined: number;
+    queryCoverage: {
+      total: number;
+      wellCovered: number;
+      partiallyCovered: number;
+      gaps: number;
+      gapQueries: string[];
+    };
+  }
+  
+  interface ArchitectureApplicationContext {
+    tasksApplied: ArchitectureTask[];
+    originalChunkCount: number;
+    structureChanged: boolean;
   }
   
   const [isStreamingOptimization, setIsStreamingOptimization] = useState(false);
@@ -90,6 +132,12 @@ const Index = () => {
   const [streamedArchitectureTasks, setStreamedArchitectureTasks] = useState<ArchitectureTask[]>([]);
   const [streamedChunks, setStreamedChunks] = useState<StreamedChunk[]>([]);
   const [streamedBriefs, setStreamedBriefs] = useState<ContentBrief[]>([]);
+  
+  // Verification state
+  const [unchangedChunksContext, setUnchangedChunksContext] = useState<UnchangedChunkResult[]>([]);
+  const [verificationSummary, setVerificationSummary] = useState<VerificationSummary | null>(null);
+  const [architectureContext, setArchitectureContext] = useState<ArchitectureApplicationContext | null>(null);
+  const [originalLayoutChunkCount, setOriginalLayoutChunkCount] = useState<number>(0);
   
   // Local project name
   const [localProjectName, setLocalProjectName] = useState<string>('Untitled Project');
@@ -365,6 +413,10 @@ const Index = () => {
     setStreamingProgress(0);
     setStreamingError(null);
     setIsStreamingOptimization(true);
+    // Reset verification state
+    setUnchangedChunksContext([]);
+    setVerificationSummary(null);
+    setArchitectureContext(null);
     
     // Auto-switch to outputs tab
     setActiveTab('outputs');
@@ -378,6 +430,9 @@ const Index = () => {
     const accumulatedBriefs: ContentBrief[] = [];
     let streamingFailed = false;
     let failureReason = '';
+    
+    // Track original chunk count BEFORE architecture changes
+    setOriginalLayoutChunkCount(layoutChunks.length);
     
     try {
       let processedContent = content;
@@ -672,6 +727,119 @@ const Index = () => {
         }
       }
       
+      // Step 4: Verify optimizations (compare before/after with proper cascade reconstruction)
+      if (accumulatedChunks.length > 0) {
+        setStreamingStep('Verifying improvements...');
+        setStreamingProgress(95);
+        
+        // Helper to determine exclude reason for a chunk
+        const getExcludeReason = (chunkIndex: number): 'no_assignment' | 'user_excluded' | 'already_optimal' | undefined => {
+          const wasOptimized = accumulatedChunks.some(c => c.originalChunkIndex === chunkIndex);
+          if (wasOptimized) return undefined;
+          
+          // Check if it had an assignment
+          const hadAssignment = chunkAssignments.some(ca => ca.chunkIndex === chunkIndex);
+          if (!hadAssignment) return 'no_assignment';
+          
+          // Could add more logic for user_excluded or already_optimal
+          return 'no_assignment';
+        };
+        
+        const verificationPayload = {
+          type: 'verify_optimizations',
+          optimizedChunks: accumulatedChunks.map(c => ({
+            originalChunkIndex: c.originalChunkIndex,
+            optimized_text: c.optimized_text,
+            query: c.assignedQuery || '',
+            changes: c.changes_applied || [],
+            unaddressable: c.unaddressable || [],
+          })),
+          allChunks: layoutChunks.map((chunk, i) => ({
+            index: i,
+            text: chunk.text,
+            textWithoutCascade: chunk.textWithoutCascade,
+            headingPath: chunk.headingPath || [],
+            wasOptimized: accumulatedChunks.some(c => c.originalChunkIndex === i),
+            excludeReason: getExcludeReason(i),
+          })),
+          queries: keywords,
+          architectureApplied: applyArchitecture && accumulatedArchitectureTasks.length > 0
+            ? {
+                tasksApplied: accumulatedArchitectureTasks,
+                originalChunkCount: originalLayoutChunkCount || layoutChunks.length,
+                structureChanged: true,
+              }
+            : undefined,
+        };
+        
+        const verifyResponse = await fetch(`${supabaseUrl}/functions/v1/optimize-content-stream`, {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${supabaseKey}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify(verificationPayload),
+        });
+        
+        if (verifyResponse.ok) {
+          const verifyReader = verifyResponse.body?.getReader();
+          const verifyDecoder = new TextDecoder();
+          
+          if (verifyReader) {
+            let verifyBuffer = '';
+            while (true) {
+              const { done, value } = await verifyReader.read();
+              if (done) break;
+              
+              verifyBuffer += verifyDecoder.decode(value, { stream: true });
+              const lines = verifyBuffer.split('\n');
+              verifyBuffer = lines.pop() || '';
+              
+              for (const line of lines) {
+                if (line.startsWith('data: ')) {
+                  try {
+                    const data = JSON.parse(line.slice(6));
+                    
+                    if (data.type === 'chunk_verified') {
+                      // Update accumulated chunk with verified scores
+                      const verifiedResult = data.result;
+                      const chunkIdx = accumulatedChunks.findIndex(
+                        c => c.originalChunkIndex === verifiedResult.chunkIndex
+                      );
+                      if (chunkIdx >= 0) {
+                        accumulatedChunks[chunkIdx].beforeScores = verifiedResult.before;
+                        accumulatedChunks[chunkIdx].afterScores = verifiedResult.after;
+                        accumulatedChunks[chunkIdx].deltas = verifiedResult.delta;
+                        accumulatedChunks[chunkIdx].improved = verifiedResult.improved;
+                        accumulatedChunks[chunkIdx].verified = true;
+                        accumulatedChunks[chunkIdx].changes_applied = verifiedResult.changes;
+                        accumulatedChunks[chunkIdx].unaddressable = verifiedResult.unaddressable;
+                        
+                        // Update streamed chunks state for UI
+                        setStreamedChunks([...accumulatedChunks]);
+                      }
+                      setStreamingProgress(95 + Math.round((data.index / data.total) * 3));
+                    } else if (data.type === 'unchanged_chunks') {
+                      setUnchangedChunksContext(data.chunks);
+                    } else if (data.type === 'verification_complete') {
+                      setVerificationSummary(data.summary);
+                      if (data.architectureApplied) {
+                        setArchitectureContext(data.architectureApplied);
+                      }
+                      console.log('Verification complete:', data.summary);
+                    }
+                  } catch (e) {
+                    console.warn('Failed to parse verification event:', e);
+                  }
+                }
+              }
+            }
+          }
+        } else {
+          console.warn('Verification request failed, continuing without verification scores');
+        }
+      }
+      
       // ============== PERSIST STREAMED RESULTS ==============
       // Build a FullOptimizationResult from accumulated streaming data
       const streamedResult: FullOptimizationResult = {
@@ -682,8 +850,23 @@ const Index = () => {
           heading: chunk.heading,
           original_text: chunk.original_text,
           optimized_text: chunk.optimized_text,
-          changes_applied: [], // Streaming doesn't provide detailed changes
+          // Convert string changes to ValidatedChange objects
+          changes_applied: (chunk.changes_applied || []).map((change, idx) => ({
+            change_id: `change_${chunk.originalChunkIndex}_${idx}`,
+            change_type: 'add_context' as const,
+            before: '',
+            after: '',
+            reason: typeof change === 'string' ? change : (change as { description?: string }).description || '',
+            expected_improvement: '',
+          })),
           query: chunk.assignedQuery,
+          // Include verification data in persisted result  
+          beforeScores: chunk.beforeScores,
+          afterScores: chunk.afterScores,
+          deltas: chunk.deltas,
+          improved: chunk.improved,
+          verified: chunk.verified,
+          unaddressable: chunk.unaddressable,
         })),
         explanations: [],
         originalContent: content,
@@ -697,6 +880,9 @@ const Index = () => {
           headingPath: lc.headingPath || [],
         })),
         appliedArchitectureTasks: applyArchitecture ? accumulatedArchitectureTasks : [],
+        // Include verification summary
+        verificationSummary: verificationSummary || undefined,
+        unchangedChunks: unchangedChunksContext.length > 0 ? unchangedChunksContext : undefined,
       };
       
       // Build optimized content from streamed chunks using originalChunkIndex
@@ -721,6 +907,7 @@ const Index = () => {
         finalLength: reconstructedContent.length,
         briefsGenerated: accumulatedBriefs.length,
         architectureTasksApplied: accumulatedArchitectureTasks.length,
+        verificationComplete: !!verificationSummary,
       });
       
       // Save to state
