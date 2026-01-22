@@ -102,17 +102,36 @@ Important: Only apply THIS specific change. Do not make other modifications.`,
           case 'optimize_chunks_stream': {
             const { chunks, queryAssignments } = params;
             const totalAssignments = queryAssignments.length;
+            
+            // Log what we received for debugging
+            console.log('Chunks to optimize:', {
+              totalChunks: chunks?.length,
+              assignmentsCount: queryAssignments?.length,
+              assignments: queryAssignments?.map((qa: { chunkIndex: number; originalChunkIndex?: number; queries: string[] }) => ({
+                idx: qa.chunkIndex,
+                origIdx: qa.originalChunkIndex,
+                q: qa.queries?.[0]?.slice(0, 30),
+              })),
+            });
 
             for (let i = 0; i < queryAssignments.length; i++) {
               const assignment = queryAssignments[i];
-              const chunkIndex = assignment.chunkIndex;
-              const chunkText = chunks[chunkIndex];
+              // Use chunkIndex to access the chunks array (may be filtered)
+              const arrayIndex = assignment.chunkIndex;
+              // Use originalChunkIndex for reporting back to client (if provided)
+              const reportIndex = assignment.originalChunkIndex ?? assignment.chunkIndex;
+              const chunkText = chunks[arrayIndex];
               const query = assignment.queries[0];
+              
+              if (!chunkText) {
+                console.warn(`Missing chunk at index ${arrayIndex}, skipping`);
+                continue;
+              }
 
               await sendEvent({
                 type: 'chunk_started',
-                chunkIndex,
-                chunkNumber: chunkIndex + 1,
+                chunkIndex: reportIndex,
+                chunkNumber: reportIndex + 1,
                 query,
                 progress: Math.round((i / totalAssignments) * 100),
               });
@@ -167,12 +186,14 @@ ${chunkText}`,
                 if (content) {
                   optimizedText = content;
                 }
+              } else {
+                console.error(`AI optimization failed for chunk ${reportIndex}:`, response.status);
               }
 
               await sendEvent({
                 type: 'chunk_optimized',
-                chunkNumber: chunkIndex + 1,
-                chunkIndex,
+                chunkNumber: reportIndex + 1,
+                chunkIndex: reportIndex,
                 originalText: chunkText,
                 optimizedText: optimizedText,
                 query: query,
@@ -180,7 +201,7 @@ ${chunkText}`,
               });
             }
 
-            await sendEvent({ type: 'chunks_complete' });
+            await sendEvent({ type: 'chunks_complete', totalProcessed: totalAssignments });
             break;
           }
 

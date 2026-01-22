@@ -343,6 +343,9 @@ const Index = () => {
     const { applyArchitecture, architectureTasks, generateBriefs, unassignedQueries, chunkAssignments } = params;
     const debug = debugLogRef.current;
     
+    // Build set of expected chunk indices for validation (assignment-only enforcement)
+    const expectedChunkIndices = new Set(chunkAssignments.map(ca => ca.chunkIndex));
+    
     // Log streaming start
     debug?.logStreamingStart({
       applyArchitecture,
@@ -364,6 +367,13 @@ const Index = () => {
     
     const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
     const supabaseKey = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
+    
+    // Track accumulated results for final persistence
+    const accumulatedArchitectureTasks: ArchitectureTask[] = [];
+    const accumulatedChunks: StreamedChunk[] = [];
+    const accumulatedBriefs: ContentBrief[] = [];
+    let streamingFailed = false;
+    let failureReason = '';
     
     try {
       let processedContent = content;
@@ -388,6 +398,15 @@ const Index = () => {
             }),
           });
 
+          // STRICT ERROR HANDLING: Check response status before reading stream
+          if (!response.ok) {
+            const errorText = await response.text().catch(() => 'Unknown error');
+            debug?.logStreamingError(`HTTP ${response.status}`, { phase: 'architecture', body: errorText });
+            streamingFailed = true;
+            failureReason = `Architecture phase failed: HTTP ${response.status}`;
+            throw new Error(failureReason);
+          }
+
           const reader = response.body?.getReader();
           const decoder = new TextDecoder();
 
@@ -406,6 +425,14 @@ const Index = () => {
                   try {
                     const data = JSON.parse(line.slice(6));
                     
+                    // Check for error events from edge function
+                    if (data.type === 'error') {
+                      debug?.logStreamingError(data.message, { phase: 'architecture' });
+                      streamingFailed = true;
+                      failureReason = `Architecture error: ${data.message}`;
+                      throw new Error(failureReason);
+                    }
+                    
                     // Log all SSE events
                     debug?.logArchitectureEvent(data.type, data);
                     
@@ -415,12 +442,14 @@ const Index = () => {
                     } else if (data.type === 'task_applied') {
                       const appliedTask = selectedTasks.find(t => t.id === data.taskId);
                       if (appliedTask) {
+                        accumulatedArchitectureTasks.push(appliedTask);
                         setStreamedArchitectureTasks(prev => [...prev, appliedTask]);
                       }
                     } else if (data.type === 'architecture_complete') {
                       processedContent = data.finalContent || processedContent;
                     }
                   } catch (e) {
+                    if (streamingFailed) throw e; // Re-throw if we already set failure
                     debug?.logSSEParseError(line, e as Error);
                     console.error('Failed to parse SSE event:', e);
                   }
@@ -431,13 +460,18 @@ const Index = () => {
         }
       }
       
-      // Step 2: Optimize chunks
+      // Step 2: Optimize chunks (ONLY assigned chunks)
       if (chunkAssignments.length > 0) {
         setStreamingStep('Optimizing chunks...');
         setStreamingProgress(20);
         
-        // Get chunk texts from layout chunks
-        const chunkTexts = layoutChunks.map(c => c.text);
+        // ENFORCEMENT: Only send assigned chunk texts, not all chunks
+        // Build array with only the chunks that have assignments
+        const assignedChunkData = chunkAssignments.map(ca => ({
+          originalIndex: ca.chunkIndex,
+          text: layoutChunks[ca.chunkIndex]?.text || '',
+          query: ca.query,
+        }));
         
         const response = await fetch(`${supabaseUrl}/functions/v1/optimize-content-stream`, {
           method: 'POST',
@@ -447,13 +481,24 @@ const Index = () => {
           },
           body: JSON.stringify({
             type: 'optimize_chunks_stream',
-            chunks: chunkTexts,
-            queryAssignments: chunkAssignments.map(ca => ({
-              chunkIndex: ca.chunkIndex,
-              queries: [ca.query],
+            // Send only assigned chunks with their original indices
+            chunks: assignedChunkData.map(cd => cd.text),
+            queryAssignments: assignedChunkData.map((cd, idx) => ({
+              chunkIndex: idx, // Index within the filtered array
+              originalChunkIndex: cd.originalIndex, // Original index in layoutChunks
+              queries: [cd.query],
             })),
           }),
         });
+
+        // STRICT ERROR HANDLING
+        if (!response.ok) {
+          const errorText = await response.text().catch(() => 'Unknown error');
+          debug?.logStreamingError(`HTTP ${response.status}`, { phase: 'chunks', body: errorText });
+          streamingFailed = true;
+          failureReason = `Chunk optimization failed: HTTP ${response.status}`;
+          throw new Error(failureReason);
+        }
 
         const reader = response.body?.getReader();
         const decoder = new TextDecoder();
@@ -473,6 +518,14 @@ const Index = () => {
                 try {
                   const data = JSON.parse(line.slice(6));
                   
+                  // Check for error events
+                  if (data.type === 'error') {
+                    debug?.logStreamingError(data.message, { phase: 'chunks' });
+                    streamingFailed = true;
+                    failureReason = `Chunk error: ${data.message}`;
+                    throw new Error(failureReason);
+                  }
+                  
                   // Log all SSE events
                   debug?.logChunkEvent(data.type, data);
                   
@@ -480,19 +533,35 @@ const Index = () => {
                     setStreamingStep(`Optimizing chunk ${data.chunkNumber}...`);
                     setStreamingProgress(20 + Math.round((data.progress / 100) * 50));
                   } else if (data.type === 'chunk_optimized') {
-                    const newChunk = {
-                      chunk_number: data.chunkNumber,
+                    // Get the original chunk index from our mapping
+                    const assignmentData = assignedChunkData[data.chunkIndex];
+                    const originalChunkIndex = assignmentData?.originalIndex ?? data.chunkIndex;
+                    
+                    // ENFORCEMENT: Skip if this chunk wasn't in our expected set
+                    if (!expectedChunkIndices.has(originalChunkIndex)) {
+                      console.warn(`Skipping unexpected chunk ${originalChunkIndex} - not in assignment plan`);
+                      debug?.logChunkEvent('chunk_skipped_unexpected', { chunkIndex: originalChunkIndex });
+                      continue;
+                    }
+                    
+                    const newChunk: StreamedChunk = {
+                      chunk_number: originalChunkIndex + 1, // 1-indexed for display
                       original_text: data.originalText,
                       optimized_text: data.optimizedText,
                       assignedQuery: data.query,
-                      heading: layoutChunks[data.chunkIndex]?.headingPath?.slice(-1)[0] || undefined,
+                      heading: layoutChunks[originalChunkIndex]?.headingPath?.slice(-1)[0] || undefined,
                     };
+                    accumulatedChunks.push(newChunk);
                     setStreamedChunks(prev => [...prev, newChunk]);
                     setStreamingProgress(20 + Math.round((data.progress / 100) * 50));
                   } else if (data.type === 'chunks_complete') {
-                    debug?.logChunkEvent('chunks_complete', {});
+                    debug?.logChunkEvent('chunks_complete', { 
+                      expected: expectedChunkIndices.size,
+                      received: accumulatedChunks.length,
+                    });
                   }
                 } catch (e) {
+                  if (streamingFailed) throw e;
                   debug?.logSSEParseError(line, e as Error);
                   console.error('Failed to parse SSE event:', e);
                 }
@@ -523,6 +592,15 @@ const Index = () => {
           }),
         });
 
+        // STRICT ERROR HANDLING
+        if (!response.ok) {
+          const errorText = await response.text().catch(() => 'Unknown error');
+          debug?.logStreamingError(`HTTP ${response.status}`, { phase: 'briefs', body: errorText });
+          streamingFailed = true;
+          failureReason = `Brief generation failed: HTTP ${response.status}`;
+          throw new Error(failureReason);
+        }
+
         const reader = response.body?.getReader();
         const decoder = new TextDecoder();
 
@@ -541,6 +619,14 @@ const Index = () => {
                 try {
                   const data = JSON.parse(line.slice(6));
                   
+                  // Check for error events
+                  if (data.type === 'error') {
+                    debug?.logStreamingError(data.message, { phase: 'briefs' });
+                    streamingFailed = true;
+                    failureReason = `Brief error: ${data.message}`;
+                    throw new Error(failureReason);
+                  }
+                  
                   // Log all SSE events
                   debug?.logBriefEvent(data.type, data);
                   
@@ -548,12 +634,17 @@ const Index = () => {
                     setStreamingStep(`Generating brief ${data.index + 1}/${data.total}...`);
                     setStreamingProgress(70 + Math.round(((data.index) / data.total) * 25));
                   } else if (data.type === 'brief_generated') {
+                    accumulatedBriefs.push(data.brief);
                     setStreamedBriefs(prev => [...prev, data.brief]);
                     setStreamingProgress(70 + Math.round(((data.index + 1) / data.total) * 25));
                   } else if (data.type === 'briefs_complete') {
-                    debug?.logBriefEvent('briefs_complete', {});
+                    debug?.logBriefEvent('briefs_complete', {
+                      expected: unassignedQueries.length,
+                      received: accumulatedBriefs.length,
+                    });
                   }
                 } catch (e) {
+                  if (streamingFailed) throw e;
                   debug?.logSSEParseError(line, e as Error);
                   console.error('Failed to parse SSE event:', e);
                 }
@@ -563,19 +654,90 @@ const Index = () => {
         }
       }
       
+      // ============== PERSIST STREAMED RESULTS ==============
+      // Build a FullOptimizationResult from accumulated streaming data
+      const streamedResult: FullOptimizationResult = {
+        analysis: { topic_segments: [], optimization_opportunities: [] },
+        optimizedChunks: accumulatedChunks.map((chunk, idx) => ({
+          chunk_number: chunk.chunk_number,
+          heading: chunk.heading,
+          original_text: chunk.original_text,
+          optimized_text: chunk.optimized_text,
+          changes_applied: [], // Streaming doesn't provide detailed changes
+        })),
+        explanations: [],
+        originalContent: content,
+        timestamp: new Date(),
+        contentBriefs: accumulatedBriefs,
+        allOriginalChunks: layoutChunks.map((lc, idx) => ({
+          index: idx,
+          text: lc.text,
+          textWithoutCascade: lc.textWithoutCascade,
+          heading: lc.headingPath?.slice(-1)[0] || null,
+          headingPath: lc.headingPath || [],
+        })),
+      };
+      
+      // Build optimized content from streamed chunks
+      const optimizedChunkMap = new Map<number, string>();
+      accumulatedChunks.forEach(chunk => {
+        optimizedChunkMap.set(chunk.chunk_number - 1, chunk.optimized_text);
+      });
+      
+      const reconstructedContent = layoutChunks.map((lc, idx) => {
+        const heading = lc.headingPath?.slice(-1)[0];
+        const body = optimizedChunkMap.has(idx) 
+          ? optimizedChunkMap.get(idx)!
+          : lc.textWithoutCascade;
+        return heading ? `## ${heading}\n\n${body}` : body;
+      }).join('\n\n');
+      
+      // Save to state
+      setOptimizationResult(streamedResult);
+      setOptimizedContent(reconstructedContent);
+      
+      // Mark project as having changes
+      markUnsaved(content, keywords, chunkerOptions, result, reconstructedContent, streamedResult, architectureAnalysis);
+      
+      // Log completion with mismatch detection
+      debug?.logStreamingComplete();
+      const mismatch = {
+        architecture: {
+          expected: applyArchitecture ? architectureTasks.filter(t => t.isSelected && t.type !== 'content_gap').length : 0,
+          received: accumulatedArchitectureTasks.length,
+        },
+        chunks: {
+          expected: chunkAssignments.length,
+          received: accumulatedChunks.length,
+        },
+        briefs: {
+          expected: generateBriefs ? unassignedQueries.length : 0,
+          received: accumulatedBriefs.length,
+        },
+      };
+      console.log('Streaming complete - mismatch check:', mismatch);
+      
       // Complete
       setStreamingStep('Optimization complete!');
       setStreamingProgress(100);
       setIsStreamingOptimization(false);
-      debug?.logStreamingComplete();
       
     } catch (error) {
       console.error('Streaming optimization error:', error);
-      debug?.logStreamingError(error as Error, { step: streamingStep, progress: streamingProgress });
-      setStreamingStep('Error occurred');
+      debug?.logStreamingError(error as Error, { 
+        step: streamingStep, 
+        progress: streamingProgress,
+        accumulated: {
+          architectureTasks: accumulatedArchitectureTasks.length,
+          chunks: accumulatedChunks.length,
+          briefs: accumulatedBriefs.length,
+        }
+      });
+      setStreamingStep(`Error: ${failureReason || (error instanceof Error ? error.message : 'Unknown error')}`);
       setIsStreamingOptimization(false);
+      // Stay on outputs tab showing partial results and error state
     }
-  }, [content, layoutChunks, streamingStep, streamingProgress]);
+  }, [content, layoutChunks, keywords, chunkerOptions, result, architectureAnalysis, markUnsaved]);
 
   const wordCount = content.trim() ? content.trim().split(/\s+/).length : 0;
   const tokenCount = Math.ceil(wordCount * 1.3);
