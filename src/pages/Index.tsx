@@ -530,17 +530,23 @@ const Index = () => {
                   debug?.logChunkEvent(data.type, data);
                   
                   if (data.type === 'chunk_started') {
-                    setStreamingStep(`Optimizing chunk ${data.chunkNumber}...`);
+                    setStreamingStep(`Optimizing chunk ${data.chunkNumber} of ${data.total}...`);
                     setStreamingProgress(20 + Math.round((data.progress / 100) * 50));
                   } else if (data.type === 'chunk_optimized') {
-                    // Get the original chunk index from our mapping
-                    const assignmentData = assignedChunkData[data.chunkIndex];
-                    const originalChunkIndex = assignmentData?.originalIndex ?? data.chunkIndex;
+                    // Use originalChunkIndex from the server (already filtered to assignments)
+                    const originalChunkIndex = data.originalChunkIndex ?? data.chunkIndex;
                     
                     // ENFORCEMENT: Skip if this chunk wasn't in our expected set
                     if (!expectedChunkIndices.has(originalChunkIndex)) {
-                      console.warn(`Skipping unexpected chunk ${originalChunkIndex} - not in assignment plan`);
-                      debug?.logChunkEvent('chunk_skipped_unexpected', { chunkIndex: originalChunkIndex });
+                      console.warn('Dropping unexpected chunk:', {
+                        receivedIndex: originalChunkIndex,
+                        expectedIndices: Array.from(expectedChunkIndices),
+                        reason: 'Not in assignment plan',
+                      });
+                      debug?.logChunkEvent('chunk_skipped_unexpected', { 
+                        chunkIndex: originalChunkIndex,
+                        expected: Array.from(expectedChunkIndices),
+                      });
                       continue;
                     }
                     
@@ -554,10 +560,17 @@ const Index = () => {
                     accumulatedChunks.push(newChunk);
                     setStreamedChunks(prev => [...prev, newChunk]);
                     setStreamingProgress(20 + Math.round((data.progress / 100) * 50));
+                    
+                    debug?.logChunkEvent('chunk_accepted', {
+                      chunkIndex: originalChunkIndex,
+                      query: data.query?.slice(0, 50),
+                      position: `${data.index + 1}/${data.total}`,
+                    });
                   } else if (data.type === 'chunks_complete') {
                     debug?.logChunkEvent('chunks_complete', { 
                       expected: expectedChunkIndices.size,
                       received: accumulatedChunks.length,
+                      serverProcessed: data.totalProcessed,
                     });
                   }
                 } catch (e) {

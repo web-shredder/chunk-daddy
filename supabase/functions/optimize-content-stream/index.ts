@@ -99,41 +99,54 @@ Important: Only apply THIS specific change. Do not make other modifications.`,
             break;
           }
 
-          case 'optimize_chunks_stream': {
+        case 'optimize_chunks_stream': {
             const { chunks, queryAssignments } = params;
-            const totalAssignments = queryAssignments.length;
             
-            // Log what we received for debugging
-            console.log('Chunks to optimize:', {
-              totalChunks: chunks?.length,
-              assignmentsCount: queryAssignments?.length,
-              assignments: queryAssignments?.map((qa: { chunkIndex: number; originalChunkIndex?: number; queries: string[] }) => ({
-                idx: qa.chunkIndex,
-                origIdx: qa.originalChunkIndex,
-                q: qa.queries?.[0]?.slice(0, 30),
+            // ENFORCEMENT: Build set of assigned chunk indices and filter
+            const assignedIndices = new Set(
+              queryAssignments
+                ?.filter((qa: { queries?: string[] }) => qa.queries?.[0]?.trim())
+                ?.map((qa: { chunkIndex: number }) => qa.chunkIndex)
+            );
+            
+            // Filter to only chunks with valid assignments
+            const chunksToOptimize = queryAssignments
+              .filter((qa: { chunkIndex: number; queries?: string[] }) => 
+                assignedIndices.has(qa.chunkIndex) && chunks[qa.chunkIndex]
+              )
+              .map((qa: { chunkIndex: number; originalChunkIndex?: number; queries: string[] }) => ({
+                arrayIndex: qa.chunkIndex,
+                originalIndex: qa.originalChunkIndex ?? qa.chunkIndex,
+                text: chunks[qa.chunkIndex],
+                query: qa.queries[0],
+              }));
+            
+            // Log filtering results for debugging
+            console.log('Assignment-only optimization:', {
+              receivedChunks: chunks?.length,
+              receivedAssignments: queryAssignments?.length,
+              filteredToOptimize: chunksToOptimize.length,
+              assignedIndices: Array.from(assignedIndices),
+              optimizing: chunksToOptimize.map((c: { originalIndex: number; query: string }) => ({
+                origIdx: c.originalIndex,
+                query: c.query?.slice(0, 40),
               })),
             });
 
-            for (let i = 0; i < queryAssignments.length; i++) {
-              const assignment = queryAssignments[i];
-              // Use chunkIndex to access the chunks array (may be filtered)
-              const arrayIndex = assignment.chunkIndex;
-              // Use originalChunkIndex for reporting back to client (if provided)
-              const reportIndex = assignment.originalChunkIndex ?? assignment.chunkIndex;
-              const chunkText = chunks[arrayIndex];
-              const query = assignment.queries[0];
-              
-              if (!chunkText) {
-                console.warn(`Missing chunk at index ${arrayIndex}, skipping`);
-                continue;
-              }
+            const totalToOptimize = chunksToOptimize.length;
+
+            for (let i = 0; i < chunksToOptimize.length; i++) {
+              const { arrayIndex, originalIndex, text: chunkText, query } = chunksToOptimize[i];
 
               await sendEvent({
                 type: 'chunk_started',
-                chunkIndex: reportIndex,
-                chunkNumber: reportIndex + 1,
+                index: i,
+                total: totalToOptimize,
+                chunkIndex: originalIndex,
+                originalChunkIndex: originalIndex,
+                chunkNumber: originalIndex + 1,
                 query,
-                progress: Math.round((i / totalAssignments) * 100),
+                progress: Math.round((i / totalToOptimize) * 100),
               });
 
               const response = await fetch(AI_GATEWAY_URL, {
@@ -187,21 +200,28 @@ ${chunkText}`,
                   optimizedText = content;
                 }
               } else {
-                console.error(`AI optimization failed for chunk ${reportIndex}:`, response.status);
+                console.error(`AI optimization failed for chunk ${originalIndex}:`, response.status);
               }
 
               await sendEvent({
                 type: 'chunk_optimized',
-                chunkNumber: reportIndex + 1,
-                chunkIndex: reportIndex,
+                index: i,
+                total: totalToOptimize,
+                chunkIndex: originalIndex,
+                originalChunkIndex: originalIndex,
+                chunkNumber: originalIndex + 1,
                 originalText: chunkText,
                 optimizedText: optimizedText,
                 query: query,
-                progress: Math.round(((i + 1) / totalAssignments) * 100),
+                progress: Math.round(((i + 1) / totalToOptimize) * 100),
               });
             }
 
-            await sendEvent({ type: 'chunks_complete', totalProcessed: totalAssignments });
+            await sendEvent({ 
+              type: 'chunks_complete', 
+              totalProcessed: totalToOptimize,
+              expectedCount: totalToOptimize,
+            });
             break;
           }
 
