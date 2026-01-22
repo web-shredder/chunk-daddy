@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { ChevronRight, Loader2, Settings2, Globe, Download, X, ChevronDown, ExternalLink } from 'lucide-react';
+import { ChevronRight, Loader2, Settings2, Globe, Download, X, ChevronDown } from 'lucide-react';
 import { MarkdownEditor } from '@/components/MarkdownEditor';
 import { ChunkingSettings } from '@/components/ChunkingSettings';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
@@ -14,6 +14,7 @@ import {
 } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { toast } from 'sonner';
+import { useDebug } from '@/contexts/DebugContext';
 import { fetchUrlContent } from '@/lib/url-fetcher';
 import type { ChunkerOptions } from '@/lib/layout-chunker';
 
@@ -147,14 +148,29 @@ export function ContentTab({
   const [urlInput, setUrlInput] = useState('');
   const [isFetching, setIsFetching] = useState(false);
   const [isUrlSectionOpen, setIsUrlSectionOpen] = useState(false);
+  const { logEvent } = useDebug();
   
   const hasContent = content.trim().length > 0;
   
   const handleChunkClick = () => {
+    logEvent('USER_CLICKED_CHUNK', {
+      contentLength: content.length,
+      wordCount,
+      options: chunkerOptions,
+    }, {
+      buttonText: 'Chunk It, Daddy',
+      expectedAction: 'Open settings dialog then chunk content',
+    });
     setShowSettingsDialog(true);
   };
   
   const handleConfirmChunk = () => {
+    logEvent('CHUNKING_CONFIRMED', {
+      contentLength: content.length,
+      options: chunkerOptions,
+    }, {
+      navigatingTo: 'analyze',
+    });
     setShowSettingsDialog(false);
     onChunk();
   };
