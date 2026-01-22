@@ -1,8 +1,9 @@
 import { useMemo } from 'react';
 import { cn, stripLeadingHeadingCascade } from '@/lib/utils';
 import { Badge } from '@/components/ui/badge';
-import { FileText, Hash, Zap, ChevronRight } from 'lucide-react';
+import { FileText, Hash, Zap, ChevronRight, AlertCircle, TrendingUp } from 'lucide-react';
 import { getTierFromScore, getTierLabel, TIER_COLORS } from '@/lib/tier-colors';
+import type { ChunkDiagnosis, FailureMode } from '@/lib/diagnostic-scoring';
 
 interface ChunkCardProps {
   chunk: {
@@ -17,6 +18,7 @@ interface ChunkCardProps {
   };
   isSelected: boolean;
   onClick: () => void;
+  diagnosis?: ChunkDiagnosis;
 }
 
 function getScoreTierStyles(score: number) {
@@ -41,7 +43,18 @@ function stripMarkdown(text: string): string {
     .trim();
 }
 
-export function ChunkCard({ chunk, isSelected, onClick }: ChunkCardProps) {
+// Diagnosis badge configuration
+const DIAGNOSIS_BADGES: Record<FailureMode, { label: string; color: string; shortLabel: string }> = {
+  'topic_mismatch': { label: 'Topic Mismatch', shortLabel: 'Topic', color: 'bg-[hsl(var(--tier-poor-bg))] text-[hsl(var(--tier-poor))] border-[hsl(var(--tier-poor)/0.3)]' },
+  'missing_specifics': { label: 'Needs Specifics', shortLabel: 'Vague', color: 'bg-[hsl(var(--tier-moderate-bg))] text-[hsl(var(--tier-moderate))] border-[hsl(var(--tier-moderate)/0.3)]' },
+  'buried_answer': { label: 'Buried Answer', shortLabel: 'Buried', color: 'bg-[hsl(var(--tier-weak-bg))] text-[hsl(var(--tier-weak))] border-[hsl(var(--tier-weak)/0.3)]' },
+  'vocabulary_gap': { label: 'Missing Terms', shortLabel: 'Terms', color: 'bg-[hsl(var(--info-bg))] text-[hsl(var(--info))] border-[hsl(var(--info)/0.3)]' },
+  'no_direct_answer': { label: 'No Direct Answer', shortLabel: 'Answer', color: 'bg-[hsl(var(--tier-poor-bg))] text-[hsl(var(--tier-poor))] border-[hsl(var(--tier-poor)/0.3)]' },
+  'structure_problem': { label: 'Structure Issue', shortLabel: 'Structure', color: 'bg-[hsl(var(--tier-moderate-bg))] text-[hsl(var(--tier-moderate))] border-[hsl(var(--tier-moderate)/0.3)]' },
+  'already_optimized': { label: 'Optimized ✓', shortLabel: 'Good', color: 'bg-[hsl(var(--tier-good-bg))] text-[hsl(var(--tier-good))] border-[hsl(var(--tier-good)/0.3)]' },
+};
+
+export function ChunkCard({ chunk, isSelected, onClick, diagnosis }: ChunkCardProps) {
   const tierStyles = getScoreTierStyles(chunk.score);
   
   // Build breadcrumb from headingPath (show last 2-3 levels max)
@@ -76,6 +89,9 @@ export function ChunkCard({ chunk, isSelected, onClick }: ChunkCardProps) {
     const remaining = words.slice(8, 28).join(' ');
     return remaining.length > 0 ? remaining + '…' : '';
   }, [chunk.text]);
+
+  // Get diagnosis badge info
+  const diagnosisBadge = diagnosis ? DIAGNOSIS_BADGES[diagnosis.primaryFailureMode] : null;
 
   const assignedQueryClean = chunk.assignedQuery ? stripMarkdown(chunk.assignedQuery) : undefined;
   
@@ -131,9 +147,9 @@ export function ChunkCard({ chunk, isSelected, onClick }: ChunkCardProps) {
         </Badge>
       </div>
       
-      {/* Assigned Query */}
-      {assignedQueryClean && (
-        <div className="mb-1.5">
+      {/* Assigned Query + Diagnosis */}
+      <div className="flex items-center gap-1.5 mb-1.5 flex-wrap">
+        {assignedQueryClean && (
           <Badge variant="secondary" className="text-[10px] px-1.5 py-0 h-4 bg-accent/10 text-accent max-w-full">
             <Zap className="h-2.5 w-2.5 mr-1 shrink-0" />
             <span className="truncate">
@@ -142,9 +158,33 @@ export function ChunkCard({ chunk, isSelected, onClick }: ChunkCardProps) {
                 : assignedQueryClean}
             </span>
           </Badge>
-        </div>
-      )}
-      
+        )}
+        
+        {/* Diagnosis Badge */}
+        {diagnosisBadge && diagnosis && diagnosis.fixPriority !== 'none' && (
+          <Badge 
+            variant="outline" 
+            className={cn("text-[9px] px-1.5 py-0 h-4 shrink-0", diagnosisBadge.color)}
+          >
+            {diagnosis.fixPriority === 'critical' && <AlertCircle className="h-2 w-2 mr-0.5" />}
+            {diagnosisBadge.shortLabel}
+            {diagnosis.expectedImprovement > 0 && (
+              <span className="ml-0.5 opacity-70">+{diagnosis.expectedImprovement}</span>
+            )}
+          </Badge>
+        )}
+        
+        {/* Already Optimized Badge */}
+        {diagnosisBadge && diagnosis?.fixPriority === 'none' && (
+          <Badge 
+            variant="outline" 
+            className={cn("text-[9px] px-1.5 py-0 h-4 shrink-0", diagnosisBadge.color)}
+          >
+            <TrendingUp className="h-2 w-2 mr-0.5" />
+            {diagnosisBadge.shortLabel}
+          </Badge>
+        )}
+      </div>
       {/* Body Preview */}
       {bodyPreview && (
         <p className="text-xs text-muted-foreground line-clamp-2 mb-2 leading-relaxed">

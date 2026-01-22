@@ -3,7 +3,7 @@ import {
   ChevronRight, ChevronDown, ChevronUp, Copy, Edit, 
   AlertCircle, AlertTriangle, Info, CheckCircle2, 
   Zap, Calculator, Target, FileText, Lightbulb, 
-  TrendingUp, Star, Loader2
+  TrendingUp, Star, Loader2, Search, Activity, Quote
 } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -15,6 +15,7 @@ import { getTierFromScore, getTierLabel, TIER_COLORS, SCORE_CHANGE_COLORS, getSc
 import { toast } from 'sonner';
 import type { LayoutAwareChunk } from '@/lib/layout-chunker';
 import type { ChunkScore } from '@/hooks/useAnalysis';
+import type { DiagnosticScores, FailureMode, ChunkDiagnosis } from '@/lib/diagnostic-scoring';
 
 interface PerQueryScore {
   passage: number;
@@ -32,6 +33,7 @@ interface ChunkDetailsPanelProps {
   onEditContent?: () => void;
   onReassignQuery?: (newQuery: string) => void;
   perQueryScores?: Record<string, PerQueryScore>; // query -> detailed scores
+  diagnosticScores?: DiagnosticScores; // NEW: Full diagnostic scoring data
 }
 
 // Strip markdown formatting
@@ -307,17 +309,48 @@ function TechnicalScoreSection({
   );
 }
 
-// ============ DIAGNOSTIC SECTION ============
+// ============ DIAGNOSTIC SECTION (NEW - USES diagnostic-scoring.ts) ============
+const FAILURE_MODE_BADGES: Record<FailureMode, { label: string; icon: typeof AlertCircle; color: string }> = {
+  'topic_mismatch': { label: 'Topic Mismatch', icon: AlertCircle, color: DIAGNOSTIC_COLORS.error },
+  'missing_specifics': { label: 'Needs Specifics', icon: Info, color: DIAGNOSTIC_COLORS.warning },
+  'buried_answer': { label: 'Buried Answer', icon: AlertTriangle, color: DIAGNOSTIC_COLORS.warning },
+  'vocabulary_gap': { label: 'Missing Terms', icon: Search, color: DIAGNOSTIC_COLORS.info },
+  'no_direct_answer': { label: 'No Direct Answer', icon: AlertCircle, color: DIAGNOSTIC_COLORS.error },
+  'structure_problem': { label: 'Structure Issue', icon: Info, color: DIAGNOSTIC_COLORS.warning },
+  'already_optimized': { label: 'Well Optimized', icon: CheckCircle2, color: DIAGNOSTIC_COLORS.success },
+};
+
+function ScoreRow({ label, score, detail }: { label: string; score: number; detail?: string }) {
+  const tier = getTierFromScore(score);
+  const colors = TIER_COLORS[tier];
+  return (
+    <div className="flex items-center justify-between text-xs">
+      <span className="text-muted-foreground">{label}</span>
+      <div className="flex items-center gap-2">
+        {detail && <span className="text-muted-foreground/70 text-[10px]">{detail}</span>}
+        <span className={cn("font-mono font-medium", colors.text)}>{score}</span>
+      </div>
+    </div>
+  );
+}
+
 function DiagnosticSection({ 
   chunk, 
   passageScore,
-  assignedQuery 
+  assignedQuery,
+  diagnosticScores
 }: { 
   chunk: LayoutAwareChunk; 
   passageScore: number;
   assignedQuery?: string;
+  diagnosticScores?: DiagnosticScores;
 }) {
-  const diagnosis = useMemo(() => {
+  const [lexicalExpanded, setLexicalExpanded] = useState(false);
+  const [rerankExpanded, setRerankExpanded] = useState(false);
+  const [citationExpanded, setCitationExpanded] = useState(false);
+  
+  // Fallback to old diagnosis if no diagnostic scores
+  const legacyDiagnosis = useMemo(() => {
     const issues: Array<{ type: 'error' | 'warning' | 'info'; message: string }> = [];
     
     if (passageScore < 60) {
@@ -332,48 +365,7 @@ function DiagnosticSection({
       if (textLength < 200) {
         issues.push({ 
           type: 'warning', 
-          message: 'Very short content (< 200 chars) — may lack sufficient detail for RAG systems' 
-        });
-      }
-      
-      if (!chunk.headingPath || chunk.headingPath.length === 0) {
-        issues.push({ 
-          type: 'warning', 
-          message: 'No heading context — missing semantic structure signals' 
-        });
-      }
-      
-      // Pronoun analysis
-      const bodyText = chunk.textWithoutCascade || stripLeadingHeadingCascade(chunk.text);
-      const pronouns = (bodyText.match(/\b(this|that|it|they|these|those)\b/gi) || []);
-      if (pronouns.length > 3) {
-        issues.push({ 
-          type: 'warning', 
-          message: `High pronoun usage (${pronouns.length}) — reduces atomicity and self-containment` 
-        });
-      }
-      
-      // Query keyword coverage
-      if (assignedQuery) {
-        const queryWords = assignedQuery.toLowerCase().split(' ').filter(w => w.length > 3);
-        const chunkLower = bodyText.toLowerCase();
-        const missingWords = queryWords.filter(w => !chunkLower.includes(w));
-        
-        if (missingWords.length > 0) {
-          issues.push({ 
-            type: 'error', 
-            message: `Query keywords not found: ${missingWords.slice(0, 3).join(', ')}${missingWords.length > 3 ? '...' : ''}` 
-          });
-        }
-      }
-      
-      // Specificity check
-      const hasNumbers = /\d+/.test(bodyText);
-      const hasProperNouns = /[A-Z][a-z]+\s[A-Z][a-z]+/.test(bodyText);
-      if (!hasNumbers && !hasProperNouns) {
-        issues.push({ 
-          type: 'info', 
-          message: 'No specific data (numbers, names) — content may be too vague' 
+          message: 'Very short content (< 200 chars) — may lack sufficient detail' 
         });
       }
     }
@@ -381,6 +373,213 @@ function DiagnosticSection({
     return issues;
   }, [chunk, passageScore, assignedQuery]);
   
+  // If we have diagnostic scores, show the new UI
+  if (diagnosticScores) {
+    const { diagnosis, lexical, rerank, citation, hybridRetrieval } = diagnosticScores;
+    const failureConfig = FAILURE_MODE_BADGES[diagnosis.primaryFailureMode];
+    const FailureIcon = failureConfig.icon;
+    
+    return (
+      <div className="p-4 border-t border-border space-y-4 min-w-0">
+        <h4 className="text-sm font-medium flex items-center gap-2">
+          <Activity className="h-4 w-4 text-muted-foreground" />
+          Diagnostic Analysis
+        </h4>
+        
+        {/* Diagnosis Summary */}
+        <div className="p-3 rounded-lg bg-muted/50 border border-border space-y-2">
+          <div className="flex items-start gap-2">
+            <FailureIcon className={cn("h-4 w-4 shrink-0 mt-0.5", failureConfig.color)} />
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className={cn("text-sm font-medium", failureConfig.color)}>
+                  {failureConfig.label}
+                </span>
+                {diagnosis.fixPriority !== 'none' && (
+                  <Badge variant="outline" className="text-[10px] px-1 py-0 h-4">
+                    +{diagnosis.expectedImprovement} pts expected
+                  </Badge>
+                )}
+              </div>
+              <p className="text-xs text-muted-foreground mt-1 break-words">
+                {diagnosis.recommendedFix}
+              </p>
+            </div>
+          </div>
+          
+          {/* Missing Facets */}
+          {diagnosis.missingFacets.length > 0 && (
+            <div className="pt-2 border-t border-border/50">
+              <span className="text-[10px] text-muted-foreground">Missing concepts: </span>
+              <div className="flex flex-wrap gap-1 mt-1">
+                {diagnosis.missingFacets.slice(0, 6).map((facet, i) => (
+                  <Badge key={i} variant="outline" className="text-[10px] px-1.5 py-0 h-4 bg-destructive/10 text-destructive border-destructive/30">
+                    {facet}
+                  </Badge>
+                ))}
+              </div>
+            </div>
+          )}
+          
+          {/* Present Strengths */}
+          {diagnosis.presentStrengths.length > 0 && (
+            <div className="pt-2 border-t border-border/50">
+              <span className="text-[10px] text-muted-foreground">Strengths: </span>
+              <div className="flex flex-wrap gap-1 mt-1">
+                {diagnosis.presentStrengths.map((strength, i) => (
+                  <Badge key={i} variant="outline" className="text-[10px] px-1.5 py-0 h-4 bg-[hsl(var(--tier-good-bg))] text-[hsl(var(--tier-good))] border-[hsl(var(--tier-good)/0.3)]">
+                    {strength}
+                  </Badge>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+        
+        {/* Multi-Stage Scores Grid */}
+        <div className="grid grid-cols-3 gap-2">
+          <div className="p-2 rounded-lg bg-muted/30 border border-border text-center">
+            <div className="text-[10px] text-muted-foreground mb-1">Retrieval</div>
+            <div className={cn("text-lg font-bold font-mono", getTierFromScore(hybridRetrieval) === 'poor' ? TIER_COLORS.poor.text : getTierFromScore(hybridRetrieval) === 'weak' ? TIER_COLORS.weak.text : TIER_COLORS.moderate.text)}>
+              {hybridRetrieval}
+            </div>
+          </div>
+          <div className="p-2 rounded-lg bg-muted/30 border border-border text-center">
+            <div className="text-[10px] text-muted-foreground mb-1">Rerank</div>
+            <div className={cn("text-lg font-bold font-mono", getTierFromScore(rerank.score) === 'poor' ? TIER_COLORS.poor.text : getTierFromScore(rerank.score) === 'weak' ? TIER_COLORS.weak.text : TIER_COLORS.moderate.text)}>
+              {rerank.score}
+            </div>
+          </div>
+          <div className="p-2 rounded-lg bg-muted/30 border border-border text-center">
+            <div className="text-[10px] text-muted-foreground mb-1">Citation</div>
+            <div className={cn("text-lg font-bold font-mono", getTierFromScore(citation.score) === 'poor' ? TIER_COLORS.poor.text : getTierFromScore(citation.score) === 'weak' ? TIER_COLORS.weak.text : TIER_COLORS.moderate.text)}>
+              {citation.score}
+            </div>
+          </div>
+        </div>
+        
+        {/* Lexical Analysis (Collapsible) */}
+        <Collapsible open={lexicalExpanded} onOpenChange={setLexicalExpanded}>
+          <CollapsibleTrigger className="flex items-center justify-between w-full p-2 rounded-lg bg-muted/30 hover:bg-muted/50 transition-colors">
+            <span className="flex items-center gap-2 text-xs font-medium">
+              <Search className="h-3.5 w-3.5 text-muted-foreground" />
+              Lexical Analysis
+            </span>
+            <div className="flex items-center gap-2">
+              <span className="text-xs font-mono">{lexical.score}</span>
+              {lexicalExpanded ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
+            </div>
+          </CollapsibleTrigger>
+          <CollapsibleContent className="pt-2 space-y-2">
+            <div className="text-xs space-y-1 p-2 bg-muted/20 rounded">
+              <div>
+                <span className="text-muted-foreground">Query terms: </span>
+                {lexical.queryTerms.map(term => (
+                  <span 
+                    key={term} 
+                    className={cn(
+                      "mx-0.5 px-1 py-0.5 rounded text-[10px]",
+                      lexical.matchedTerms.some(m => m.term === term) 
+                        ? "bg-[hsl(var(--tier-good-bg))] text-[hsl(var(--tier-good))]" 
+                        : "bg-[hsl(var(--tier-poor-bg))] text-[hsl(var(--tier-poor))]"
+                    )}
+                  >
+                    {term}
+                  </span>
+                ))}
+              </div>
+              {lexical.missingTerms.length > 0 && (
+                <div className="text-[hsl(var(--destructive))]">
+                  Missing: {lexical.missingTerms.join(', ')}
+                </div>
+              )}
+              {lexical.exactPhraseMatch && (
+                <div className={DIAGNOSTIC_COLORS.success}>✓ Exact query phrase found</div>
+              )}
+              {lexical.titleBoost > 0 && (
+                <div className="text-muted-foreground">
+                  Heading boost: +{lexical.titleBoost} pts
+                </div>
+              )}
+            </div>
+          </CollapsibleContent>
+        </Collapsible>
+        
+        {/* Rerank Factors (Collapsible) */}
+        <Collapsible open={rerankExpanded} onOpenChange={setRerankExpanded}>
+          <CollapsibleTrigger className="flex items-center justify-between w-full p-2 rounded-lg bg-muted/30 hover:bg-muted/50 transition-colors">
+            <span className="flex items-center gap-2 text-xs font-medium">
+              <TrendingUp className="h-3.5 w-3.5 text-muted-foreground" />
+              Rerank Factors
+            </span>
+            <div className="flex items-center gap-2">
+              <span className="text-xs font-mono">{rerank.score}</span>
+              {rerankExpanded ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
+            </div>
+          </CollapsibleTrigger>
+          <CollapsibleContent className="pt-2 space-y-2">
+            <div className="p-2 bg-muted/20 rounded space-y-1.5">
+              <ScoreRow label="Entity Prominence" score={rerank.entityProminence.score} />
+              <ScoreRow label="Direct Answer" score={rerank.directAnswer.score} detail={rerank.directAnswer.answerType} />
+              <ScoreRow label="Query Restatement" score={rerank.queryRestatement.score} detail={rerank.queryRestatement.restatementType} />
+              <ScoreRow label="Structural Clarity" score={rerank.structuralClarity.score} />
+              
+              {rerank.entityProminence.missingEntities.length > 0 && (
+                <div className="pt-1.5 border-t border-border/50 text-xs">
+                  <span className="text-muted-foreground">Missing entities: </span>
+                  <span className="text-[hsl(var(--destructive))]">
+                    {rerank.entityProminence.missingEntities.join(', ')}
+                  </span>
+                </div>
+              )}
+            </div>
+          </CollapsibleContent>
+        </Collapsible>
+        
+        {/* Citation Potential (Collapsible) */}
+        <Collapsible open={citationExpanded} onOpenChange={setCitationExpanded}>
+          <CollapsibleTrigger className="flex items-center justify-between w-full p-2 rounded-lg bg-muted/30 hover:bg-muted/50 transition-colors">
+            <span className="flex items-center gap-2 text-xs font-medium">
+              <Quote className="h-3.5 w-3.5 text-muted-foreground" />
+              Citation Potential
+            </span>
+            <div className="flex items-center gap-2">
+              <span className="text-xs font-mono">{citation.score}</span>
+              {citationExpanded ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
+            </div>
+          </CollapsibleTrigger>
+          <CollapsibleContent className="pt-2 space-y-2">
+            <div className="p-2 bg-muted/20 rounded space-y-1.5">
+              <ScoreRow label="Specificity" score={citation.specificity.score} />
+              <ScoreRow label="Quotability" score={citation.quotability.score} />
+              
+              {citation.specificity.numbers.length > 0 && (
+                <div className="text-xs pt-1.5 border-t border-border/50">
+                  <span className="text-muted-foreground">Numbers found: </span>
+                  <span>{citation.specificity.numbers.slice(0, 4).join(', ')}</span>
+                </div>
+              )}
+              
+              <div className="flex items-center gap-4 text-xs pt-1">
+                {citation.quotability.quotableSentences.length > 0 && (
+                  <span className={DIAGNOSTIC_COLORS.success}>
+                    {citation.quotability.quotableSentences.length} quotable
+                  </span>
+                )}
+                {citation.quotability.vagueStatements.length > 0 && (
+                  <span className={DIAGNOSTIC_COLORS.warning}>
+                    {citation.quotability.vagueStatements.length} vague
+                  </span>
+                )}
+              </div>
+            </div>
+          </CollapsibleContent>
+        </Collapsible>
+      </div>
+    );
+  }
+  
+  // Fallback to legacy diagnosis display
   return (
     <div className="p-4 border-t border-border space-y-3 min-w-0">
       <h4 className="text-sm font-medium flex items-center gap-2">
@@ -388,9 +587,9 @@ function DiagnosticSection({
         Diagnostic Analysis
       </h4>
       
-      {diagnosis.length > 0 ? (
+      {legacyDiagnosis.length > 0 ? (
         <div className="space-y-2">
-          {diagnosis.map((issue, i) => (
+          {legacyDiagnosis.map((issue, i) => (
             <div 
               key={i}
               className="p-3 rounded-lg border border-border flex items-start gap-3 text-sm min-w-0"
@@ -652,6 +851,7 @@ export function ChunkDetailsPanel({
   onEditContent,
   onReassignQuery,
   perQueryScores,
+  diagnosticScores,
 }: ChunkDetailsPanelProps) {
   
   // Calculate passage score for the ASSIGNED query (case-insensitive), not average
@@ -735,6 +935,7 @@ export function ChunkDetailsPanel({
           chunk={chunk}
           passageScore={passageScore}
           assignedQuery={assignedQuery}
+          diagnosticScores={diagnosticScores}
         />
         
         {/* Section 5: Quick Actions */}

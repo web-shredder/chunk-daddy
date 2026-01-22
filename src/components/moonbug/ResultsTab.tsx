@@ -26,8 +26,9 @@ import {
   type ChunkScoreData,
 } from '@/lib/query-assignment';
 import type { LayoutAwareChunk, DocumentElement } from '@/lib/layout-chunker';
-import type { ChunkScore, AnalysisResult, CoverageEntry } from '@/hooks/useAnalysis';
+import type { ChunkScore, AnalysisResult, CoverageEntry, ChunkDiagnostics } from '@/hooks/useAnalysis';
 import type { FanoutIntentType } from '@/lib/optimizer-types';
+import type { DiagnosticScores } from '@/lib/diagnostic-scoring';
 
 interface ResultsTabProps {
   hasResults: boolean;
@@ -358,6 +359,25 @@ export function ResultsTab({
     });
     return scores;
   }, [chunkScores]);
+
+  // Get diagnostic scores for a specific chunk-query pair
+  const getDiagnosticScores = useCallback((chunkIndex: number, query: string): DiagnosticScores | undefined => {
+    if (!result?.diagnostics) return undefined;
+    const diag = result.diagnostics.find(
+      d => d.chunkIndex === chunkIndex && d.query.toLowerCase() === query.toLowerCase()
+    );
+    return diag?.scores;
+  }, [result?.diagnostics]);
+
+  // Get diagnosis for a chunk (using assigned query)
+  const getChunkDiagnosis = useCallback((chunkIndex: number) => {
+    const assignedQuery = getAssignedQuery(chunkIndex);
+    if (!assignedQuery || !result?.diagnostics) return undefined;
+    const diag = result.diagnostics.find(
+      d => d.chunkIndex === chunkIndex && d.query.toLowerCase() === assignedQuery.toLowerCase()
+    );
+    return diag?.scores?.diagnosis;
+  }, [result?.diagnostics, getAssignedQuery]);
 
   // Handle query reassignment
   const handleReassignQuery = useCallback((chunkIndex: number, newQuery: string) => {
@@ -709,6 +729,7 @@ export function ResultsTab({
                       }}
                       isSelected={originalIndex === selectedIndex}
                       onClick={() => handleSelectChunk(originalIndex)}
+                      diagnosis={getChunkDiagnosis(originalIndex)}
                     />
                   ))
                 )}
@@ -941,6 +962,7 @@ export function ResultsTab({
                   assignedQuery={getAssignedQuery(selectedIndex)}
                   onReassignQuery={(newQuery) => handleReassignQuery(selectedIndex, newQuery)}
                   perQueryScores={getPerQueryScores(selectedIndex)}
+                  diagnosticScores={getDiagnosticScores(selectedIndex, getAssignedQuery(selectedIndex) || '')}
                 />
               </div>
             )}
