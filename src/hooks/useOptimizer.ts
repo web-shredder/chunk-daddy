@@ -1,7 +1,7 @@
 import { useState, useCallback } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { generateEmbeddings } from '@/lib/embeddings';
-import { calculateAllMetrics, calculateImprovement, calculatePassageScore, getPassageScoreTier, type SimilarityScores } from '@/lib/similarity';
+import { calculateAllMetrics, calculateImprovement, calculatePassageScore, getPassageScoreTier, chamferSimilarity, type SimilarityScores } from '@/lib/similarity';
 import type {
   ContentAnalysis,
   OptimizationResult,
@@ -214,9 +214,10 @@ export function useOptimizer() {
       
       // Build texts with IDENTICAL cascade prefix for both original and optimized
       // This ensures apples-to-apples scoring comparison
-      const scoringData = optimization.optimized_chunks.map((chunk, idx) => {
-        // Get the original chunk with cascade (from the chunks array we sent to optimizer)
-        const originalFullChunk = chunks?.[idx] || chunk.original_text || '';
+      const scoringData = optimization.optimized_chunks.map((chunk) => {
+        // Use chunk_number (1-indexed from API) to find correct original chunk
+        const originalChunkIndex = chunk.chunk_number - 1;
+        const originalFullChunk = chunks?.[originalChunkIndex] || chunk.original_text || '';
         const { cascade, body: originalBody } = extractCascade(originalFullChunk);
         
         // Clean the optimized text (strip any accidental headings from AI output)
@@ -272,6 +273,32 @@ export function useOptimizer() {
         embedding: embeddingMap.get(optimizedTexts.length + originalTexts.length + idx) || []
       }));
 
+      // Calculate document-level chamfer similarity (Path 5 architecture)
+      // This measures how well the ENTIRE document covers all query aspects
+      const allOptimizedVectors = optimizedEmbeddings
+        .map(e => e.embedding)
+        .filter(e => e && e.length > 0);
+      const allOriginalVectors = originalEmbeddings
+        .map(e => e.embedding)
+        .filter(e => e && e.length > 0);
+      const allQueryVectors = queryEmbeddings
+        .map(e => e.embedding)
+        .filter(e => e && e.length > 0);
+
+      // Calculate document chamfer for optimized and original content
+      let optimizedDocumentChamfer = 0;
+      let originalDocumentChamfer = 0;
+      
+      if (allOptimizedVectors.length > 0 && allQueryVectors.length > 0) {
+        optimizedDocumentChamfer = chamferSimilarity(allOptimizedVectors, allQueryVectors);
+        console.log('📊 [OPTIMIZER] Optimized document chamfer:', optimizedDocumentChamfer.toFixed(4));
+      }
+      
+      if (allOriginalVectors.length > 0 && allQueryVectors.length > 0) {
+        originalDocumentChamfer = chamferSimilarity(allOriginalVectors, allQueryVectors);
+        console.log('📊 [OPTIMIZER] Original document chamfer:', originalDocumentChamfer.toFixed(4));
+      }
+
       setState(prev => ({ ...prev, progress: 70 }));
 
       // Calculate scores and improvements + capture for summary
@@ -302,24 +329,22 @@ export function useOptimizer() {
           const optimizedMetrics = calculateAllMetrics(optimizedEmb, queryEmb);
           const originalMetrics = calculateAllMetrics(origEmb, queryEmb);
           
-          // For single vectors, chamfer = cosine (single-point sets)
-          const optimizedChamfer = optimizedMetrics.cosine;
-          const originalChamfer = originalMetrics.cosine;
-          
-          const optimizedPassageScore = calculatePassageScore(optimizedMetrics.cosine, optimizedChamfer);
-          const originalPassageScore = calculatePassageScore(originalMetrics.cosine, originalChamfer);
+          // Use document-level chamfer (Path 5 architecture)
+          // Passage Score = (cosine × 0.7) + (chamfer × 0.3) × 100
+          const optimizedPassageScore = calculatePassageScore(optimizedMetrics.cosine, optimizedDocumentChamfer);
+          const originalPassageScore = calculatePassageScore(originalMetrics.cosine, originalDocumentChamfer);
           
           chunkScores[query] = optimizedMetrics.cosine;
           originalScores[query] = originalMetrics.cosine;
           
           chunkFullScores[query] = { 
             cosine: optimizedMetrics.cosine, 
-            chamfer: optimizedChamfer, 
+            chamfer: optimizedDocumentChamfer, 
             passageScore: optimizedPassageScore 
           };
           originalFullScores[query] = { 
             cosine: originalMetrics.cosine, 
-            chamfer: originalChamfer, 
+            chamfer: originalDocumentChamfer, 
             passageScore: originalPassageScore 
           };
         });
