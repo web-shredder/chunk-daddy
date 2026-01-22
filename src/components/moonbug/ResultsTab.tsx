@@ -1,5 +1,5 @@
 import { useState, useMemo, useEffect, useCallback } from 'react';
-import { BarChart3, ChevronLeft, ChevronRight, ChevronDown, Copy, Download, Search, AlertCircle, FileJson, FileText, TreeDeciduous, List, Table, Target, Star, ArrowRight, CheckCircle2, ArrowUpDown } from 'lucide-react';
+import { BarChart3, ChevronLeft, ChevronRight, ChevronDown, Copy, Download, Search, AlertCircle, FileJson, FileText, TreeDeciduous, List, Table, Target, Star, ArrowRight, CheckCircle2, ArrowUpDown, Info, AlertTriangle } from 'lucide-react';
 import { DismissableTip } from '@/components/DismissableTip';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
@@ -8,12 +8,14 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigge
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { Sheet, SheetContent } from '@/components/ui/sheet';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { toast } from 'sonner';
 import { cn, stripLeadingHeadingCascade } from '@/lib/utils';
 import { formatScore, getScoreColorClass, calculatePassageScore, getPassageScoreTier, getPassageScoreTierColorClass } from '@/lib/similarity';
 import { ChunkCard } from './ChunkCard';
 import { ChunkDetailsPanel } from './ChunkDetailsPanel';
 import { ExportGapsDialog } from './ExportGapsDialog';
+import { ScoreTripleLegend } from './ScoreTriple';
 import { downloadCSV } from '@/lib/csv-export';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { useDebug } from '@/contexts/DebugContext';
@@ -228,8 +230,8 @@ export function ResultsTab({
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [viewMode, setViewMode] = useState<'list' | 'structure' | 'assignments'>('list');
   const [detailPanelOpen, setDetailPanelOpen] = useState(false);
-  const [scoreFilter, setScoreFilter] = useState<'all' | 'problems' | 'good'>('problems');
-  const [sortBy, setSortBy] = useState<'score' | 'index' | 'heading'>('score');
+  const [scoreFilter, setScoreFilter] = useState<'all' | 'problems' | 'good' | 'low-retrieval' | 'low-rerank' | 'low-citation' | 'flagged' | 'middle'>('problems');
+  const [sortBy, setSortBy] = useState<'score' | 'index' | 'heading' | 'retrieval' | 'rerank' | 'citation' | 'gap'>('score');
   const isMobile = useIsMobile();
   const { logEvent } = useDebug();
 
@@ -297,6 +299,7 @@ export function ResultsTab({
   }, [queryAssignments]);
 
   // Compute passage scores for all chunks (using ASSIGNED query, not average)
+  // Now also extracts retrieval, rerank, and citation scores from diagnostics
   const chunksWithScores = useMemo(() => {
     return chunks.map((chunk, idx) => {
       const score = chunkScores[idx];
@@ -311,13 +314,53 @@ export function ResultsTab({
         passageScore = calculatePassageScore(assignedKs.scores.cosine, assignedKs.scores.chamfer);
       }
       
-      return { chunk, score, passageScore, originalIndex: idx };
+      // Get diagnostic scores for this chunk-query pair (includes retrieval, rerank, citation)
+      let retrievalScore = passageScore; // Default to passage score
+      let rerankScore = 0;
+      let citationScore = 0;
+      let flaggedReason: string | null = null;
+      
+      if (result?.diagnostics && assignedQuery) {
+        const diag = result.diagnostics.find(
+          d => d.chunkIndex === idx && d.query.toLowerCase() === assignedQuery.toLowerCase()
+        );
+        if (diag?.scores) {
+          retrievalScore = diag.scores.hybridRetrieval ?? passageScore;
+          rerankScore = diag.scores.rerank?.score ?? 0;
+          citationScore = diag.scores.citation?.score ?? 0;
+          
+          // Flag if high retrieval but low rerank (will get buried)
+          const gap = retrievalScore - rerankScore;
+          if (gap > 15) {
+            flaggedReason = 'high_retrieval_low_rerank';
+          } else if (gap < -15) {
+            flaggedReason = 'high_rerank_low_retrieval';
+          } else if (retrievalScore < 40 && rerankScore < 40) {
+            flaggedReason = 'both_scores_low';
+          }
+        }
+      }
+      
+      return { 
+        chunk, 
+        score, 
+        passageScore, 
+        retrievalScore, 
+        rerankScore, 
+        citationScore, 
+        flaggedReason,
+        originalIndex: idx 
+      };
     });
-  }, [chunks, chunkScores, getAssignedQuery]);
+  }, [chunks, chunkScores, getAssignedQuery, result?.diagnostics]);
 
   // Filter counts
   const problemCount = chunksWithScores.filter(c => c.passageScore < 60).length;
   const goodCount = chunksWithScores.filter(c => c.passageScore >= 75).length;
+  const lowRetrievalCount = chunksWithScores.filter(c => c.retrievalScore < 60).length;
+  const lowRerankCount = chunksWithScores.filter(c => c.rerankScore < 60).length;
+  const lowCitationCount = chunksWithScores.filter(c => c.citationScore < 60).length;
+  const flaggedCount = chunksWithScores.filter(c => c.flaggedReason !== null).length;
 
   // Log analysis results when they become available
   useEffect(() => {
@@ -413,10 +456,32 @@ export function ResultsTab({
     }
     
     // Apply score filter
-    if (scoreFilter === 'problems') {
-      filtered = filtered.filter(c => c.passageScore < 60);
-    } else if (scoreFilter === 'good') {
-      filtered = filtered.filter(c => c.passageScore >= 75);
+    switch (scoreFilter) {
+      case 'problems':
+        filtered = filtered.filter(c => c.passageScore < 60);
+        break;
+      case 'good':
+        filtered = filtered.filter(c => c.passageScore >= 75);
+        break;
+      case 'low-retrieval':
+        filtered = filtered.filter(c => c.retrievalScore < 60);
+        break;
+      case 'low-rerank':
+        filtered = filtered.filter(c => c.rerankScore < 60);
+        break;
+      case 'low-citation':
+        filtered = filtered.filter(c => c.citationScore < 60);
+        break;
+      case 'flagged':
+        filtered = filtered.filter(c => c.flaggedReason !== null);
+        break;
+      case 'middle':
+        // "Lost in middle" - moderate retrieval but low rerank
+        filtered = filtered.filter(c => c.retrievalScore >= 50 && c.rerankScore < 60);
+        break;
+      case 'all':
+      default:
+        break;
     }
     
     // Apply sorting
@@ -424,6 +489,23 @@ export function ResultsTab({
     switch (sortBy) {
       case 'score':
         sorted.sort((a, b) => a.passageScore - b.passageScore); // Worst first
+        break;
+      case 'retrieval':
+        sorted.sort((a, b) => a.retrievalScore - b.retrievalScore); // Worst first
+        break;
+      case 'rerank':
+        sorted.sort((a, b) => a.rerankScore - b.rerankScore); // Worst first
+        break;
+      case 'citation':
+        sorted.sort((a, b) => a.citationScore - b.citationScore); // Worst first
+        break;
+      case 'gap':
+        // Sort by retrieval-rerank gap (biggest gap = most problematic)
+        sorted.sort((a, b) => {
+          const gapA = a.retrievalScore - a.rerankScore;
+          const gapB = b.retrievalScore - b.rerankScore;
+          return gapB - gapA; // Largest positive gap first
+        });
         break;
       case 'heading':
         sorted.sort((a, b) => {
@@ -616,7 +698,7 @@ export function ResultsTab({
 
             {/* Score filters (only show in list view) */}
             {viewMode === 'list' && (
-              <div className="flex items-center gap-1">
+              <div className="flex items-center gap-1 flex-wrap">
                 <button 
                   onClick={() => setScoreFilter('problems')} 
                   className={cn(
@@ -627,7 +709,7 @@ export function ResultsTab({
                   )}
                 >
                   <AlertCircle className="h-3 w-3" />
-                  <span>Problems</span>
+                  <span className="hidden sm:inline">Problems</span>
                   <Badge variant="secondary" className="text-[9px] px-1 py-0 h-4 ml-0.5">
                     {problemCount}
                   </Badge>
@@ -637,16 +719,33 @@ export function ResultsTab({
                   className={cn(
                     "flex items-center gap-1 py-1 px-2 rounded-md text-xs transition-colors",
                     scoreFilter === 'good' 
-                      ? "bg-green-500/20 text-green-600" 
+                      ? "bg-[hsl(var(--tier-good))]/20 text-[hsl(var(--tier-good))]" 
                       : "text-muted-foreground hover:text-foreground hover:bg-muted/50"
                   )}
                 >
                   <CheckCircle2 className="h-3 w-3" />
-                  <span>Good</span>
+                  <span className="hidden sm:inline">Good</span>
                   <Badge variant="secondary" className="text-[9px] px-1 py-0 h-4 ml-0.5">
                     {goodCount}
                   </Badge>
                 </button>
+                {flaggedCount > 0 && (
+                  <button 
+                    onClick={() => setScoreFilter('flagged')} 
+                    className={cn(
+                      "flex items-center gap-1 py-1 px-2 rounded-md text-xs transition-colors",
+                      scoreFilter === 'flagged' 
+                        ? "bg-[hsl(var(--warning))]/20 text-[hsl(var(--warning))]" 
+                        : "text-muted-foreground hover:text-foreground hover:bg-muted/50"
+                    )}
+                  >
+                    <AlertTriangle className="h-3 w-3" />
+                    <span className="hidden sm:inline">Flagged</span>
+                    <Badge variant="secondary" className="text-[9px] px-1 py-0 h-4 ml-0.5">
+                      {flaggedCount}
+                    </Badge>
+                  </button>
+                )}
                 <button 
                   onClick={() => setScoreFilter('all')} 
                   className={cn(
@@ -661,6 +760,11 @@ export function ResultsTab({
                     {chunks.length}
                   </Badge>
                 </button>
+                
+                {/* Score legend */}
+                <div className="ml-auto">
+                  <ScoreTripleLegend />
+                </div>
               </div>
             )}
 
@@ -677,17 +781,41 @@ export function ResultsTab({
               </div>
               
               {viewMode === 'list' && (
-                <Select value={sortBy} onValueChange={(v) => setSortBy(v as 'score' | 'index' | 'heading')}>
-                  <SelectTrigger className="w-[130px] h-8 text-xs">
-                    <ArrowUpDown className="h-3 w-3 mr-1" />
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="score">Score (worst)</SelectItem>
-                    <SelectItem value="index">Doc order</SelectItem>
-                    <SelectItem value="heading">Heading A-Z</SelectItem>
-                  </SelectContent>
-                </Select>
+                <>
+                  {/* Sort dropdown */}
+                  <Select value={sortBy} onValueChange={(v) => setSortBy(v as typeof sortBy)}>
+                    <SelectTrigger className="w-[140px] h-8 text-xs">
+                      <ArrowUpDown className="h-3 w-3 mr-1" />
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent className="bg-popover">
+                      <SelectItem value="score">Passage Score</SelectItem>
+                      <SelectItem value="retrieval">Retrieval Score</SelectItem>
+                      <SelectItem value="rerank">Rerank Score</SelectItem>
+                      <SelectItem value="citation">Citation Score</SelectItem>
+                      <SelectItem value="gap">R-RR Gap</SelectItem>
+                      <SelectItem value="index">Doc order</SelectItem>
+                      <SelectItem value="heading">Heading A-Z</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  
+                  {/* Filter dropdown */}
+                  <Select value={scoreFilter} onValueChange={(v) => setScoreFilter(v as typeof scoreFilter)}>
+                    <SelectTrigger className="w-[130px] h-8 text-xs">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent className="bg-popover">
+                      <SelectItem value="all">All Chunks</SelectItem>
+                      <SelectItem value="problems">Low Score (&lt;60)</SelectItem>
+                      <SelectItem value="good">Good (75+)</SelectItem>
+                      <SelectItem value="low-retrieval">Low Retrieval</SelectItem>
+                      <SelectItem value="low-rerank">Low Rerank</SelectItem>
+                      <SelectItem value="low-citation">Low Citation</SelectItem>
+                      <SelectItem value="flagged">Flagged</SelectItem>
+                      <SelectItem value="middle">Lost in Middle</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </>
               )}
             </div>
           </div>
@@ -715,7 +843,7 @@ export function ResultsTab({
                     </button>
                   </div>
                 ) : (
-                  filteredAndSortedChunks.map(({ chunk, passageScore, originalIndex }) => (
+                  filteredAndSortedChunks.map(({ chunk, passageScore, retrievalScore, rerankScore, citationScore, flaggedReason, originalIndex }) => (
                     <ChunkCard
                       key={chunk.id}
                       chunk={{
@@ -726,10 +854,16 @@ export function ResultsTab({
                         text: chunk.text,
                         tokenEstimate: chunk.metadata.tokenEstimate,
                         assignedQuery: getAssignedQuery(originalIndex),
+                        // Pass three scores when diagnostics are available
+                        retrievalScore,
+                        rerankScore,
+                        citationScore,
+                        flaggedReason,
                       }}
                       isSelected={originalIndex === selectedIndex}
                       onClick={() => handleSelectChunk(originalIndex)}
                       diagnosis={getChunkDiagnosis(originalIndex)}
+                      showTripleScore={!!result?.diagnostics && result.diagnostics.length > 0}
                     />
                   ))
                 )}
