@@ -616,6 +616,39 @@ export function OptimizeTab({
         query: ca.assignedQuery!.query,
       }));
 
+    // Log what user SEES vs what ACTUALLY gets sent
+    console.log('\n=== USER CLICKED "CONFIRM & OPTIMIZE" ===');
+    
+    console.log('What user SAW in plan:');
+    console.log({
+      chunksToOptimize: queryAssignments.chunkAssignments.filter(ca => ca.assignedQuery).length,
+      architectureTasks: applyArchitecture ? selectedArchitectureTasks.length : 0,
+      contentBriefs: generateBriefs ? queryAssignments.unassignedQueries.length : 0,
+    });
+    
+    console.log('\nWhat is ACTUALLY being sent to edge function:');
+    console.log(JSON.stringify({
+      content: `${content?.length || 0} chars`,
+      queries: keywords?.length,
+      chunkAssignments: chunkAssignmentsForStreaming.length,
+      unassignedQueries: queryAssignments.unassignedQueries.length,
+      architectureTasks: applyArchitecture ? selectedArchitectureTasks.length : 0,
+      generateBriefs,
+      applyArchitecture,
+    }, null, 2));
+    
+    console.log('\nChunk assignments detail:');
+    chunkAssignmentsForStreaming.forEach(ca => {
+      console.log(`  Chunk ${ca.chunkIndex}: "${ca.query}"`);
+    });
+    
+    if (queryAssignments.unassignedQueries.length > 0) {
+      console.log('\nUnassigned queries (for briefs):');
+      queryAssignments.unassignedQueries.forEach(q => {
+        console.log(`  - "${q}"`);
+      });
+    }
+
     await onStreamingOptimize({
       applyArchitecture,
       architectureTasks: selectedArchitectureTasks,

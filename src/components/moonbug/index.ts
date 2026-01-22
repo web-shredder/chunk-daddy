@@ -1,4 +1,5 @@
 export { TopBar } from './TopBar';
+export { DebugPanel } from './DebugPanel';
 export { TabBar, type TabId } from './TabBar';
 export { WorkflowStepper, type WorkflowStep } from './WorkflowStepper';
 export { ContentTab } from './ContentTab';

@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { Loader2 } from "lucide-react";
-import { TopBar, WorkflowStepper, ContentTab, AnalyzeTab, ResultsTab, ArchitectureTab, OptimizeTab, OutputsTab, ReportTab, type WorkflowStep } from "@/components/moonbug";
+import { TopBar, DebugPanel, WorkflowStepper, ContentTab, AnalyzeTab, ResultsTab, ArchitectureTab, OptimizeTab, OutputsTab, ReportTab, type WorkflowStep } from "@/components/moonbug";
 import { useApiKey } from "@/hooks/useApiKey";
 import { useAnalysis, type AnalysisResult } from "@/hooks/useAnalysis";
 import { useAuth } from "@/hooks/useAuth";
@@ -809,6 +809,23 @@ const Index = () => {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Debug Panel - Toggle with Ctrl+Shift+D */}
+      <DebugPanel
+        activeTab={activeTab}
+        content={content}
+        keywords={keywords}
+        layoutChunks={layoutChunks}
+        result={result}
+        architectureAnalysis={architectureAnalysis}
+        architectureTasks={architectureTasks}
+        optimizationResult={optimizationResult}
+        optimizedContent={optimizedContent}
+        completedSteps={completedStepIds}
+        isStreamingOptimization={isStreamingOptimization}
+        streamingStep={streamingStep}
+        streamingProgress={streamingProgress}
+      />
     </div>
   );
 };

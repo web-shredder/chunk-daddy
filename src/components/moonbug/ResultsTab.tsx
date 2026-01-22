@@ -265,6 +265,28 @@ export function ResultsTab({
     setQueryAssignments(initialQueryAssignments);
   }, [initialQueryAssignments]);
 
+  // Log when navigating to optimization tab
+  useEffect(() => {
+    return () => {
+      // Cleanup - log data that should flow to next tabs
+      console.log('\n=== LEAVING RESULTS TAB ===');
+      console.log('Data that should be available to next tabs:');
+      console.log({
+        chunkScores: chunkScores?.length || 0,
+        queryAssignments: {
+          assignments: queryAssignments.assignments?.length || 0,
+          chunkAssignments: queryAssignments.chunkAssignments?.length || 0,
+          unassigned: queryAssignments.unassignedQueries?.length || 0,
+        },
+        sampleAssignment: queryAssignments.chunkAssignments?.[0] ? {
+          chunkIndex: queryAssignments.chunkAssignments[0].chunkIndex,
+          query: queryAssignments.chunkAssignments[0].assignedQuery?.query,
+          score: queryAssignments.chunkAssignments[0].assignedQuery?.score,
+        } : null,
+      });
+    };
+  }, [chunkScores, queryAssignments]);
+
   // Get assigned query for a chunk
   const getAssignedQuery = useCallback((chunkIndex: number): string | undefined => {
     const assignment = queryAssignments.chunkAssignments.find(ca => ca.chunkIndex === chunkIndex);
