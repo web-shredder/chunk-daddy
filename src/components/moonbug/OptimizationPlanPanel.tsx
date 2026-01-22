@@ -22,10 +22,12 @@ import {
   ClipboardList,
   AlertCircle,
   TrendingUp,
+  RotateCcw,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import type { ArchitectureTask } from '@/lib/optimizer-types';
 import type { ChunkDiagnosis, FailureMode } from '@/lib/diagnostic-scoring';
+import { getExcludeReason, type ExcludeReason } from '@/lib/query-assignment';
 
 // Diagnosis badge configuration
 const DIAGNOSIS_BADGES: Record<FailureMode, { label: string; shortLabel: string; color: string }> = {
@@ -44,7 +46,8 @@ interface ChunkAssignment {
   chunkPreview: string;
   assignedQuery: string | null;
   currentScore: number;
-  diagnosis?: ChunkDiagnosis; // NEW: Diagnosis for this chunk-query pair
+  diagnosis?: ChunkDiagnosis; // Diagnosis for this chunk-query pair
+  excludeReason?: ExcludeReason; // Why this chunk is excluded (if at all)
 }
 
 interface OptimizationPlanPanelProps {
@@ -62,6 +65,9 @@ interface OptimizationPlanPanelProps {
   optimizationStep: string;
   optimizationProgress: number;
   onOptimize: () => void;
+  // Force optimize tracking
+  forceOptimizeChunks?: Set<number>;
+  onForceOptimizeChange?: (chunks: Set<number>) => void;
 }
 
 export function OptimizationPlanPanel({
@@ -79,6 +85,8 @@ export function OptimizationPlanPanel({
   optimizationStep,
   optimizationProgress,
   onOptimize,
+  forceOptimizeChunks = new Set(),
+  onForceOptimizeChange,
 }: OptimizationPlanPanelProps) {
   const [expandedSections, setExpandedSections] = useState<Record<string, boolean>>({
     chunks: false,
@@ -91,7 +99,20 @@ export function OptimizationPlanPanel({
     setExpandedSections(prev => ({ ...prev, [section]: !prev[section] }));
   };
 
-  const chunksToOptimize = chunkAssignments.filter(c => c.assignedQuery);
+  // Calculate exclusion status for each chunk
+  const chunksWithExclusion = chunkAssignments.map(c => {
+    const excludeReason = getExcludeReason(
+      c.chunkIndex,
+      c.assignedQuery ? { query: c.assignedQuery, assignedChunkIndex: c.chunkIndex, score: c.currentScore, isPrimary: false } : null,
+      c.currentScore,
+      forceOptimizeChunks
+    );
+    return { ...c, excludeReason };
+  });
+
+  // Only count chunks that will actually be optimized (not excluded)
+  const chunksToOptimize = chunksWithExclusion.filter(c => c.assignedQuery && !c.excludeReason);
+  const alreadyOptimalChunks = chunksWithExclusion.filter(c => c.excludeReason === 'already_optimal');
   const lowScoringChunks = chunksToOptimize.filter(c => c.currentScore < 60);
   const architectureTasksSelected = selectedArchitectureTasks.filter(t => t.isSelected);
   
@@ -101,6 +122,18 @@ export function OptimizationPlanPanel({
     (generateBriefs ? unassignedQueries.length : 0);
 
   const canOptimize = chunksToOptimize.length > 0;
+
+  // Toggle force optimize for a chunk
+  const handleForceOptimizeToggle = (chunkIndex: number, checked: boolean) => {
+    if (!onForceOptimizeChange) return;
+    const next = new Set(forceOptimizeChunks);
+    if (checked) {
+      next.add(chunkIndex);
+    } else {
+      next.delete(chunkIndex);
+    }
+    onForceOptimizeChange(next);
+  };
 
   // Log optimization plan when component renders (for debugging)
   useEffect(() => {
@@ -170,7 +203,12 @@ export function OptimizationPlanPanel({
                   <div className="text-left">
                     <p className="font-medium text-sm">Chunk Optimization</p>
                     <p className="text-xs text-muted-foreground">
-                      {chunksToOptimize.length} chunks assigned to queries
+                      {chunksToOptimize.length} chunks to optimize
+                      {alreadyOptimalChunks.length > 0 && (
+                        <span className="text-[hsl(var(--tier-good))] ml-1">
+                          ({alreadyOptimalChunks.length} already optimal)
+                        </span>
+                      )}
                       {lowScoringChunks.length > 0 && (
                         <span className="text-amber-600 dark:text-amber-400 ml-1">
                           ({lowScoringChunks.length} below 60)
@@ -188,90 +226,133 @@ export function OptimizationPlanPanel({
           
           <CollapsibleContent>
             <div className="mt-2 p-3 rounded-lg border border-border/50 bg-muted/30 space-y-2 max-h-[300px] overflow-y-auto">
-              {chunkAssignments.map((chunk) => (
-                <div 
-                  key={chunk.chunkIndex} 
-                  className={cn(
-                    "p-3 rounded-md border bg-background",
-                    chunk.assignedQuery ? "border-border" : "border-dashed border-muted-foreground/30"
-                  )}
-                >
-                  <div className="flex items-start justify-between gap-2 mb-2">
-                    <div className="min-w-0 flex-1">
-                      <div className="flex items-center gap-2 flex-wrap">
-                        <p className="text-sm font-medium truncate">
-                          Chunk {chunk.chunkIndex + 1}: {chunk.chunkHeading || 'Untitled'}
-                        </p>
-                        {/* Diagnosis Badge */}
-                        {chunk.diagnosis && chunk.diagnosis.fixPriority !== 'none' && (
-                          <Badge 
-                            variant="outline" 
-                            className={cn("text-[9px] px-1.5 py-0 h-4 shrink-0", DIAGNOSIS_BADGES[chunk.diagnosis.primaryFailureMode]?.color)}
-                          >
-                            {chunk.diagnosis.fixPriority === 'critical' && <AlertCircle className="h-2 w-2 mr-0.5" />}
-                            {DIAGNOSIS_BADGES[chunk.diagnosis.primaryFailureMode]?.shortLabel}
-                            {chunk.diagnosis.expectedImprovement > 0 && (
-                              <span className="ml-0.5 opacity-70">+{chunk.diagnosis.expectedImprovement}</span>
-                            )}
-                          </Badge>
-                        )}
-                        {/* Already Optimized Badge */}
-                        {chunk.diagnosis?.fixPriority === 'none' && (
-                          <Badge 
-                            variant="outline" 
-                            className={cn("text-[9px] px-1.5 py-0 h-4 shrink-0", DIAGNOSIS_BADGES.already_optimized.color)}
-                          >
-                            <TrendingUp className="h-2 w-2 mr-0.5" />
-                            Good
-                          </Badge>
-                        )}
-                      </div>
-                      <p className="text-xs text-muted-foreground line-clamp-2">
-                        {chunk.chunkPreview}
-                      </p>
-                    </div>
-                    {chunk.assignedQuery && (
-                      <div className="flex flex-col items-end gap-1 shrink-0">
-                        <Badge 
-                          variant="outline" 
-                          className={cn(
-                            "font-mono text-xs",
-                            chunk.currentScore < 60 && "border-destructive/50 text-destructive"
+              {chunksWithExclusion.map((chunk) => {
+                const isAlreadyOptimal = chunk.excludeReason === 'already_optimal';
+                const isForceIncluded = forceOptimizeChunks.has(chunk.chunkIndex);
+                
+                return (
+                  <div 
+                    key={chunk.chunkIndex} 
+                    className={cn(
+                      "p-3 rounded-md border bg-background transition-opacity",
+                      chunk.assignedQuery ? "border-border" : "border-dashed border-muted-foreground/30",
+                      isAlreadyOptimal && !isForceIncluded && "opacity-60"
+                    )}
+                  >
+                    <div className="flex items-start justify-between gap-2 mb-2">
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <p className="text-sm font-medium truncate">
+                            Chunk {chunk.chunkIndex + 1}: {chunk.chunkHeading || 'Untitled'}
+                          </p>
+                          
+                          {/* Already Optimal Badge with Force Optimize */}
+                          {isAlreadyOptimal && (
+                            <Badge 
+                              variant="outline" 
+                              className={cn(
+                                "text-[9px] px-1.5 py-0 h-4 shrink-0",
+                                DIAGNOSIS_BADGES.already_optimized.color
+                              )}
+                            >
+                              <TrendingUp className="h-2 w-2 mr-0.5" />
+                              Already Good ({chunk.currentScore})
+                            </Badge>
                           )}
-                        >
-                          {chunk.currentScore}
-                        </Badge>
-                        {chunk.diagnosis && chunk.diagnosis.expectedImprovement > 0 && (
-                          <span className="text-[10px] text-muted-foreground">
-                            → ~{Math.min(100, chunk.currentScore + chunk.diagnosis.expectedImprovement)}
-                          </span>
-                        )}
+                          
+                          {/* Diagnosis Badge (for non-optimal chunks) */}
+                          {!isAlreadyOptimal && chunk.diagnosis && chunk.diagnosis.fixPriority !== 'none' && (
+                            <Badge 
+                              variant="outline" 
+                              className={cn("text-[9px] px-1.5 py-0 h-4 shrink-0", DIAGNOSIS_BADGES[chunk.diagnosis.primaryFailureMode]?.color)}
+                            >
+                              {chunk.diagnosis.fixPriority === 'critical' && <AlertCircle className="h-2 w-2 mr-0.5" />}
+                              {DIAGNOSIS_BADGES[chunk.diagnosis.primaryFailureMode]?.shortLabel}
+                              {chunk.diagnosis.expectedImprovement > 0 && (
+                                <span className="ml-0.5 opacity-70">+{chunk.diagnosis.expectedImprovement}</span>
+                              )}
+                            </Badge>
+                          )}
+                          
+                          {/* Force included badge */}
+                          {isAlreadyOptimal && isForceIncluded && (
+                            <Badge variant="secondary" className="text-[9px] px-1.5 py-0 h-4 shrink-0">
+                              <RotateCcw className="h-2 w-2 mr-0.5" />
+                              Will optimize
+                            </Badge>
+                          )}
+                        </div>
+                        <p className="text-xs text-muted-foreground line-clamp-2">
+                          {chunk.chunkPreview}
+                        </p>
+                      </div>
+                      {chunk.assignedQuery && (
+                        <div className="flex flex-col items-end gap-1 shrink-0">
+                          <Badge 
+                            variant="outline" 
+                            className={cn(
+                              "font-mono text-xs",
+                              chunk.currentScore >= 75 && "border-[hsl(var(--tier-good)/0.5)] text-[hsl(var(--tier-good))]",
+                              chunk.currentScore < 60 && "border-destructive/50 text-destructive"
+                            )}
+                          >
+                            {chunk.currentScore}
+                          </Badge>
+                          {!isAlreadyOptimal && chunk.diagnosis && chunk.diagnosis.expectedImprovement > 0 && (
+                            <span className="text-[10px] text-muted-foreground">
+                              → ~{Math.min(100, chunk.currentScore + chunk.diagnosis.expectedImprovement)}
+                            </span>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                    
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs text-muted-foreground shrink-0">Query:</span>
+                      <select
+                        value={chunk.assignedQuery || ''}
+                        onChange={(e) => onQueryReassign?.(chunk.chunkIndex, e.target.value || null)}
+                        className="flex-1 text-xs border rounded px-2 py-1.5 bg-background min-w-0"
+                      >
+                        <option value="">— No query assigned —</option>
+                        {allQueries.map((query, idx) => (
+                          <option key={idx} value={query}>
+                            {query.length > 60 ? query.slice(0, 60) + '...' : query}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                    
+                    {/* Force optimize checkbox for already optimal chunks */}
+                    {isAlreadyOptimal && (
+                      <div className="mt-2 pt-2 border-t border-border/50">
+                        <label className="flex items-center gap-2 text-xs cursor-pointer text-muted-foreground hover:text-foreground transition-colors">
+                          <Checkbox
+                            checked={isForceIncluded}
+                            onCheckedChange={(checked) => handleForceOptimizeToggle(chunk.chunkIndex, checked === true)}
+                            className="h-3.5 w-3.5"
+                          />
+                          <span>Optimize anyway</span>
+                        </label>
                       </div>
                     )}
                   </div>
-                  
-                  <div className="flex items-center gap-2">
-                    <span className="text-xs text-muted-foreground shrink-0">Query:</span>
-                    <select
-                      value={chunk.assignedQuery || ''}
-                      onChange={(e) => onQueryReassign?.(chunk.chunkIndex, e.target.value || null)}
-                      className="flex-1 text-xs border rounded px-2 py-1.5 bg-background min-w-0"
-                    >
-                      <option value="">— No query assigned —</option>
-                      {allQueries.map((query, idx) => (
-                        <option key={idx} value={query}>
-                          {query.length > 60 ? query.slice(0, 60) + '...' : query}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                </div>
-              ))}
+                );
+              })}
               
-              {chunksToOptimize.length === 0 && (
+              {chunksToOptimize.length === 0 && alreadyOptimalChunks.length === 0 && (
                 <div className="text-center py-6 text-muted-foreground text-sm">
                   <AlertCircle className="h-8 w-8 mx-auto mb-2 opacity-50" />
                   No chunks have assigned queries. Go to Results tab to assign queries.
+                </div>
+              )}
+              
+              {chunksToOptimize.length === 0 && alreadyOptimalChunks.length > 0 && (
+                <div className="text-center py-4 text-muted-foreground text-sm border-t border-border/50 mt-2">
+                  <CheckCircle2 className="h-6 w-6 mx-auto mb-2 text-[hsl(var(--tier-good))]" />
+                  All assigned chunks are already optimal!
+                  <br />
+                  <span className="text-xs">Check "Optimize anyway" to re-optimize specific chunks.</span>
                 </div>
               )}
             </div>

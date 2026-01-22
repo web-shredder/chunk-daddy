@@ -16,6 +16,7 @@ import { useDebug } from '@/contexts/DebugContext';
 import { calculatePassageScore } from '@/lib/similarity';
 import { 
   computeQueryAssignments, 
+  getExcludeReason,
   type QueryAssignmentMap,
   type ChunkScoreData,
 } from '@/lib/query-assignment';
@@ -59,6 +60,10 @@ interface OptimizeTabProps {
   isStreamingOptimization?: boolean;
   streamingStep?: string;
   streamingProgress?: number;
+  // Force optimize tracking
+  forceOptimizeChunks?: Set<number>;
+  onForceOptimizeChunksChange?: (chunks: Set<number>) => void;
+  onSkippedOptimalCountChange?: (count: number) => void;
 }
 
 export function OptimizeTab({
@@ -88,6 +93,10 @@ export function OptimizeTab({
   isStreamingOptimization = false,
   streamingStep = '',
   streamingProgress = 0,
+  // Force optimize tracking
+  forceOptimizeChunks = new Set(),
+  onForceOptimizeChunksChange,
+  onSkippedOptimalCountChange,
 }: OptimizeTabProps) {
   // Content brief generation state (local - not critical to persist)
   const [generatedBriefs, setGeneratedBriefs] = useState<ContentBrief[]>([]);
@@ -718,6 +727,8 @@ export function OptimizeTab({
               optimizationStep={currentStep}
               optimizationProgress={currentProgress}
               onOptimize={handleStreamingOptimize}
+              forceOptimizeChunks={forceOptimizeChunks}
+              onForceOptimizeChange={onForceOptimizeChunksChange}
             />
           )}
         </div>

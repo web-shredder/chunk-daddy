@@ -68,6 +68,8 @@ const Index = () => {
   const [acceptedChunks, setAcceptedChunks] = useState<Set<number>>(new Set());
   const [rejectedChunks, setRejectedChunks] = useState<Set<number>>(new Set());
   const [editedChunks, setEditedChunks] = useState<Map<number, string>>(new Map());
+  const [forceOptimizeChunks, setForceOptimizeChunks] = useState<Set<number>>(new Set());
+  const [skippedOptimalCount, setSkippedOptimalCount] = useState<number>(0);
   
   // Streaming optimization state
   interface StreamedChunk {
@@ -1165,6 +1167,10 @@ const Index = () => {
           onRejectedChunksChange={setRejectedChunks}
           editedChunks={editedChunks}
           onEditedChunksChange={setEditedChunks}
+          // Force optimize tracking
+          forceOptimizeChunks={forceOptimizeChunks}
+          onForceOptimizeChunksChange={setForceOptimizeChunks}
+          onSkippedOptimalCountChange={setSkippedOptimalCount}
           // Streaming optimization
           onStreamingOptimize={handleStreamingOptimization}
           isStreamingOptimization={isStreamingOptimization}
@@ -1183,6 +1189,7 @@ const Index = () => {
           optimizedChunks={streamedChunks}
           generatedBriefs={streamedBriefs}
           verificationSummary={verificationSummary}
+          skippedOptimalCount={skippedOptimalCount}
           onApplyChanges={() => {
             // Apply optimized content using the reconstructed document
             if (optimizedContent) {
