@@ -921,6 +921,420 @@ Return valid JSON with this structure:
             break;
           }
 
+          case 'verify_optimizations': {
+            // ================================================================
+            // VERIFICATION PIPELINE
+            // Compares optimized chunks against originals with proper cascade
+            // reconstruction for fair scoring comparison
+            // ================================================================
+            
+            const { 
+              optimizedChunks, 
+              allChunks, 
+              queries, 
+              architectureApplied 
+            } = params as {
+              optimizedChunks: Array<{
+                originalChunkIndex: number;
+                optimized_text: string;
+                query: string;
+                changes?: string[];
+                unaddressable?: string[];
+              }>;
+              allChunks: Array<{
+                index: number;
+                text: string;
+                textWithoutCascade: string;
+                headingPath: string[];
+                wasOptimized: boolean;
+                excludeReason?: 'no_assignment' | 'user_excluded' | 'already_optimal';
+              }>;
+              queries: string[];
+              architectureApplied?: {
+                tasksApplied: unknown[];
+                originalChunkCount: number;
+                structureChanged: boolean;
+              };
+            };
+
+            await sendEvent({
+              type: 'verification_started',
+              totalOptimized: optimizedChunks.length,
+              totalChunks: allChunks.length,
+              totalQueries: queries.length,
+            });
+
+            // Helper: Extract cascade (heading portion) from chunk text
+            const extractCascade = (textWithCascade: string, textWithoutCascade: string): string => {
+              // The cascade is the part of text that's NOT in textWithoutCascade
+              const cascadeEnd = textWithCascade.indexOf(textWithoutCascade);
+              if (cascadeEnd > 0) {
+                return textWithCascade.substring(0, cascadeEnd).trim();
+              }
+              // If exact match fails, try to find heading lines at start
+              const lines = textWithCascade.split('\n');
+              const headingLines: string[] = [];
+              for (const line of lines) {
+                if (line.startsWith('#') || line.startsWith('**') && line.endsWith('**')) {
+                  headingLines.push(line);
+                } else if (line.trim().length > 0) {
+                  break;
+                }
+              }
+              return headingLines.join('\n');
+            };
+
+            // Prepare all texts for batch embedding
+            const textsToEmbed: string[] = [];
+            const textMap = new Map<string, number>();
+
+            // Add ALL queries
+            queries.forEach((q, i) => {
+              textMap.set(`query:${i}`, textsToEmbed.length);
+              textsToEmbed.push(q);
+            });
+
+            // Add ALL original chunks (with cascade already included)
+            allChunks.forEach((chunk) => {
+              textMap.set(`original:${chunk.index}`, textsToEmbed.length);
+              textsToEmbed.push(chunk.text);
+            });
+
+            // Add optimized chunks WITH cascade reconstructed
+            const optimizedWithCascade: string[] = [];
+            optimizedChunks.forEach((opt, i) => {
+              const original = allChunks.find(c => c.index === opt.originalChunkIndex);
+              if (original) {
+                const cascade = extractCascade(original.text, original.textWithoutCascade);
+                const reconstructed = cascade 
+                  ? `${cascade}\n\n${opt.optimized_text}`
+                  : opt.optimized_text;
+                optimizedWithCascade.push(reconstructed);
+                textMap.set(`optimized:${i}`, textsToEmbed.length);
+                textsToEmbed.push(reconstructed);
+              }
+            });
+
+            console.log(`Verification: Embedding ${textsToEmbed.length} texts (${queries.length} queries, ${allChunks.length} chunks, ${optimizedChunks.length} optimized)`);
+
+            await sendEvent({
+              type: 'verification_embedding',
+              totalTexts: textsToEmbed.length,
+              message: 'Generating embeddings for verification...',
+            });
+
+            // Call generate-embeddings edge function
+            const SUPABASE_URL = Deno.env.get('SUPABASE_URL');
+            const SUPABASE_ANON_KEY = Deno.env.get('SUPABASE_ANON_KEY');
+            
+            const embeddingResponse = await fetch(
+              `${SUPABASE_URL}/functions/v1/generate-embeddings`,
+              {
+                method: 'POST',
+                headers: {
+                  'Authorization': `Bearer ${SUPABASE_ANON_KEY}`,
+                  'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({ texts: textsToEmbed }),
+              }
+            );
+
+            if (!embeddingResponse.ok) {
+              const errText = await embeddingResponse.text();
+              console.error('Embedding generation failed:', errText);
+              await sendEvent({
+                type: 'error',
+                message: `Failed to generate embeddings: ${errText}`,
+              });
+              break;
+            }
+
+            const embeddingData = await embeddingResponse.json();
+            const embeddings: number[][] = embeddingData.embeddings.map(
+              (e: { embedding: number[] }) => e.embedding
+            );
+
+            console.log(`Verification: Got ${embeddings.length} embeddings`);
+
+            // Cosine similarity helper
+            const cosineSimilarity = (a: number[], b: number[]): number => {
+              let dotProduct = 0;
+              let normA = 0;
+              let normB = 0;
+              for (let i = 0; i < a.length; i++) {
+                dotProduct += a[i] * b[i];
+                normA += a[i] * a[i];
+                normB += b[i] * b[i];
+              }
+              return dotProduct / (Math.sqrt(normA) * Math.sqrt(normB));
+            };
+
+            // Lexical scoring helper (simplified BM25-ish)
+            const calculateLexicalScore = (text: string, query: string): number => {
+              const queryTerms = query.toLowerCase()
+                .replace(/[^\w\s]/g, '')
+                .split(/\s+/)
+                .filter(t => t.length > 2);
+              const textLower = text.toLowerCase();
+              
+              let matchedTerms = 0;
+              let positionBonus = 0;
+              
+              queryTerms.forEach(term => {
+                if (textLower.includes(term)) {
+                  matchedTerms++;
+                  // Position bonus: terms in first 100 chars get extra weight
+                  const firstPos = textLower.indexOf(term);
+                  if (firstPos < 100) positionBonus += 0.1;
+                  if (firstPos < 50) positionBonus += 0.1;
+                }
+              });
+              
+              const coverage = queryTerms.length > 0 ? matchedTerms / queryTerms.length : 0;
+              return Math.min(100, (coverage + positionBonus) * 100);
+            };
+
+            // Citation score helper (specificity signals)
+            const calculateCitationScore = (text: string): number => {
+              let score = 50; // Base score
+              
+              // Check for numbers
+              const numbers = text.match(/\d+(\.\d+)?%?/g) || [];
+              score += Math.min(20, numbers.length * 5);
+              
+              // Check for specific patterns
+              if (/\$[\d,]+/.test(text)) score += 10; // Dollar amounts
+              if (/\d+-\d+\s*(days?|weeks?|months?|years?)/.test(text)) score += 10; // Time ranges
+              if (/[A-Z][a-z]+\s+[A-Z][a-z]+/.test(text)) score += 5; // Proper names
+              
+              // Penalize vague language
+              const vaguePatterns = [
+                /varies?\s+widely/i,
+                /depends?\s+on/i,
+                /many\s+factors?/i,
+                /it'?s?\s+worth\s+noting/i,
+                /importantly/i,
+              ];
+              vaguePatterns.forEach(p => {
+                if (p.test(text)) score -= 5;
+              });
+              
+              return Math.max(0, Math.min(100, score));
+            };
+
+            // Process OPTIMIZED chunks
+            const verifiedOptimized: Array<{
+              chunkIndex: number;
+              query: string;
+              heading: string;
+              before: { semantic: number; lexical: number; citation: number; composite: number };
+              after: { semantic: number; lexical: number; citation: number; composite: number };
+              delta: { semantic: number; lexical: number; citation: number; composite: number };
+              improved: boolean;
+              changes: string[];
+              unaddressable: string[];
+            }> = [];
+
+            for (let i = 0; i < optimizedChunks.length; i++) {
+              const opt = optimizedChunks[i];
+              const original = allChunks.find(c => c.index === opt.originalChunkIndex);
+              
+              if (!original) continue;
+
+              const originalEmbIdx = textMap.get(`original:${opt.originalChunkIndex}`);
+              const optimizedEmbIdx = textMap.get(`optimized:${i}`);
+              const queryIdx = queries.indexOf(opt.query);
+              const queryEmbIdx = textMap.get(`query:${queryIdx}`);
+
+              if (originalEmbIdx === undefined || optimizedEmbIdx === undefined || queryEmbIdx === undefined) {
+                console.warn(`Missing embedding index for chunk ${opt.originalChunkIndex}`);
+                continue;
+              }
+
+              const originalEmb = embeddings[originalEmbIdx];
+              const optimizedEmb = embeddings[optimizedEmbIdx];
+              const queryEmb = embeddings[queryEmbIdx];
+              const optimizedText = optimizedWithCascade[i];
+
+              // Calculate before scores
+              const beforeSemantic = cosineSimilarity(originalEmb, queryEmb) * 100;
+              const beforeLexical = calculateLexicalScore(original.text, opt.query);
+              const beforeCitation = calculateCitationScore(original.text);
+              const beforeComposite = (beforeSemantic * 0.7) + (beforeLexical * 0.3);
+
+              // Calculate after scores
+              const afterSemantic = cosineSimilarity(optimizedEmb, queryEmb) * 100;
+              const afterLexical = calculateLexicalScore(optimizedText, opt.query);
+              const afterCitation = calculateCitationScore(optimizedText);
+              const afterComposite = (afterSemantic * 0.7) + (afterLexical * 0.3);
+
+              const result = {
+                chunkIndex: opt.originalChunkIndex,
+                query: opt.query,
+                heading: original.headingPath[original.headingPath.length - 1] || 'Untitled',
+                before: {
+                  semantic: Math.round(beforeSemantic * 10) / 10,
+                  lexical: Math.round(beforeLexical * 10) / 10,
+                  citation: Math.round(beforeCitation * 10) / 10,
+                  composite: Math.round(beforeComposite * 10) / 10,
+                },
+                after: {
+                  semantic: Math.round(afterSemantic * 10) / 10,
+                  lexical: Math.round(afterLexical * 10) / 10,
+                  citation: Math.round(afterCitation * 10) / 10,
+                  composite: Math.round(afterComposite * 10) / 10,
+                },
+                delta: {
+                  semantic: Math.round((afterSemantic - beforeSemantic) * 10) / 10,
+                  lexical: Math.round((afterLexical - beforeLexical) * 10) / 10,
+                  citation: Math.round((afterCitation - beforeCitation) * 10) / 10,
+                  composite: Math.round((afterComposite - beforeComposite) * 10) / 10,
+                },
+                improved: afterComposite > beforeComposite,
+                changes: opt.changes || [],
+                unaddressable: opt.unaddressable || [],
+              };
+
+              verifiedOptimized.push(result);
+
+              // Stream each verified chunk
+              await sendEvent({
+                type: 'chunk_verified',
+                index: i,
+                total: optimizedChunks.length,
+                result,
+                progress: Math.round(((i + 1) / optimizedChunks.length) * 50), // First 50% of progress
+              });
+            }
+
+            // Process UNCHANGED chunks - find their best matching query
+            const unchangedChunks = allChunks.filter(c => !c.wasOptimized);
+            const unchangedResults: Array<{
+              chunkIndex: number;
+              heading: string;
+              reason: string;
+              currentScores: { semantic: number; lexical: number; citation: number; composite: number };
+              bestMatchingQuery: string;
+              bestMatchScore: number;
+            }> = [];
+
+            for (let i = 0; i < unchangedChunks.length; i++) {
+              const chunk = unchangedChunks[i];
+              const chunkEmbIdx = textMap.get(`original:${chunk.index}`);
+              
+              if (chunkEmbIdx === undefined) continue;
+
+              const chunkEmb = embeddings[chunkEmbIdx];
+              
+              // Find best matching query
+              let bestQuery = '';
+              let bestScore = 0;
+              let bestQueryIdx = -1;
+
+              queries.forEach((q, qi) => {
+                const qEmbIdx = textMap.get(`query:${qi}`);
+                if (qEmbIdx !== undefined) {
+                  const score = cosineSimilarity(chunkEmb, embeddings[qEmbIdx]) * 100;
+                  if (score > bestScore) {
+                    bestScore = score;
+                    bestQuery = q;
+                    bestQueryIdx = qi;
+                  }
+                }
+              });
+
+              const lexical = calculateLexicalScore(chunk.text, bestQuery);
+              const citation = calculateCitationScore(chunk.text);
+              const composite = (bestScore * 0.7) + (lexical * 0.3);
+
+              unchangedResults.push({
+                chunkIndex: chunk.index,
+                heading: chunk.headingPath[chunk.headingPath.length - 1] || 'Untitled',
+                reason: chunk.excludeReason || 'no_assignment',
+                currentScores: {
+                  semantic: Math.round(bestScore * 10) / 10,
+                  lexical: Math.round(lexical * 10) / 10,
+                  citation: Math.round(citation * 10) / 10,
+                  composite: Math.round(composite * 10) / 10,
+                },
+                bestMatchingQuery: bestQuery,
+                bestMatchScore: Math.round(bestScore * 10) / 10,
+              });
+            }
+
+            // Stream unchanged chunks
+            await sendEvent({
+              type: 'unchanged_chunks',
+              chunks: unchangedResults,
+              progress: 75,
+            });
+
+            // Compute document-level summary
+            const allBeforeComposites = verifiedOptimized.map(v => v.before.composite);
+            const allAfterComposites = [
+              ...verifiedOptimized.map(v => v.after.composite),
+              ...unchangedResults.map(u => u.currentScores.composite),
+            ];
+
+            const average = (arr: number[]) => arr.length > 0 
+              ? arr.reduce((a, b) => a + b, 0) / arr.length 
+              : 0;
+
+            // Query coverage analysis - get best score for each query
+            const queryBestScores = queries.map(q => {
+              let best = 0;
+              // Check optimized chunks
+              verifiedOptimized.forEach(v => {
+                if (v.query === q) {
+                  best = Math.max(best, v.after.composite);
+                }
+              });
+              // Check unchanged chunks
+              unchangedResults.forEach(u => {
+                if (u.bestMatchingQuery === q) {
+                  best = Math.max(best, u.currentScores.composite);
+                }
+              });
+              return { query: q, score: best };
+            });
+
+            const wellCovered = queryBestScores.filter(q => q.score >= 70).length;
+            const partiallyCovered = queryBestScores.filter(q => q.score >= 40 && q.score < 70).length;
+            const gaps = queryBestScores.filter(q => q.score < 40).length;
+
+            const summary = {
+              totalChunks: allChunks.length,
+              optimizedCount: optimizedChunks.length,
+              unchangedCount: unchangedResults.length,
+              avgCompositeBefore: Math.round(average(allBeforeComposites) * 10) / 10,
+              avgCompositeAfter: Math.round(average(allAfterComposites) * 10) / 10,
+              avgImprovement: Math.round((average(allAfterComposites) - average(allBeforeComposites)) * 10) / 10,
+              chunksImproved: verifiedOptimized.filter(v => v.improved).length,
+              chunksDeclined: verifiedOptimized.filter(v => !v.improved).length,
+              queryCoverage: {
+                total: queries.length,
+                wellCovered,
+                partiallyCovered,
+                gaps,
+                gapQueries: queryBestScores.filter(q => q.score < 40).map(q => q.query),
+              },
+            };
+
+            // Stream final verification result
+            await sendEvent({
+              type: 'verification_complete',
+              summary,
+              optimizedChunks: verifiedOptimized,
+              unchangedChunks: unchangedResults,
+              queryCoverage: queryBestScores,
+              architectureApplied: architectureApplied || null,
+              progress: 100,
+            });
+
+            console.log(`Verification complete: ${verifiedOptimized.length} optimized, ${unchangedResults.length} unchanged`);
+            break;
+          }
+
           default:
             await sendEvent({ type: 'error', message: `Unknown type: ${type}` });
         }
