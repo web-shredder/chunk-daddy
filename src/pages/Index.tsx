@@ -2,11 +2,12 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { Loader2 } from "lucide-react";
 import { TopBar, DebugPanel, WorkflowStepper, ContentTab, AnalyzeTab, ResultsTab, ArchitectureTab, OptimizeTab, OutputsTab, ReportTab, type WorkflowStep } from "@/components/moonbug";
-import { DebugProvider } from "@/contexts/DebugContext";
+import { DebugProvider, useDebug } from "@/contexts/DebugContext";
 import { useApiKey } from "@/hooks/useApiKey";
 import { useAnalysis, type AnalysisResult } from "@/hooks/useAnalysis";
 import { useAuth } from "@/hooks/useAuth";
 import { useProjects } from "@/hooks/useProjects";
+import { useStreamingDebug } from "@/hooks/useStreamingDebug";
 import { parseMarkdown, createLayoutAwareChunks, type LayoutAwareChunk, type ChunkerOptions, type DocumentElement } from "@/lib/layout-chunker";
 import type { FullOptimizationResult, ArchitectureAnalysis, ArchitectureTask, FanoutIntentType, ContentBrief } from "@/lib/optimizer-types";
 import {
@@ -321,6 +322,17 @@ const Index = () => {
   }, [content, keywords, chunkerOptions, result, architectureAnalysis, markUnsaved]);
 
   // Streaming optimization handler - connects to optimize-content-stream SSE edge function
+  // Debug logging is handled via the debugLogRef which gets set by StreamingDebugLogger component
+  const debugLogRef = useRef<{
+    logStreamingStart: (plan: { applyArchitecture: boolean; architectureTasksCount: number; generateBriefs: boolean; unassignedQueriesCount: number; chunkAssignmentsCount: number }) => void;
+    logArchitectureEvent: (eventType: string, data: Record<string, unknown>) => void;
+    logChunkEvent: (eventType: string, data: Record<string, unknown>) => void;
+    logBriefEvent: (eventType: string, data: Record<string, unknown>) => void;
+    logStreamingComplete: () => void;
+    logStreamingError: (error: Error | string, context?: Record<string, unknown>) => void;
+    logSSEParseError: (line: string, error: Error) => void;
+  } | null>(null);
+
   const handleStreamingOptimization = useCallback(async (params: {
     applyArchitecture: boolean;
     architectureTasks: ArchitectureTask[];
@@ -329,6 +341,16 @@ const Index = () => {
     chunkAssignments: Array<{ chunkIndex: number; query: string }>;
   }) => {
     const { applyArchitecture, architectureTasks, generateBriefs, unassignedQueries, chunkAssignments } = params;
+    const debug = debugLogRef.current;
+    
+    // Log streaming start
+    debug?.logStreamingStart({
+      applyArchitecture,
+      architectureTasksCount: architectureTasks.filter(t => t.isSelected && t.type !== 'content_gap').length,
+      generateBriefs,
+      unassignedQueriesCount: unassignedQueries.length,
+      chunkAssignmentsCount: chunkAssignments.length,
+    });
     
     // Reset streaming state
     setStreamedArchitectureTasks([]);
@@ -384,6 +406,9 @@ const Index = () => {
                   try {
                     const data = JSON.parse(line.slice(6));
                     
+                    // Log all SSE events
+                    debug?.logArchitectureEvent(data.type, data);
+                    
                     if (data.type === 'task_started') {
                       setStreamingStep(`Applying fix ${data.taskIndex + 1}/${data.totalTasks}...`);
                       setStreamingProgress(Math.round((data.taskIndex / data.totalTasks) * 20));
@@ -396,6 +421,7 @@ const Index = () => {
                       processedContent = data.finalContent || processedContent;
                     }
                   } catch (e) {
+                    debug?.logSSEParseError(line, e as Error);
                     console.error('Failed to parse SSE event:', e);
                   }
                 }
@@ -447,6 +473,9 @@ const Index = () => {
                 try {
                   const data = JSON.parse(line.slice(6));
                   
+                  // Log all SSE events
+                  debug?.logChunkEvent(data.type, data);
+                  
                   if (data.type === 'chunk_started') {
                     setStreamingStep(`Optimizing chunk ${data.chunkNumber}...`);
                     setStreamingProgress(20 + Math.round((data.progress / 100) * 50));
@@ -460,8 +489,11 @@ const Index = () => {
                     };
                     setStreamedChunks(prev => [...prev, newChunk]);
                     setStreamingProgress(20 + Math.round((data.progress / 100) * 50));
+                  } else if (data.type === 'chunks_complete') {
+                    debug?.logChunkEvent('chunks_complete', {});
                   }
                 } catch (e) {
+                  debug?.logSSEParseError(line, e as Error);
                   console.error('Failed to parse SSE event:', e);
                 }
               }
@@ -509,14 +541,20 @@ const Index = () => {
                 try {
                   const data = JSON.parse(line.slice(6));
                   
+                  // Log all SSE events
+                  debug?.logBriefEvent(data.type, data);
+                  
                   if (data.type === 'brief_started') {
                     setStreamingStep(`Generating brief ${data.index + 1}/${data.total}...`);
                     setStreamingProgress(70 + Math.round(((data.index) / data.total) * 25));
                   } else if (data.type === 'brief_generated') {
                     setStreamedBriefs(prev => [...prev, data.brief]);
                     setStreamingProgress(70 + Math.round(((data.index + 1) / data.total) * 25));
+                  } else if (data.type === 'briefs_complete') {
+                    debug?.logBriefEvent('briefs_complete', {});
                   }
                 } catch (e) {
+                  debug?.logSSEParseError(line, e as Error);
                   console.error('Failed to parse SSE event:', e);
                 }
               }
@@ -529,13 +567,15 @@ const Index = () => {
       setStreamingStep('Optimization complete!');
       setStreamingProgress(100);
       setIsStreamingOptimization(false);
+      debug?.logStreamingComplete();
       
     } catch (error) {
       console.error('Streaming optimization error:', error);
+      debug?.logStreamingError(error as Error, { step: streamingStep, progress: streamingProgress });
       setStreamingStep('Error occurred');
       setIsStreamingOptimization(false);
     }
-  }, [content, layoutChunks]);
+  }, [content, layoutChunks, streamingStep, streamingProgress]);
 
   const wordCount = content.trim() ? content.trim().split(/\s+/).length : 0;
   const tokenCount = Math.ceil(wordCount * 1.3);
@@ -812,6 +852,9 @@ const Index = () => {
         </DialogContent>
       </Dialog>
 
+      {/* Streaming Debug Logger - connects hook to ref */}
+      <StreamingDebugLogger debugLogRef={debugLogRef} />
+
       {/* Debug Panel - Toggle with Ctrl+Shift+D */}
       <DebugPanel
         activeTab={activeTab}
@@ -837,5 +880,28 @@ const Index = () => {
     </DebugProvider>
   );
 };
+
+// Helper component that connects the useStreamingDebug hook to the parent's ref
+// This works because it's rendered inside the DebugProvider
+function StreamingDebugLogger({ debugLogRef }: { 
+  debugLogRef: React.MutableRefObject<{
+    logStreamingStart: (plan: { applyArchitecture: boolean; architectureTasksCount: number; generateBriefs: boolean; unassignedQueriesCount: number; chunkAssignmentsCount: number }) => void;
+    logArchitectureEvent: (eventType: string, data: Record<string, unknown>) => void;
+    logChunkEvent: (eventType: string, data: Record<string, unknown>) => void;
+    logBriefEvent: (eventType: string, data: Record<string, unknown>) => void;
+    logStreamingComplete: () => void;
+    logStreamingError: (error: Error | string, context?: Record<string, unknown>) => void;
+    logSSEParseError: (line: string, error: Error) => void;
+  } | null>;
+}) {
+  const streamingDebug = useStreamingDebug();
+  
+  // Connect the hook functions to the ref
+  useEffect(() => {
+    debugLogRef.current = streamingDebug;
+  }, [debugLogRef, streamingDebug]);
+  
+  return null;
+}
 
 export default Index;
