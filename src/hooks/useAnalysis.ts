@@ -12,6 +12,10 @@ import {
 } from '@/lib/similarity';
 import { chunkContent, type ChunkingStrategy } from '@/lib/chunking';
 import type { LayoutAwareChunk, ChunkerOptions } from '@/lib/layout-chunker';
+import { 
+  calculateAllDiagnostics, 
+  type DiagnosticScores 
+} from '@/lib/diagnostic-scoring';
 
 export interface KeywordScore {
   keyword: string;
@@ -49,6 +53,13 @@ export interface CoverageEntry {
   status: 'covered' | 'weak' | 'gap';
 }
 
+// NEW: Diagnostic scores for chunk-query pairs
+export interface ChunkDiagnostics {
+  chunkIndex: number;
+  query: string;
+  scores: DiagnosticScores;
+}
+
 export interface AnalysisResult {
   originalScores: OriginalScore | null;
   chunkScores: ChunkScore[];
@@ -65,6 +76,8 @@ export interface AnalysisResult {
     gaps: number;
     totalQueries: number;
   };
+  // NEW: Diagnostic scores for all chunk-query pairs
+  diagnostics: ChunkDiagnostics[];
 }
 
 export interface UseAnalysisOptions {
@@ -395,6 +408,53 @@ export function useAnalysis() {
         }
       }
 
+      setProgress(95);
+
+      // ========== DIAGNOSTIC SCORING ==========
+      // Calculate diagnostics for all chunk-query pairs
+      const diagnostics: ChunkDiagnostics[] = [];
+
+      for (let chunkIdx = 0; chunkIdx < chunkTexts.length; chunkIdx++) {
+        const chunkScore = chunkScores[chunkIdx];
+        
+        // Get chunk metadata for diagnostics
+        const chunkText = chunkTexts[chunkIdx];
+        const chunkWithoutCascade = noCascadeTexts?.[chunkIdx] || chunkText;
+        const headingPath = layoutChunks?.[chunkIdx]?.headingPath || [];
+        
+        for (const query of validKeywords) {
+          // Find the semantic score for this chunk-query pair
+          const keywordScore = chunkScore.keywordScores.find(
+            ks => ks.keyword.toLowerCase() === query.toLowerCase()
+          );
+          const semanticScore = keywordScore 
+            ? keywordScore.scores.passageScore 
+            : 0;
+          
+          const scores = calculateAllDiagnostics(
+            chunkText,
+            chunkWithoutCascade,
+            headingPath,
+            query,
+            semanticScore
+          );
+          
+          diagnostics.push({
+            chunkIndex: chunkIdx,
+            query,
+            scores
+          });
+        }
+      }
+
+      console.log('📊 [DIAGNOSTICS] Calculated:', {
+        totalPairs: diagnostics.length,
+        chunks: chunkTexts.length,
+        queries: validKeywords.length,
+        criticalIssues: diagnostics.filter(d => d.scores.diagnosis.fixPriority === 'critical').length,
+        importantIssues: diagnostics.filter(d => d.scores.diagnosis.fixPriority === 'important').length,
+      });
+
       setProgress(100);
 
       const analysisResult: AnalysisResult = {
@@ -408,6 +468,8 @@ export function useAnalysis() {
         documentChamfer,
         coverageMap,
         coverageSummary,
+        // NEW: Diagnostic scores
+        diagnostics,
       };
 
       setResult(analysisResult);
