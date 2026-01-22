@@ -81,13 +81,14 @@ const Index = () => {
     optimizedScore?: number;
     scoreChange?: number;
     explanation?: string;
+    thinking?: string;
     // Verification results (populated after verify_optimizations)
     beforeScores?: { semantic: number; lexical: number; citation: number; composite: number };
     afterScores?: { semantic: number; lexical: number; citation: number; composite: number };
     deltas?: { semantic: number; lexical: number; citation: number; composite: number };
     improved?: boolean;
     verified?: boolean;
-    changes_applied?: string[];
+    changes_applied?: Array<{ type: string; description: string }>;
     unaddressable?: string[];
   }
   
@@ -812,7 +813,18 @@ const Index = () => {
                         accumulatedChunks[chunkIdx].deltas = verifiedResult.delta;
                         accumulatedChunks[chunkIdx].improved = verifiedResult.improved;
                         accumulatedChunks[chunkIdx].verified = true;
-                        accumulatedChunks[chunkIdx].changes_applied = verifiedResult.changes;
+                        // Convert string changes to object format
+                        accumulatedChunks[chunkIdx].changes_applied = (verifiedResult.changes || []).map(
+                          (change: string | { type?: string; description?: string }) => {
+                            if (typeof change === 'string') {
+                              return { type: 'optimization', description: change };
+                            }
+                            return { 
+                              type: change.type || 'optimization', 
+                              description: change.description || '' 
+                            };
+                          }
+                        );
                         accumulatedChunks[chunkIdx].unaddressable = verifiedResult.unaddressable;
                         
                         // Update streamed chunks state for UI
@@ -1170,15 +1182,18 @@ const Index = () => {
           appliedArchitectureTasks={streamedArchitectureTasks}
           optimizedChunks={streamedChunks}
           generatedBriefs={streamedBriefs}
+          verificationSummary={verificationSummary}
           onApplyChanges={() => {
-            // Apply optimized content
-            if (streamedChunks.length > 0) {
+            // Apply optimized content using the reconstructed document
+            if (optimizedContent) {
+              handleApplyOptimization(optimizedContent);
+            } else if (streamedChunks.length > 0) {
               const optimizedText = streamedChunks.map(c => c.optimized_text).join('\n\n');
               handleApplyOptimization(optimizedText);
             }
           }}
           onCopyContent={() => {
-            const text = streamedChunks.map(c => c.optimized_text).join('\n\n');
+            const text = optimizedContent || streamedChunks.map(c => c.optimized_text).join('\n\n');
             navigator.clipboard.writeText(text);
           }}
           onExportReport={() => {
@@ -1188,6 +1203,7 @@ const Index = () => {
               architectureTasks: streamedArchitectureTasks,
               chunks: streamedChunks,
               briefs: streamedBriefs,
+              verificationSummary,
             };
             const blob = new Blob([JSON.stringify(report, null, 2)], { type: 'application/json' });
             const url = URL.createObjectURL(blob);
@@ -1198,9 +1214,15 @@ const Index = () => {
             URL.revokeObjectURL(url);
           }}
           onGoToOptimize={() => setActiveTab('optimize')}
+          onGoToReport={() => setActiveTab('report')}
           onRetry={() => {
             setStreamingError(null);
             setActiveTab('optimize');
+          }}
+          onViewInDocument={(chunkIndex) => {
+            // Navigate to the chunk in the content tab
+            setActiveTab('content');
+            // Could add scroll-to-chunk functionality here
           }}
         />
       )}
