@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -87,6 +87,46 @@ export function OptimizationPlanPanel({
     (generateBriefs ? unassignedQueries.length : 0);
 
   const canOptimize = chunksToOptimize.length > 0;
+
+  // Log optimization plan when component renders (for debugging)
+  useEffect(() => {
+    console.log('\n=== OPTIMIZATION PLAN PANEL ===');
+    console.log('User sees this plan:');
+    
+    // Chunk Optimization section
+    console.log('\n1. CHUNKS TO OPTIMIZE:');
+    chunksToOptimize.forEach(ca => {
+      console.log(`   Chunk ${ca.chunkIndex + 1}: "${ca.chunkHeading || 'Untitled'}"`);
+      console.log(`   - Assigned query: "${ca.assignedQuery}"`);
+      console.log(`   - Current score: ${ca.currentScore}`);
+      console.log(`   - Preview: ${ca.chunkPreview?.slice(0, 80)}...`);
+    });
+    
+    // Architecture section
+    console.log('\n2. ARCHITECTURE TASKS:');
+    console.log(`   Apply architecture: ${applyArchitecture}`);
+    if (applyArchitecture && architectureTasksSelected.length > 0) {
+      architectureTasksSelected.forEach(task => {
+        console.log(`   - [${task.priority}] ${task.type}: ${task.description.slice(0, 60)}...`);
+      });
+    }
+    
+    // Content Gaps section
+    console.log('\n3. CONTENT GAPS:');
+    console.log(`   Generate briefs: ${generateBriefs}`);
+    if (generateBriefs && unassignedQueries.length > 0) {
+      unassignedQueries.forEach(q => {
+        console.log(`   - "${q}" (unassigned)`);
+      });
+    }
+    
+    // Summary
+    console.log('\n4. WHAT USER EXPECTS:');
+    console.log(`   - Optimize ${chunksToOptimize.length} chunks`);
+    console.log(`   - Apply ${applyArchitecture ? architectureTasksSelected.length : 0} architecture tasks`);
+    console.log(`   - Generate ${generateBriefs ? unassignedQueries.length : 0} content briefs`);
+    console.log(`   - Total actions: ${totalActions}`);
+  }, [chunksToOptimize, applyArchitecture, generateBriefs, architectureTasksSelected, unassignedQueries, totalActions]);
 
   return (
     <Card className="border-accent/30 bg-accent/5">
