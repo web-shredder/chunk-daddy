@@ -21,9 +21,22 @@ import {
   BarChart3,
   ClipboardList,
   AlertCircle,
+  TrendingUp,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import type { ArchitectureTask } from '@/lib/optimizer-types';
+import type { ChunkDiagnosis, FailureMode } from '@/lib/diagnostic-scoring';
+
+// Diagnosis badge configuration
+const DIAGNOSIS_BADGES: Record<FailureMode, { label: string; shortLabel: string; color: string }> = {
+  'topic_mismatch': { label: 'Topic Mismatch', shortLabel: 'Topic', color: 'bg-[hsl(var(--tier-poor-bg))] text-[hsl(var(--tier-poor))] border-[hsl(var(--tier-poor)/0.3)]' },
+  'missing_specifics': { label: 'Needs Specifics', shortLabel: 'Vague', color: 'bg-[hsl(var(--tier-moderate-bg))] text-[hsl(var(--tier-moderate))] border-[hsl(var(--tier-moderate)/0.3)]' },
+  'buried_answer': { label: 'Buried Answer', shortLabel: 'Buried', color: 'bg-[hsl(var(--tier-weak-bg))] text-[hsl(var(--tier-weak))] border-[hsl(var(--tier-weak)/0.3)]' },
+  'vocabulary_gap': { label: 'Missing Terms', shortLabel: 'Terms', color: 'bg-[hsl(var(--info-bg))] text-[hsl(var(--info))] border-[hsl(var(--info)/0.3)]' },
+  'no_direct_answer': { label: 'No Direct Answer', shortLabel: 'Answer', color: 'bg-[hsl(var(--tier-poor-bg))] text-[hsl(var(--tier-poor))] border-[hsl(var(--tier-poor)/0.3)]' },
+  'structure_problem': { label: 'Structure Issue', shortLabel: 'Structure', color: 'bg-[hsl(var(--tier-moderate-bg))] text-[hsl(var(--tier-moderate))] border-[hsl(var(--tier-moderate)/0.3)]' },
+  'already_optimized': { label: 'Optimized ✓', shortLabel: 'Good', color: 'bg-[hsl(var(--tier-good-bg))] text-[hsl(var(--tier-good))] border-[hsl(var(--tier-good)/0.3)]' },
+};
 
 interface ChunkAssignment {
   chunkIndex: number;
@@ -31,6 +44,7 @@ interface ChunkAssignment {
   chunkPreview: string;
   assignedQuery: string | null;
   currentScore: number;
+  diagnosis?: ChunkDiagnosis; // NEW: Diagnosis for this chunk-query pair
 }
 
 interface OptimizationPlanPanelProps {
@@ -184,23 +198,55 @@ export function OptimizationPlanPanel({
                 >
                   <div className="flex items-start justify-between gap-2 mb-2">
                     <div className="min-w-0 flex-1">
-                      <p className="text-sm font-medium truncate">
-                        Chunk {chunk.chunkIndex + 1}: {chunk.chunkHeading || 'Untitled'}
-                      </p>
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <p className="text-sm font-medium truncate">
+                          Chunk {chunk.chunkIndex + 1}: {chunk.chunkHeading || 'Untitled'}
+                        </p>
+                        {/* Diagnosis Badge */}
+                        {chunk.diagnosis && chunk.diagnosis.fixPriority !== 'none' && (
+                          <Badge 
+                            variant="outline" 
+                            className={cn("text-[9px] px-1.5 py-0 h-4 shrink-0", DIAGNOSIS_BADGES[chunk.diagnosis.primaryFailureMode]?.color)}
+                          >
+                            {chunk.diagnosis.fixPriority === 'critical' && <AlertCircle className="h-2 w-2 mr-0.5" />}
+                            {DIAGNOSIS_BADGES[chunk.diagnosis.primaryFailureMode]?.shortLabel}
+                            {chunk.diagnosis.expectedImprovement > 0 && (
+                              <span className="ml-0.5 opacity-70">+{chunk.diagnosis.expectedImprovement}</span>
+                            )}
+                          </Badge>
+                        )}
+                        {/* Already Optimized Badge */}
+                        {chunk.diagnosis?.fixPriority === 'none' && (
+                          <Badge 
+                            variant="outline" 
+                            className={cn("text-[9px] px-1.5 py-0 h-4 shrink-0", DIAGNOSIS_BADGES.already_optimized.color)}
+                          >
+                            <TrendingUp className="h-2 w-2 mr-0.5" />
+                            Good
+                          </Badge>
+                        )}
+                      </div>
                       <p className="text-xs text-muted-foreground line-clamp-2">
                         {chunk.chunkPreview}
                       </p>
                     </div>
                     {chunk.assignedQuery && (
-                      <Badge 
-                        variant="outline" 
-                        className={cn(
-                          "shrink-0 font-mono text-xs",
-                          chunk.currentScore < 60 && "border-destructive/50 text-destructive"
+                      <div className="flex flex-col items-end gap-1 shrink-0">
+                        <Badge 
+                          variant="outline" 
+                          className={cn(
+                            "font-mono text-xs",
+                            chunk.currentScore < 60 && "border-destructive/50 text-destructive"
+                          )}
+                        >
+                          {chunk.currentScore}
+                        </Badge>
+                        {chunk.diagnosis && chunk.diagnosis.expectedImprovement > 0 && (
+                          <span className="text-[10px] text-muted-foreground">
+                            → ~{Math.min(100, chunk.currentScore + chunk.diagnosis.expectedImprovement)}
+                          </span>
                         )}
-                      >
-                        {chunk.currentScore}
-                      </Badge>
+                      </div>
                     )}
                   </div>
                   
