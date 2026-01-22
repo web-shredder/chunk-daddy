@@ -17,6 +17,8 @@ import {
   ArrowRight,
   Sparkles,
   Package,
+  AlertCircle,
+  RefreshCw,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import type { 
@@ -42,6 +44,7 @@ interface OutputsTabProps {
   isOptimizing: boolean;
   currentStep: string;
   progress: number;
+  error?: string | null;
   
   // Incremental results (populated as they stream in)
   appliedArchitectureTasks: ArchitectureTask[];
@@ -53,12 +56,14 @@ interface OutputsTabProps {
   onCopyContent: () => void;
   onExportReport: () => void;
   onGoToOptimize: () => void;
+  onRetry?: () => void;
 }
 
 export function OutputsTab({
   isOptimizing,
   currentStep,
   progress,
+  error,
   appliedArchitectureTasks,
   optimizedChunks,
   generatedBriefs,
@@ -66,6 +71,7 @@ export function OutputsTab({
   onCopyContent,
   onExportReport,
   onGoToOptimize,
+  onRetry,
 }: OutputsTabProps) {
   const [expandedSections, setExpandedSections] = useState<Record<string, boolean>>({
     architecture: true,
@@ -119,8 +125,33 @@ export function OutputsTab({
             </Card>
           )}
 
+          {/* ============ ERROR STATE ============ */}
+          {error && !isOptimizing && (
+            <Card className="border-destructive bg-destructive/10">
+              <CardContent className="py-8 text-center">
+                <AlertCircle className="h-12 w-12 mx-auto mb-4 text-destructive" />
+                <p className="text-lg font-medium mb-2 text-destructive">Optimization Failed</p>
+                <p className="text-sm text-muted-foreground mb-4 max-w-md mx-auto">
+                  {error}
+                </p>
+                <div className="flex gap-2 justify-center">
+                  {onRetry && (
+                    <Button variant="default" onClick={onRetry}>
+                      <RefreshCw className="h-4 w-4 mr-2" />
+                      Retry
+                    </Button>
+                  )}
+                  <Button variant="outline" onClick={onGoToOptimize}>
+                    <ArrowRight className="h-4 w-4 mr-2" />
+                    Back to Optimize
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
           {/* ============ NO OUTPUT YET ============ */}
-          {!hasAnyOutput && !isOptimizing && (
+          {!hasAnyOutput && !isOptimizing && !error && (
             <Card className="border-dashed">
               <CardContent className="py-12 text-center">
                 <Package className="h-12 w-12 mx-auto mb-4 text-muted-foreground/50" />

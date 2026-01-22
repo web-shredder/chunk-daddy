@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { Loader2 } from "lucide-react";
+import { toast } from "sonner";
 import { TopBar, DebugPanel, WorkflowStepper, ContentTab, AnalyzeTab, ResultsTab, ArchitectureTab, OptimizeTab, OutputsTab, ReportTab, type WorkflowStep } from "@/components/moonbug";
 import { DebugProvider, useDebug } from "@/contexts/DebugContext";
 import { useApiKey } from "@/hooks/useApiKey";
@@ -84,6 +85,7 @@ const Index = () => {
   const [isStreamingOptimization, setIsStreamingOptimization] = useState(false);
   const [streamingStep, setStreamingStep] = useState('');
   const [streamingProgress, setStreamingProgress] = useState(0);
+  const [streamingError, setStreamingError] = useState<string | null>(null);
   const [streamedArchitectureTasks, setStreamedArchitectureTasks] = useState<ArchitectureTask[]>([]);
   const [streamedChunks, setStreamedChunks] = useState<StreamedChunk[]>([]);
   const [streamedBriefs, setStreamedBriefs] = useState<ContentBrief[]>([]);
@@ -355,11 +357,12 @@ const Index = () => {
       chunkAssignmentsCount: chunkAssignments.length,
     });
     
-    // Reset streaming state
+    // Reset streaming state (including any previous error)
     setStreamedArchitectureTasks([]);
     setStreamedChunks([]);
     setStreamedBriefs([]);
     setStreamingProgress(0);
+    setStreamingError(null);
     setIsStreamingOptimization(true);
     
     // Auto-switch to outputs tab
@@ -736,7 +739,20 @@ const Index = () => {
       setIsStreamingOptimization(false);
       
     } catch (error) {
-      console.error('Streaming optimization error:', error);
+      const errorMessage = failureReason || (error instanceof Error ? error.message : 'Unknown error');
+      
+      console.error('Streaming optimization error:', {
+        error,
+        failureReason,
+        step: streamingStep,
+        progress: streamingProgress,
+        accumulated: {
+          architectureTasks: accumulatedArchitectureTasks.length,
+          chunks: accumulatedChunks.length,
+          briefs: accumulatedBriefs.length,
+        },
+      });
+      
       debug?.logStreamingError(error as Error, { 
         step: streamingStep, 
         progress: streamingProgress,
@@ -746,9 +762,17 @@ const Index = () => {
           briefs: accumulatedBriefs.length,
         }
       });
-      setStreamingStep(`Error: ${failureReason || (error instanceof Error ? error.message : 'Unknown error')}`);
+      
+      // Set error state for UI display
+      setStreamingError(errorMessage);
+      setStreamingStep('');
+      setStreamingProgress(0);
       setIsStreamingOptimization(false);
-      // Stay on outputs tab showing partial results and error state
+      
+      // Show toast notification
+      toast.error(`Optimization failed: ${errorMessage}`);
+      
+      // Don't save partial results - stay on outputs tab showing error state
     }
   }, [content, layoutChunks, keywords, chunkerOptions, result, architectureAnalysis, markUnsaved]);
 
@@ -937,6 +961,7 @@ const Index = () => {
           isOptimizing={isStreamingOptimization}
           currentStep={streamingStep}
           progress={streamingProgress}
+          error={streamingError}
           appliedArchitectureTasks={streamedArchitectureTasks}
           optimizedChunks={streamedChunks}
           generatedBriefs={streamedBriefs}
@@ -968,6 +993,10 @@ const Index = () => {
             URL.revokeObjectURL(url);
           }}
           onGoToOptimize={() => setActiveTab('optimize')}
+          onRetry={() => {
+            setStreamingError(null);
+            setActiveTab('optimize');
+          }}
         />
       )}
 
