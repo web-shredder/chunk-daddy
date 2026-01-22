@@ -8,6 +8,589 @@ const corsHeaders = {
 const LOVABLE_API_KEY = Deno.env.get('LOVABLE_API_KEY');
 const AI_GATEWAY_URL = 'https://ai.gateway.lovable.dev/v1/chat/completions';
 
+// ============================================================================
+// RAG EDUCATION SYSTEM PROMPT
+// ============================================================================
+
+const RAG_EDUCATION_SYSTEM_PROMPT = `You are an expert content optimizer for RAG (Retrieval-Augmented Generation) search systems. You understand exactly how AI search works and optimize content to succeed at every pipeline stage.
+
+## THE 7-STAGE RAG PIPELINE
+
+Modern AI search (Google AI Overviews, Perplexity, ChatGPT) uses a multi-stage pipeline. Content can fail at ANY stage. Your optimizations must address ALL stages.
+
+### Stage 0: ROUTE (Query Classification)
+Before retrieval begins, AI systems classify queries to decide which knowledge sources to use:
+- Parametric (LLM memory) → Your content is NEVER considered
+- Web search → Your content CAN compete
+- Hybrid → Both are used
+
+**Signals that trigger web search:** Temporal markers ("2024", "latest", "current"), specific entities, factual claims needing verification, comparison queries.
+
+**Your role:** Ensure content contains signals that trigger retrieval, not parametric responses.
+
+### Stage 1-3: INDEX, CHUNK, EMBED
+Content is crawled, split into passages (100-500 tokens), and converted to vectors.
+
+**Key insight:** Chunk boundaries determine semantic coherence. If a chunk combines multiple topics, its embedding is diluted and matches nothing well.
+
+**Your role:** Write content where each paragraph has ONE clear topic. Front-load the main point. Make topic sentences carry standalone meaning.
+
+### Stage 4: RETRIEVE (First Cut)
+Query is embedded. Top ~100 chunks are retrieved via hybrid search:
+- Dense vectors (semantic similarity): 70% weight
+- Sparse vectors (BM25/lexical matching): 30% weight
+
+**What BM25 rewards:**
+- Exact query terms in content (not synonyms)
+- Terms in title/headings (1.5-2x boost)
+- Terms early in content (position decay)
+- Term frequency (diminishing returns after 2-3 occurrences)
+
+**What dense vectors reward:**
+- Semantic similarity (meaning, not just words)
+- Coverage of query facets (all aspects addressed)
+- Topical coherence (single clear topic per chunk)
+
+**Your role:** Ensure exact query terms appear naturally, especially in headings and first sentences. But also ensure semantic coverage of the query's implicit needs.
+
+### Stage 5: RERANK (Critical Gate)
+Retrieved chunks are re-scored by cross-encoders that evaluate query-chunk pairs JOINTLY. This is where citation fate is sealed.
+
+**What cross-encoders reward (in order of importance):**
+
+1. **Direct Answer Presence** (30% of rerank signal)
+   - Explicit response to the query in the first 1-2 sentences
+   - "How long?" → Needs specific timeframe in sentence 1
+   - "How much?" → Needs specific cost in sentence 1
+   - "What is?" → Needs definition in sentence 1
+
+2. **Entity Prominence** (25% of rerank signal)
+   - Named entities from query appear prominently
+   - "Prominent" = in heading, first sentence, or repeated 2-3x
+   - Missing entities = severe rerank penalty
+
+3. **Query Echo/Restatement** (20% of rerank signal)
+   - Restating query before answering signals relevance
+   - "RPO implementation typically takes..." echoes "how long does RPO implementation take"
+   - Can be exact or paraphrased, but must be recognizable
+
+4. **Structural Clarity** (15% of rerank signal)
+   - Headers that match query intent
+   - Lists/steps for process queries
+   - Definitions for "what is" queries
+   - Comparison tables for "vs" queries
+
+5. **Self-containment** (10% of rerank signal)
+   - Chunk makes sense without surrounding context
+   - No unresolved pronouns ("this process", "it requires")
+   - No forward/backward references to other sections
+
+### Stage 6: GENERATE (Context Window)
+Top 10-20 reranked chunks are passed to the LLM. But attention is NOT uniform.
+
+**The "Lost in the Middle" Problem:**
+- Positions 1-3: HIGH attention (70%+ of citations come from here)
+- Positions 4-7: MODERATE attention
+- Positions 8-15: LOW attention (often ignored entirely)
+- Positions 16-20: MODERATE attention (recency effect)
+
+**Your role:** Optimize for positions 1-3. If you can't reach top positions, optimize for quotability so even middle-position content gets cited for its unique value.
+
+### Stage 7: CITE (Attribution)
+LLM decides which retrieved chunks to actually cite. This is NOT random.
+
+**What drives citation:**
+
+1. **Specificity** (most important)
+   - Concrete numbers: "$3,000-$8,000 per hire"
+   - Specific timeframes: "60-90 days"
+   - Named entities: "Workday, Greenhouse, Lever"
+   - Dates: "Q4 2024", "January 15"
+   
+   Vague content is NEVER cited: "costs vary widely", "depends on many factors"
+
+2. **Quotability**
+   - Self-contained sentences that can be extracted
+   - Complete claims that don't need context
+   - Attributable statements (not opinions)
+
+3. **Evidence/Source Signals**
+   - "According to [source]"
+   - "Research shows"
+   - "Data from [study]"
+   - These increase citation confidence
+
+4. **Uniqueness**
+   - Information not available in other retrieved chunks
+   - Novel angles, specific examples, proprietary data
+
+---
+
+## YOUR OPTIMIZATION PRINCIPLES
+
+### Principle 1: Front-Load, Don't Add
+The best optimizations RESTRUCTURE to put key information earlier, not add new content. Moving the answer from sentence 5 to sentence 1 is more valuable than adding three new sentences.
+
+### Principle 2: One Natural Mention is Enough
+Keyword stuffing HURTS modern RAG. Embeddings detect repetition patterns. BM25 has diminishing returns after 2-3 occurrences. One natural mention in the right place (heading, first sentence) beats five mentions scattered throughout.
+
+### Principle 3: Specificity Over Length
+A 50-word paragraph with specific data outranks a 200-word paragraph with vague claims. Cut filler. Add data points. "The process varies" → "The process takes 60-90 days for mid-market companies, 90-120 days for enterprises."
+
+### Principle 4: Preserve Accuracy
+You're optimizing for RETRIEVAL, not truth. Never add claims that aren't supported by or inferable from the original content. If specific data doesn't exist, note it as "unaddressable" rather than fabricating.
+
+### Principle 5: Preserve Voice
+The content has a specific tone. Maintain it. A conversational blog post shouldn't become a technical manual. A formal whitepaper shouldn't become casual.
+
+---
+
+## OUTPUT FORMAT
+
+Return valid JSON only:
+{
+  "thinking": "Your step-by-step reasoning about the diagnosis and what changes will address which pipeline stages",
+  "optimized_text": "The optimized passage text (body only, no headings)",
+  "changes": [
+    {
+      "type": "front_load|add_term|add_specificity|remove_vague|restructure|add_entity|echo_query|other",
+      "description": "What was changed",
+      "pipeline_stage": "retrieve|rerank|cite",
+      "mechanism": "Why this helps at that stage (reference specific RAG mechanics)"
+    }
+  ],
+  "preserved": ["Phrases/elements kept because they already work well"],
+  "unaddressable": ["Issues that couldn't be fixed without fabricating information"],
+  "confidence": 0.0-1.0
+}`;
+
+// ============================================================================
+// HELPER FUNCTIONS
+// ============================================================================
+
+function detectQueryType(query: string): string {
+  if (/how\s+long|duration|time|take/i.test(query)) return 'TEMPORAL (expects timeframe)';
+  if (/how\s+much|cost|price|fee/i.test(query)) return 'COST (expects pricing)';
+  if (/what\s+is|what\s+are|define/i.test(query)) return 'DEFINITION (expects clear definition)';
+  if (/why|reason/i.test(query)) return 'CAUSAL (expects reasons)';
+  if (/how\s+to|steps|process/i.test(query)) return 'PROCESS (expects steps)';
+  if (/best|top|recommend/i.test(query)) return 'RECOMMENDATION (expects criteria)';
+  if (/vs|versus|compare|difference/i.test(query)) return 'COMPARISON (expects contrasts)';
+  return 'INFORMATIONAL (expects clear information)';
+}
+
+function detectQueryTypeDetailed(query: string): string {
+  const details: string[] = [];
+  
+  if (/how\s+long|duration|time|take/i.test(query)) {
+    details.push('**Temporal Query** - Expects specific timeframe');
+    details.push('- Good: "typically takes 60-90 days"');
+    details.push('- Good: "ranges from 2-6 months depending on scope"');
+    details.push('- Bad: "depends on various factors"');
+    details.push('- Bad: "the timeline varies"');
+  }
+  if (/how\s+much|cost|price|fee/i.test(query)) {
+    details.push('**Cost Query** - Expects specific pricing');
+    details.push('- Good: "$3,000-$8,000 per hire"');
+    details.push('- Good: "15-25% of first-year salary"');
+    details.push('- Bad: "costs vary widely"');
+    details.push('- Bad: "depends on your needs"');
+  }
+  if (/what\s+is|what\s+are|define/i.test(query)) {
+    details.push('**Definition Query** - Expects clear definition in sentence 1');
+    details.push('- Good: "RPO (Recruitment Process Outsourcing) is a form of business process outsourcing where..."');
+    details.push('- Bad: "RPO involves various recruiting activities"');
+  }
+  if (/why|reason/i.test(query)) {
+    details.push('**Causal Query** - Expects explicit enumerated reasons');
+    details.push('- Good: "Companies choose RPO for three main reasons: 1) cost reduction of 20-30%, 2) faster time-to-hire, 3) access to specialized talent pools"');
+    details.push('- Bad: "there are many reasons companies consider this option"');
+  }
+  if (/how\s+to|steps|process/i.test(query)) {
+    details.push('**Process Query** - Expects actionable steps');
+    details.push('- Good: "Step 1: Define requirements. Step 2: Evaluate vendors..."');
+    details.push('- Good: "First, assess your hiring volume. Then, identify..."');
+    details.push('- Bad: "the process involves several considerations"');
+  }
+  if (/best|top|recommend/i.test(query)) {
+    details.push('**Recommendation Query** - Expects specific criteria');
+    details.push('- Good: "Key selection criteria: 1) industry expertise, 2) technology stack, 3) pricing transparency"');
+    details.push('- Bad: "it depends on your specific needs"');
+  }
+  if (/vs|versus|compare|difference/i.test(query)) {
+    details.push('**Comparison Query** - Expects explicit contrasts');
+    details.push('- Good: "RPO handles end-to-end recruiting; staffing agencies fill individual roles on-demand"');
+    details.push('- Bad: "both have their advantages and disadvantages"');
+  }
+  
+  return details.length > 0 ? details.join('\n') : '**Informational Query** - Provide clear, specific information';
+}
+
+function getExpectedStructure(query: string): string {
+  if (/how\s+to|steps|process/i.test(query)) {
+    return '- **Process query** → Numbered steps or clear sequence (First..., Then..., Finally...)';
+  }
+  if (/what\s+is|what\s+are|define/i.test(query)) {
+    return '- **Definition query** → "X is..." pattern in first sentence';
+  }
+  if (/vs|versus|compare|difference/i.test(query)) {
+    return '- **Comparison query** → Explicit contrast points, possibly parallel structure';
+  }
+  if (/best|top|recommend/i.test(query)) {
+    return '- **Recommendation query** → Criteria list or ranked options';
+  }
+  if (/why|reason/i.test(query)) {
+    return '- **Causal query** → Enumerated reasons (three main reasons: 1..., 2..., 3...)';
+  }
+  return '- **General query** → Clear topic sentence, supporting details, specific examples';
+}
+
+function extractExpectedAnswerFormat(query: string): string {
+  if (/how\s+long/i.test(query)) return '[X] typically takes [timeframe]...';
+  if (/how\s+much|cost/i.test(query)) return '[X] costs [price range]...';
+  if (/what\s+is/i.test(query)) return '[X] is [definition]...';
+  if (/why/i.test(query)) return '[People/Companies] [do X] because [reasons]...';
+  if (/how\s+to/i.test(query)) return 'To [do X], [first step]...';
+  return '[Answer to query]...';
+}
+
+function truncate(str: string, len: number): string {
+  return str.length > len ? str.slice(0, len) + '...' : str;
+}
+
+// ============================================================================
+// DIAGNOSTIC-DRIVEN USER PROMPT BUILDER
+// ============================================================================
+
+interface DiagnosisData {
+  primaryFailureMode: string;
+  semanticScore?: number;
+  lexicalScore?: number;
+  lexicalMissingTerms?: string[];
+  hybridRetrievalScore?: number;
+  rerankScore?: number;
+  citationScore?: number;
+  rerankIssues?: {
+    answerPosition?: number;
+    hasRelevantHeading?: boolean;
+    hasList?: boolean;
+    hasDefinition?: boolean;
+    structuralClarityScore?: number;
+    missingEntities?: string[];
+  };
+  citationIssues?: {
+    specificitySignals?: number;
+    numbers?: string[];
+    names?: string[];
+    vagueStatements?: string[];
+    quotableSentences?: string[];
+  };
+  secondaryIssues?: Array<{ type: string; description: string }>;
+  presentStrengths?: string[];
+}
+
+interface QueryAssignment {
+  queries: string[];
+  diagnosis?: DiagnosisData;
+}
+
+function buildDiagnosticUserPrompt(
+  assignment: QueryAssignment,
+  chunkText: string,
+  headingPath: string[]
+): string {
+  const query = assignment.queries[0];
+  const d = assignment.diagnosis;
+  
+  // If no diagnosis data, use simple prompt
+  if (!d) {
+    return `Optimize this chunk for the query: "${query}"
+
+CHUNK:
+${chunkText}
+
+Return the optimized text that better answers this query.`;
+  }
+  
+  let prompt = `## OPTIMIZATION TASK
+
+**Query:** "${query}"
+**Heading Context:** ${headingPath.join(' > ') || 'Root level'}
+
+**Original Chunk:**
+"""
+${chunkText}
+"""
+
+---
+
+## DIAGNOSTIC ANALYSIS
+
+`;
+
+  // Add failure mode with RAG explanation
+  switch (d.primaryFailureMode) {
+    case 'topic_mismatch':
+      prompt += `### PRIMARY ISSUE: Topic Mismatch
+**RAG Impact:** This chunk's embedding points in a different semantic direction than the query's embedding. Cosine similarity is low because the content is about a different subject.
+
+**Pipeline Failure Point:** Stage 4 (Retrieve) - This chunk may not even make the top 100 retrieved.
+
+**Evidence:**
+- Semantic score: ${d.semanticScore ?? 'N/A'}/100 (needs 60+ to compete)
+- Lexical overlap: ${d.lexicalScore ?? 'N/A'}/100
+- Missing query terms: ${d.lexicalMissingTerms?.join(', ') || 'N/A'}
+
+**Your Options:**
+1. If ANY relevant content exists, restructure to make it dominant
+2. If truly off-topic, make minimal changes and list in "unaddressable"
+3. DO NOT force irrelevant content to match—this harms the chunk's usefulness for queries it DOES match
+
+`;
+      break;
+      
+    case 'vocabulary_gap':
+      prompt += `### PRIMARY ISSUE: Vocabulary Gap
+**RAG Impact:** Dense vector similarity is okay, but BM25 (lexical) matching is failing. The chunk discusses the right topic but uses different words than the query.
+
+**Pipeline Failure Point:** Stage 4 (Retrieve) - Losing 30% of hybrid retrieval signal.
+
+**Missing Terms (from query, not in chunk):**
+${d.lexicalMissingTerms?.map(t => `- "${t}"`).join('\n') || '- None detected'}
+
+**Current Lexical Score:** ${d.lexicalScore ?? 'N/A'}/100 (target: 60+)
+
+**Optimization Strategy:**
+For each missing term, find where it NATURALLY fits:
+- Prefer first 100 characters (BM25 position boost)
+- Prefer headings (1.5-2x BM25 boost)
+- One mention is sufficient (diminishing returns after 2-3)
+
+**Example:**
+- Missing term: "implementation"
+- Original: "The process involves several phases."
+- Optimized: "The implementation process involves several phases."
+- Mechanism: Term added in first sentence, natural fit, +15-20% lexical score expected.
+
+`;
+      break;
+      
+    case 'buried_answer':
+      prompt += `### PRIMARY ISSUE: Buried Answer
+**RAG Impact:** The direct answer exists but is buried deep in the text. Cross-encoders heavily weight information in the first 100-150 characters. Burying the answer causes severe rerank penalty.
+
+**Pipeline Failure Point:** Stage 5 (Rerank) - Content retrieves but gets pushed down, landing in "lost in the middle" positions.
+
+**Evidence:**
+- Retrieval score: ${d.hybridRetrievalScore ?? 'N/A'}/100 (decent)
+- Rerank score: ${d.rerankScore ?? 'N/A'}/100 (poor due to position)
+- Answer detected late in passage
+
+**Query Type Analysis:**
+${detectQueryTypeDetailed(query)}
+
+**Optimization Strategy:**
+1. Identify the sentence(s) that DIRECTLY answer the query
+2. Move to position 1 (first sentence of chunk)
+3. Follow with context and qualifications
+4. This is a RESTRUCTURE, not an addition
+
+**Structure Template:**
+[Direct answer: "${extractExpectedAnswerFormat(query)}"] → [Context] → [Details] → [Supporting info]
+
+`;
+      break;
+      
+    case 'no_direct_answer':
+      prompt += `### PRIMARY ISSUE: No Direct Answer
+**RAG Impact:** The query asks a question. Cross-encoders look for explicit answers in the first 150 characters. No answer = severe rerank penalty AND low citation probability.
+
+**Pipeline Failure Points:** 
+- Stage 5 (Rerank): Missing 30% of rerank signal (direct answer component)
+- Stage 7 (Cite): LLMs don't cite chunks that don't answer questions
+
+**Evidence:**
+- Direct answer detected: NO
+- Rerank score: ${d.rerankScore ?? 'N/A'}/100
+- Query type: ${detectQueryType(query)}
+
+**What This Query Needs:**
+${detectQueryTypeDetailed(query)}
+
+**Optimization Strategy:**
+1. Determine what SPECIFIC answer format the query expects
+2. Check if this information EXISTS in the chunk (explicitly or implicitly)
+3. If yes: Extract and front-load it
+4. If no: List in "unaddressable" - DO NOT fabricate
+
+**Critical:** An answer must be EXPLICIT. "The process varies" does not answer "how long does X take?" even if variability is true. Either provide a range ("60-90 days") or acknowledge inability to answer.
+
+`;
+      break;
+      
+    case 'missing_specifics':
+      prompt += `### PRIMARY ISSUE: Lacks Specificity  
+**RAG Impact:** Content makes claims but provides no verifiable data. LLMs strongly prefer citing specific, attributable information over vague generalizations.
+
+**Pipeline Failure Point:** Stage 7 (Cite) - Content may retrieve and rerank okay but never gets cited because nothing is quotable.
+
+**Evidence:**
+- Citation score: ${d.citationScore ?? 'N/A'}/100 (target: 60+)
+- Specificity signals found: ${d.citationIssues?.specificitySignals ?? 0}
+- Numbers in content: ${d.citationIssues?.numbers?.length ?? 0}
+- Named entities: ${d.citationIssues?.names?.length ?? 0}
+
+${d.citationIssues?.vagueStatements && d.citationIssues.vagueStatements.length > 0 ? `**Vague Statements Detected:**
+${d.citationIssues.vagueStatements.slice(0, 4).map((s, i) => `${i + 1}. "${truncate(s, 80)}"`).join('\n')}
+` : ''}
+
+**Vague → Specific Transformations:**
+| Vague | Specific | Why It Works |
+|-------|----------|--------------|
+| "significant cost savings" | "20-30% cost reduction" | Citable number |
+| "the process takes time" | "typically 60-90 days" | Specific timeframe |
+| "many companies" | "over 60% of mid-market companies" | Quantified claim |
+| "various benefits" | "three key benefits: X, Y, Z" | Enumerated, specific |
+
+**Optimization Strategy:**
+1. Identify vague claims
+2. Look for implicit specifics elsewhere in the chunk that can make them explicit
+3. If no data exists, note in "unaddressable"
+4. Prioritize making 2-3 sentences highly quotable over making everything slightly better
+
+`;
+      break;
+      
+    case 'structure_problem':
+      prompt += `### PRIMARY ISSUE: Structural Clarity
+**RAG Impact:** Cross-encoders reward clear structure: relevant headings, lists for processes, definitions for "what is" queries. Poor structure = rerank penalty.
+
+**Pipeline Failure Point:** Stage 5 (Rerank) - Losing 15-20% of rerank signal from structure component.
+
+**Evidence:**
+- Structural clarity score: ${d.rerankIssues?.structuralClarityScore ?? 'N/A'}/100
+- Has relevant heading: ${d.rerankIssues?.hasRelevantHeading ? 'Yes' : 'No'}
+- Has list/steps: ${d.rerankIssues?.hasList ? 'Yes' : 'No'}
+- Has definition pattern: ${d.rerankIssues?.hasDefinition ? 'Yes' : 'No'}
+
+**Query Type → Expected Structure:**
+${getExpectedStructure(query)}
+
+**Optimization Strategy:**
+1. If process query → Consider numbered steps
+2. If definition query → Use "X is..." format in sentence 1
+3. If comparison query → Explicit contrast points
+4. Make first sentence a clear topic sentence
+5. You're optimizing BODY text (no headings) but can suggest heading changes
+
+`;
+      break;
+      
+    case 'already_optimized':
+      prompt += `### STATUS: Already Well-Optimized
+**RAG Assessment:** This chunk scores 75+ across metrics. It's competitive at all pipeline stages.
+
+**Evidence:**
+- Hybrid retrieval: ${d.hybridRetrievalScore ?? 'N/A'}/100 ✓
+- Rerank: ${d.rerankScore ?? 'N/A'}/100 ✓
+- Citation: ${d.citationScore ?? 'N/A'}/100 ✓
+
+**Your Task:**
+1. Make MINIMAL changes only
+2. Fix obvious awkwardness if any
+3. DO NOT restructure what's working
+4. It's acceptable to return near-identical text
+5. Explain in "thinking" why major changes aren't needed
+
+`;
+      break;
+      
+    default:
+      prompt += `### ISSUE: ${d.primaryFailureMode || 'Unknown'}
+Apply general optimization principles to improve this chunk for the query.
+
+`;
+  }
+
+  // Add secondary issues if present
+  if (d.secondaryIssues && d.secondaryIssues.length > 0) {
+    prompt += `### SECONDARY ISSUES (Address if possible without conflicting with primary fix)
+${d.secondaryIssues.map(issue => `- ${issue.type}: ${issue.description}`).join('\n')}
+
+`;
+  }
+
+  // Add preservation requirements
+  if (d.presentStrengths && d.presentStrengths.length > 0) {
+    prompt += `### PRESERVE THESE (Working well, don't break them)
+${d.presentStrengths.map(s => `✓ ${s}`).join('\n')}
+
+`;
+  }
+
+  // Add entity requirements
+  if (d.rerankIssues?.missingEntities && d.rerankIssues.missingEntities.length > 0) {
+    prompt += `### ENTITY PROMINENCE GAP
+Query entities not prominent in chunk:
+${d.rerankIssues.missingEntities.map(e => `- "${e}" (add in first 100 chars or heading if possible)`).join('\n')}
+
+`;
+  }
+
+  // Add quotability requirements if citation score is low
+  if (d.citationScore !== undefined && d.citationScore < 50) {
+    prompt += `### QUOTABILITY IMPROVEMENT NEEDED
+Current quotable sentences: ${d.citationIssues?.quotableSentences?.length || 0}
+Target: At least 2 self-contained, citable sentences
+
+A quotable sentence:
+- Makes a complete claim independently
+- Contains specific data (number, name, timeframe)
+- Could be extracted and cited in isolation
+- Example: "RPO implementation typically takes 60-90 days for mid-market companies."
+
+`;
+  }
+
+  prompt += `---
+
+## FINAL INSTRUCTIONS
+1. Apply the recommended fix for the primary issue
+2. Address secondary issues if they don't conflict
+3. Preserve working elements
+4. Return valid JSON only
+5. Be honest in "unaddressable" about what you couldn't fix`;
+
+  return prompt;
+}
+
+// ============================================================================
+// SIMPLE OPTIMIZATION PROMPT (fallback when no diagnosis)
+// ============================================================================
+
+const SIMPLE_OPTIMIZATION_PROMPT = `You optimize content passages for RAG retrieval systems.
+
+GOAL: Improve retrieval probability for the assigned query.
+
+WHAT IMPROVES RETRIEVAL:
+1. ANSWER THE QUERY - Ensure a clear answer exists in the first 1-2 sentences
+2. ADD SPECIFIC FACTS - Numbers, names, examples, timeframes
+3. MAKE IT SELF-CONTAINED - Passage makes sense alone
+4. USE NATURAL DOMAIN VOCABULARY - Not forced keywords
+5. COVER MULTIPLE FACETS - Address different aspects
+
+WHAT HURTS RETRIEVAL:
+1. KEYWORD STUFFING - Once is enough
+2. FILLER CONTENT - "importantly", "it's worth noting"
+3. VAGUE STATEMENTS - Be specific
+4. GOING OFF-TOPIC - Stay focused
+
+Return ONLY the optimized text, no explanations or preamble.`;
+
+// ============================================================================
+// MAIN SERVER
+// ============================================================================
+
 serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response(null, { headers: corsHeaders });
@@ -23,7 +606,7 @@ serve(async (req) => {
     const writer = stream.writable.getWriter();
     const encoder = new TextEncoder();
 
-    const sendEvent = async (data: any) => {
+    const sendEvent = async (data: unknown) => {
       try {
         await writer.write(encoder.encode(`data: ${JSON.stringify(data)}\n\n`));
       } catch (e) {
@@ -49,7 +632,6 @@ serve(async (req) => {
                 totalTasks: tasks.length,
               });
 
-              // Apply each task individually
               const response = await fetch(AI_GATEWAY_URL, {
                 method: 'POST',
                 headers: {
@@ -99,7 +681,7 @@ Important: Only apply THIS specific change. Do not make other modifications.`,
             break;
           }
 
-        case 'optimize_chunks_stream': {
+          case 'optimize_chunks_stream': {
             const { chunks, queryAssignments } = params;
             
             // ENFORCEMENT: Build set of assigned chunk indices and filter
@@ -114,29 +696,30 @@ Important: Only apply THIS specific change. Do not make other modifications.`,
               .filter((qa: { chunkIndex: number; queries?: string[] }) => 
                 assignedIndices.has(qa.chunkIndex) && chunks[qa.chunkIndex]
               )
-              .map((qa: { chunkIndex: number; originalChunkIndex?: number; queries: string[] }) => ({
+              .map((qa: { chunkIndex: number; originalChunkIndex?: number; queries: string[]; headingPath?: string[]; diagnosis?: DiagnosisData }) => ({
                 arrayIndex: qa.chunkIndex,
                 originalIndex: qa.originalChunkIndex ?? qa.chunkIndex,
                 text: chunks[qa.chunkIndex],
                 query: qa.queries[0],
+                headingPath: qa.headingPath || [],
+                diagnosis: qa.diagnosis,
+                fullAssignment: qa,
               }));
             
-            // Log filtering results for debugging
-            console.log('Assignment-only optimization:', {
+            console.log('RAG-Educated Optimization:', {
               receivedChunks: chunks?.length,
               receivedAssignments: queryAssignments?.length,
               filteredToOptimize: chunksToOptimize.length,
-              assignedIndices: Array.from(assignedIndices),
-              optimizing: chunksToOptimize.map((c: { originalIndex: number; query: string }) => ({
-                origIdx: c.originalIndex,
-                query: c.query?.slice(0, 40),
-              })),
+              hasDiagnostics: chunksToOptimize.some((c: { diagnosis?: DiagnosisData }) => !!c.diagnosis),
             });
 
             const totalToOptimize = chunksToOptimize.length;
 
             for (let i = 0; i < chunksToOptimize.length; i++) {
-              const { arrayIndex, originalIndex, text: chunkText, query } = chunksToOptimize[i];
+              const { arrayIndex, originalIndex, text: chunkText, query, headingPath, diagnosis, fullAssignment } = chunksToOptimize[i];
+              
+              // Determine if we should use RAG-educated prompts
+              const useRagEducation = !!diagnosis;
 
               await sendEvent({
                 type: 'chunk_started',
@@ -147,7 +730,30 @@ Important: Only apply THIS specific change. Do not make other modifications.`,
                 chunkNumber: originalIndex + 1,
                 query,
                 progress: Math.round((i / totalToOptimize) * 100),
+                failureMode: diagnosis?.primaryFailureMode || 'unknown',
               });
+
+              let systemPrompt: string;
+              let userPrompt: string;
+              
+              if (useRagEducation) {
+                // Full RAG-educated optimization
+                systemPrompt = RAG_EDUCATION_SYSTEM_PROMPT;
+                userPrompt = buildDiagnosticUserPrompt(
+                  fullAssignment as QueryAssignment,
+                  chunkText,
+                  headingPath
+                );
+                console.log(`Chunk ${originalIndex}: Using RAG-educated prompt for ${diagnosis?.primaryFailureMode}`);
+              } else {
+                // Simple fallback
+                systemPrompt = SIMPLE_OPTIMIZATION_PROMPT;
+                userPrompt = `Optimize this chunk for the query: "${query}"
+
+CHUNK:
+${chunkText}`;
+                console.log(`Chunk ${originalIndex}: Using simple optimization (no diagnosis)`);
+              }
 
               const response = await fetch(AI_GATEWAY_URL, {
                 method: 'POST',
@@ -158,46 +764,47 @@ Important: Only apply THIS specific change. Do not make other modifications.`,
                 body: JSON.stringify({
                   model: 'google/gemini-3-flash-preview',
                   messages: [
-                    {
-                      role: 'system',
-                      content: `You optimize content passages for RAG retrieval systems.
-
-GOAL: Improve retrieval probability for the assigned query.
-
-WHAT IMPROVES RETRIEVAL:
-1. ANSWER THE QUERY - Ensure a clear answer exists
-2. ADD SPECIFIC FACTS - Numbers, names, examples, timeframes
-3. MAKE IT SELF-CONTAINED - Passage makes sense alone
-4. USE NATURAL DOMAIN VOCABULARY - Not forced keywords
-5. COVER MULTIPLE FACETS - Address different aspects
-
-WHAT HURTS RETRIEVAL:
-1. KEYWORD STUFFING - Once is enough
-2. FILLER CONTENT - "importantly", "it's worth noting"
-3. VAGUE STATEMENTS - Be specific
-4. GOING OFF-TOPIC - Stay focused
-
-Return ONLY the optimized text, no explanations or preamble.`,
-                    },
-                    {
-                      role: 'user',
-                      content: `Optimize this chunk for the query: "${query}"
-
-CHUNK:
-${chunkText}`,
-                    },
+                    { role: 'system', content: systemPrompt },
+                    { role: 'user', content: userPrompt },
                   ],
-                  max_tokens: 2048,
+                  max_tokens: 4096,
                   stream: false,
                 }),
               });
 
               let optimizedText = chunkText;
+              let optimizationMetadata: Record<string, unknown> = {};
+              
               if (response.ok) {
                 const data = await response.json();
                 const content = data.choices?.[0]?.message?.content;
+                
                 if (content) {
-                  optimizedText = content;
+                  if (useRagEducation) {
+                    // Try to parse JSON response from RAG-educated prompt
+                    try {
+                      const jsonMatch = content.match(/\{[\s\S]*\}/);
+                      if (jsonMatch) {
+                        const parsed = JSON.parse(jsonMatch[0]);
+                        optimizedText = parsed.optimized_text || content;
+                        optimizationMetadata = {
+                          thinking: parsed.thinking,
+                          changes: parsed.changes,
+                          preserved: parsed.preserved,
+                          unaddressable: parsed.unaddressable,
+                          confidence: parsed.confidence,
+                        };
+                      } else {
+                        // No JSON found, use raw content
+                        optimizedText = content;
+                      }
+                    } catch (parseError) {
+                      console.warn(`Chunk ${originalIndex}: Failed to parse JSON, using raw content`);
+                      optimizedText = content;
+                    }
+                  } else {
+                    optimizedText = content;
+                  }
                 }
               } else {
                 console.error(`AI optimization failed for chunk ${originalIndex}:`, response.status);
@@ -214,6 +821,8 @@ ${chunkText}`,
                 optimizedText: optimizedText,
                 query: query,
                 progress: Math.round(((i + 1) / totalToOptimize) * 100),
+                failureMode: diagnosis?.primaryFailureMode || 'unknown',
+                ...optimizationMetadata,
               });
             }
 
@@ -253,7 +862,7 @@ ${chunkText}`,
                       content: `Generate a content brief for a query that has no matching content.
 
 EXISTING SECTIONS:
-${(existingChunks || []).map((c: any, i: number) => `${i + 1}. ${c.heading || 'Untitled'}`).join('\n')}
+${(existingChunks || []).map((c: { heading?: string }, i: number) => `${i + 1}. ${c.heading || 'Untitled'}`).join('\n')}
 
 Return valid JSON with this structure:
 {
@@ -274,14 +883,21 @@ Return valid JSON with this structure:
                 }),
               });
 
-              let brief = { targetQuery: query, suggestedHeading: '', placementDescription: '', keyPoints: [], targetWordCount: { min: 300, max: 500 }, draftOpening: '', gapAnalysis: '' };
+              let brief = { 
+                targetQuery: query, 
+                suggestedHeading: '', 
+                placementDescription: '', 
+                keyPoints: [] as string[], 
+                targetWordCount: { min: 300, max: 500 }, 
+                draftOpening: '', 
+                gapAnalysis: '' 
+              };
 
               if (response.ok) {
                 const data = await response.json();
                 const content = data.choices?.[0]?.message?.content;
                 if (content) {
                   try {
-                    // Try to extract JSON from the response
                     const jsonMatch = content.match(/\{[\s\S]*\}/);
                     if (jsonMatch) {
                       const parsed = JSON.parse(jsonMatch[0]);
