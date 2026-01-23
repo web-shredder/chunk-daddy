@@ -78,6 +78,12 @@ export interface QueryWorkItem {
   analysisPrompt?: string;
   optimizedText?: string;
   approvedText?: string;
+  
+  // Gap-specific fields
+  isGap?: boolean;
+  suggestedPlacement?: string;      // Where in the document to add new content
+  suggestedHeading?: string;        // Recommended heading for new section
+  estimatedWordCount?: number;      // Recommended length
 }
 
 export interface CoverageState {

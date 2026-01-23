@@ -199,3 +199,32 @@ export function getCoverageSummary(queries: QueryWorkItem[]) {
     gaps: queries.filter(q => q.status === 'gap').length,
   };
 }
+
+/**
+ * Extract key concepts/terms from a query for gap analysis
+ * Removes stop words and returns unique meaningful terms
+ */
+export function extractMissingConcepts(query: string): string[] {
+  const stopWords = new Set([
+    'what', 'how', 'why', 'when', 'where', 'who', 'which',
+    'is', 'are', 'was', 'were', 'be', 'been', 'being',
+    'have', 'has', 'had', 'do', 'does', 'did',
+    'a', 'an', 'the', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for',
+    'of', 'with', 'by', 'from', 'as', 'into', 'through', 'during',
+    'can', 'could', 'should', 'would', 'will', 'shall', 'may', 'might',
+    'i', 'you', 'he', 'she', 'it', 'we', 'they', 'my', 'your', 'our',
+    'this', 'that', 'these', 'those', 'there', 'here',
+    'about', 'over', 'under', 'between', 'before', 'after',
+    'more', 'most', 'less', 'least', 'very', 'just', 'only',
+    'some', 'any', 'all', 'each', 'every', 'both', 'few', 'many',
+    'much', 'such', 'other', 'another', 'same', 'different'
+  ]);
+  
+  const words = query.toLowerCase()
+    .replace(/[^\w\s]/g, '')
+    .split(/\s+/)
+    .filter(word => word.length > 2 && !stopWords.has(word));
+  
+  // Return unique terms
+  return [...new Set(words)];
+}
