@@ -46,6 +46,15 @@ import {
   LayoutGrid,
   Layers,
   Info,
+  RefreshCw,
+  ArrowRight,
+  Search,
+  FileEdit,
+  Lightbulb,
+  HelpCircle,
+  Wrench,
+  Building,
+  type LucideIcon,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { getTierFromScore, TIER_COLORS } from '@/lib/tier-colors';
@@ -296,10 +305,10 @@ const ROUTE_ICONS: Record<string, { icon: typeof Globe; color: string; label: st
   HYBRID: { icon: Shuffle, color: 'text-blue-500', label: 'Hybrid' },
 };
 
-const EFFORT_STYLES: Record<string, { color: string; label: string; icon: string }> = {
-  quick_fix: { color: 'text-emerald-500', label: 'Quick Fix', icon: '⚡' },
-  moderate: { color: 'text-amber-500', label: 'Moderate', icon: '🔧' },
-  major_rewrite: { color: 'text-red-500', label: 'Major', icon: '🏗️' },
+const EFFORT_STYLES: Record<string, { color: string; label: string; icon: LucideIcon }> = {
+  quick_fix: { color: 'text-emerald-500', label: 'Quick Fix', icon: Zap },
+  moderate: { color: 'text-amber-500', label: 'Moderate', icon: Wrench },
+  major_rewrite: { color: 'text-red-500', label: 'Major', icon: Building },
 };
 
 const VALUE_STYLES: Record<string, { color: string; bg: string }> = {
@@ -309,12 +318,12 @@ const VALUE_STYLES: Record<string, { color: string; bg: string }> = {
   low: { color: 'text-muted-foreground', bg: 'bg-muted/50' },
 };
 
-// Google Patent Variant Type Styles
+// Google Patent Variant Type Styles - Using Lucide icons instead of emojis
 const VARIANT_TYPE_STYLES: Record<string, { 
   bg: string; 
   text: string; 
   border: string; 
-  icon: string;
+  icon: LucideIcon;
   label: string;
   description: string;
 }> = {
@@ -322,7 +331,7 @@ const VARIANT_TYPE_STYLES: Record<string, {
     bg: 'bg-emerald-500/10',
     text: 'text-emerald-600 dark:text-emerald-400',
     border: 'border-emerald-500/30',
-    icon: '🔄',
+    icon: RefreshCw,
     label: 'Equivalent',
     description: 'Same question, different words (must preserve all entities)'
   },
@@ -330,7 +339,7 @@ const VARIANT_TYPE_STYLES: Record<string, {
     bg: 'bg-blue-500/10',
     text: 'text-blue-600 dark:text-blue-400',
     border: 'border-blue-500/30',
-    icon: '➡️',
+    icon: ArrowRight,
     label: 'Follow-up',
     description: 'Logical next questions in user journey'
   },
@@ -338,7 +347,7 @@ const VARIANT_TYPE_STYLES: Record<string, {
     bg: 'bg-violet-500/10',
     text: 'text-violet-600 dark:text-violet-400',
     border: 'border-violet-500/30',
-    icon: '🔍',
+    icon: Search,
     label: 'Generalization',
     description: 'Broader versions of the query'
   },
@@ -346,7 +355,7 @@ const VARIANT_TYPE_STYLES: Record<string, {
     bg: 'bg-indigo-500/10',
     text: 'text-indigo-600 dark:text-indigo-400',
     border: 'border-indigo-500/30',
-    icon: '📝',
+    icon: FileEdit,
     label: 'Canonical',
     description: 'Standardized forms (expand acronyms)'
   },
@@ -354,7 +363,7 @@ const VARIANT_TYPE_STYLES: Record<string, {
     bg: 'bg-cyan-500/10',
     text: 'text-cyan-600 dark:text-cyan-400',
     border: 'border-cyan-500/30',
-    icon: '💡',
+    icon: Lightbulb,
     label: 'Entailment',
     description: 'Logically implied queries'
   },
@@ -362,7 +371,7 @@ const VARIANT_TYPE_STYLES: Record<string, {
     bg: 'bg-amber-500/10',
     text: 'text-amber-600 dark:text-amber-400',
     border: 'border-amber-500/30',
-    icon: '🎯',
+    icon: Target,
     label: 'Specification',
     description: 'Narrower versions with qualifiers'
   },
@@ -370,7 +379,7 @@ const VARIANT_TYPE_STYLES: Record<string, {
     bg: 'bg-pink-500/10',
     text: 'text-pink-600 dark:text-pink-400',
     border: 'border-pink-500/30',
-    icon: '❓',
+    icon: HelpCircle,
     label: 'Clarification',
     description: 'Disambiguation queries'
   },
@@ -906,7 +915,7 @@ export function QueryIntelligenceDashboard({
                 return (
                   <div key={type} className="space-y-2">
                     <div className="flex items-center gap-2 sticky top-0 bg-card py-1 z-10">
-                      <span className="text-lg">{style.icon}</span>
+                      <style.icon className="h-4 w-4" />
                       <span className="text-sm font-medium">{style.label}</span>
                       <Badge variant="secondary" className="text-xs">{typeQueries.length}</Badge>
                       <TooltipProvider>
@@ -992,8 +1001,9 @@ export function QueryIntelligenceDashboard({
                       <X className="h-4 w-4 text-destructive shrink-0 mt-0.5" />
                       <div className="flex-1 min-w-0 space-y-1">
                         <div className="flex items-center gap-2 flex-wrap">
-                          <Badge className={cn("text-xs", typeStyle.bg, typeStyle.text, "border", typeStyle.border)}>
-                            {typeStyle.icon} {typeStyle.label}
+                          <Badge className={cn("text-xs flex items-center gap-1", typeStyle.bg, typeStyle.text, "border", typeStyle.border)}>
+                            <typeStyle.icon className="h-3 w-3" />
+                            {typeStyle.label}
                           </Badge>
                           <Badge variant="secondary" className="text-xs">Score: {Math.round(fq.intentScore * 100)}</Badge>
                         </div>
@@ -1307,8 +1317,9 @@ function QueryCard({
               (() => {
                 const typeStyle = VARIANT_TYPE_STYLES[suggestion.variantType as GoogleVariantType];
                 return typeStyle ? (
-                  <Badge className={cn("text-xs", typeStyle.bg, typeStyle.text, "border", typeStyle.border)}>
-                    {typeStyle.icon} {typeStyle.label}
+                  <Badge className={cn("text-xs flex items-center gap-1", typeStyle.bg, typeStyle.text, "border", typeStyle.border)}>
+                    <typeStyle.icon className="h-3 w-3" />
+                    {typeStyle.label}
                   </Badge>
                 ) : (
                   <Badge variant="outline" className="text-xs">{suggestion.variantType}</Badge>
@@ -1410,8 +1421,9 @@ function CriticalGapCard({
               <Badge className={cn("text-xs", valueStyles.bg, valueStyles.color)}>
                 {gap.competitiveValue}
               </Badge>
-              <Badge variant="outline" className={cn("text-xs", effortInfo.color)}>
-                {effortInfo.icon} {effortInfo.label}
+              <Badge variant="outline" className={cn("text-xs flex items-center gap-1", effortInfo.color)}>
+                <effortInfo.icon className="h-3 w-3" />
+                {effortInfo.label}
               </Badge>
               {isExpanded ? (
                 <ChevronDown className="h-4 w-4 text-muted-foreground" />
@@ -1514,8 +1526,9 @@ function PriorityActionCard({
             <Badge className={cn("text-xs", impactStyles.bg, impactStyles.color)}>
               {action.impact} impact
             </Badge>
-            <Badge variant="outline" className={cn("text-xs", effortInfo.color)}>
-              {effortInfo.icon} {effortInfo.label}
+            <Badge variant="outline" className={cn("text-xs flex items-center gap-1", effortInfo.color)}>
+              <effortInfo.icon className="h-3 w-3" />
+              {effortInfo.label}
             </Badge>
           </div>
 

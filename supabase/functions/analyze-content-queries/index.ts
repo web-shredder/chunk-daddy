@@ -344,6 +344,7 @@ ${content.slice(0, 2000)}`;
 
 // ============================================================
 // STEP 4: GENERATE VARIANTS (Google Patent US 11,663,201 B2)
+// User preferences: Allow implicit core, 10-12 queries, mixed style
 // ============================================================
 
 async function generateQueryVariants(
@@ -355,65 +356,58 @@ async function generateQueryVariants(
   existingQueries: string[]
 ): Promise<{ variants: QueryVariant[] }> {
   
-  const systemPrompt = `You generate search query variants following Google's Query Fan-Out methodology (Patent US 11,663,201 B2). You must respond with valid JSON.
+  const coreEntities = entities.primary.slice(0, 2).join(', ') || topicFocus.primaryEntity;
+  
+  const systemPrompt = `You generate diverse search query variants. You must respond with valid JSON.
 
 PRIMARY QUERY: "${primaryQuery.query}"
-PRIMARY ENTITIES (MUST preserve in high-intent variants): ${entities.primary.join(', ')}
+CORE ENTITIES: ${coreEntities}
 
-=== GOOGLE'S 7 VARIANT TYPES ===
+=== CRITICAL RULES (READ CAREFULLY) ===
 
-1. EQUIVALENT (Generate 3)
-   Alternative phrasings that ask the SAME question.
-   CRITICAL: entityOverlap MUST be 1.0 (all primary entities present)
+1. NO KEYWORD STUFFING - NEVER create queries that list multiple keywords like:
+   BAD: "machine learning algorithms for pattern recognition using supervised learning unsupervised learning and data privacy"
+   BAD: "overview of machine learning and machine learning algorithms: pattern recognition, supervised learning"
+   GOOD: "how does supervised learning find patterns?"
+   GOOD: "ML pattern recognition tutorial"
 
-2. FOLLOW_UP (Generate 3)
-   Logical NEXT questions in user journey.
-   entityOverlap SHOULD be ≥ 0.7
+2. IMPLICIT ENTITY REFERENCE IS OK - You don't need to repeat entities when context is clear:
+   GOOD: "What fees do they charge?" (if "Live Nation" is established)
+   GOOD: "How does it compare to competitors?" (referring to established topic)
 
-3. GENERALIZATION (Generate 2)
-   BROADER versions zooming out from specific query.
-   entityOverlap CAN be ≥ 0.5
+3. DISTINCTIVENESS REQUIRED - Each variant must ask a meaningfully DIFFERENT question:
+   BAD: "ML pattern recognition overview" + "overview of ML pattern recognition" (same query)
+   GOOD: "ML pattern recognition basics" + "when to use supervised vs unsupervised ML" (different angles)
 
-4. CANONICALIZATION (Generate 2)
-   Standardized forms - expand acronyms, formal terminology.
-   entityOverlap MUST be 1.0
+4. QUERY LENGTH - Keep queries SHORT and natural:
+   - 5-12 words maximum
+   - Mix question-style ("How does X work?") with keyword phrases ("X pricing guide")
 
-5. ENTAILMENT (Generate 3)
-   Queries logically IMPLIED by the original.
-   entityOverlap SHOULD be ≥ 0.7
+5. MAX 2 ENTITIES PER QUERY - Never stuff more than 2 entities into one query
 
-6. SPECIFICATION (Generate 3)
-   NARROWER versions with qualifiers (industry, size, use case).
-   entityOverlap MUST be ≥ 1.0 (keep all, add more)
+=== GENERATE EXACTLY 12 VARIANTS (2 per type) ===
 
-7. CLARIFICATION (Generate 2)
-   Disambiguation queries presenting alternatives.
-   entityOverlap varies
+1. EQUIVALENT (2): Same question, different words
+2. FOLLOW_UP (2): What user asks AFTER getting the answer
+3. GENERALIZATION (2): Broader scope
+4. SPECIFICATION (2): Narrower with qualifiers (industry, use case)
+5. ENTAILMENT (2): Logically implied sub-questions
+6. CLARIFICATION (2): Either/or disambiguation queries
 
-=== INTENT DEGRADATION WARNING (iPullRank Research) ===
-
-A variant has "drifted" if it serves a DIFFERENT user intent.
-Example:
-- Original: "best electric cars" (PURCHASE intent)
-- Drifted: "electric car maintenance costs" (OWNERSHIP intent)
-
-Variants losing primary entities = INTENT DRIFT = useless for ranking.
-
-=== OUTPUT FORMAT (JSON) ===
-
-For EACH query provide a JSON object with:
+=== OUTPUT FORMAT ===
 {
-  "query": "Full search query (8-20 words)",
-  "variantType": "EQUIVALENT|FOLLOW_UP|GENERALIZATION|CANONICALIZATION|ENTAILMENT|SPECIFICATION|CLARIFICATION",
-  "sharedEntities": ["entities from primary that appear here"],
-  "entityOverlap": 0.0-1.0,
-  "semanticEstimate": 0.0-1.0,
-  "userJourneyPosition": "early|middle|late"
-}
-
-Return ONLY valid JSON:
-{
-  "variants": [...]
+  "variants": [
+    {
+      "query": "5-12 word natural query",
+      "variantType": "EQUIVALENT|FOLLOW_UP|GENERALIZATION|SPECIFICATION|ENTAILMENT|CLARIFICATION",
+      "sharedEntities": ["entities preserved"],
+      "entityOverlap": 0.0-1.0,
+      "semanticEstimate": 0.0-1.0,
+      "userJourneyPosition": "early|middle|late",
+      "matchStrength": "strong|partial|weak",
+      "matchReason": "one sentence about content coverage"
+    }
+  ]
 }`;
 
   const userPrompt = `TOPIC: ${topicFocus.primaryEntity}
@@ -422,15 +416,18 @@ AUDIENCE: ${intelligence.primaryAudience?.role || 'general'} (${intelligence.pri
 
 EXISTING (skip these): ${existingQueries.slice(0, 10).join(', ') || 'none'}
 
-CONTENT:
-${content.slice(0, 3000)}
+CONTENT PREVIEW:
+${content.slice(0, 2500)}
 
-Generate 18 query variants following Google's 7 types:`;
+Generate 12 DISTINCT query variants (2 per type). Keep them SHORT (5-12 words). NO keyword stuffing!`;
 
-  const response = await callAI(systemPrompt, userPrompt, 'json_object', 3000);
+  const response = await callAI(systemPrompt, userPrompt, 'json_object', 2000);
   const parsed = parseAIResponse(response, { variants: [] });
   
   let variants = parsed.variants || parsed.suggestions || [];
+  
+  // Validate and filter poor quality variants
+  variants = validateAndFilterVariants(variants, entities);
   
   // FALLBACK: If AI failed, generate from entities
   if (variants.length === 0 && entities.primary.length > 0) {
@@ -439,6 +436,50 @@ Generate 18 query variants following Google's 7 types:`;
   }
   
   return { variants };
+}
+
+// Post-generation validation to catch keyword stuffing
+function validateAndFilterVariants(variants: QueryVariant[], entities: ExtractedEntities): QueryVariant[] {
+  const kept: QueryVariant[] = [];
+  
+  for (const variant of variants) {
+    const words = variant.query.toLowerCase().split(/\s+/);
+    
+    // Reject if too long (keyword stuffing indicator)
+    if (words.length > 15) {
+      console.log(`Rejected (${words.length} words): "${variant.query.slice(0, 50)}..."`);
+      continue;
+    }
+    
+    // Count entity mentions - reject if too many
+    let entityMentions = 0;
+    for (const entity of entities.primary) {
+      if (variant.query.toLowerCase().includes(entity.toLowerCase())) {
+        entityMentions++;
+      }
+    }
+    if (entityMentions > 3) {
+      console.log(`Rejected (${entityMentions} entities stuffed): "${variant.query.slice(0, 50)}..."`);
+      continue;
+    }
+    
+    // Check similarity to already-kept queries
+    const isTooSimilar = kept.some(k => {
+      const kWords = new Set(k.query.toLowerCase().split(/\s+/));
+      const overlap = words.filter(w => kWords.has(w) && w.length > 3).length;
+      return overlap / words.length > 0.6;
+    });
+    
+    if (isTooSimilar) {
+      console.log(`Rejected (duplicate): "${variant.query.slice(0, 50)}..."`);
+      continue;
+    }
+    
+    kept.push(variant);
+  }
+  
+  console.log(`Validation: ${variants.length} -> ${kept.length} variants`);
+  return kept.slice(0, 12);
 }
 
 function generateFallbackVariants(entities: ExtractedEntities, topic: string): QueryVariant[] {
@@ -556,13 +597,16 @@ function processVariantsWithScoring(
     // Detect drift
     const driftReason = detectDrift(variant, entities.primary, entityOverlap, semanticSimilarity);
     
-    // Update variant with calculated values
+    // Update variant with calculated values - preserve coverage fields from AI
     const scoredVariant: QueryVariant = {
       ...variant,
       entityOverlap,
       intentScore,
       intentCategory,
-      driftReason
+      driftReason,
+      // Preserve coverage analysis from AI
+      matchStrength: variant.matchStrength || 'weak',
+      matchReason: variant.matchReason || null,
     };
     
     if (intentCategory === 'LOW' || driftReason) {
@@ -973,6 +1017,10 @@ interface QueryVariant {
   entityOverlap: number;
   semanticEstimate: number;
   userJourneyPosition: 'early' | 'middle' | 'late';
+  
+  // Coverage analysis (from AI or calculated)
+  matchStrength?: 'strong' | 'partial' | 'weak';
+  matchReason?: string | null;
   
   // Calculated server-side
   intentScore?: number;
