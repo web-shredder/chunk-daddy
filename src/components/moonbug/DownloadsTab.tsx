@@ -415,7 +415,7 @@ function ContentBriefCard({ brief }: { brief: ContentBrief }) {
   );
 }
 
-export function OutputsTab({
+export function DownloadsTab({
   isOptimizing,
   currentStep,
   progress,

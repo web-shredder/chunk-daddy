@@ -95,7 +95,7 @@ interface ReportTabProps {
   onExportReport?: (format: 'markdown' | 'csv' | 'json') => void;
 }
 
-export function ReportTab({
+export function ProgressTab({
   hasOptimizationResult,
   optimizationResult,
   optimizedContent,
