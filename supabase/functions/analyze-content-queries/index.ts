@@ -13,7 +13,7 @@ serve(async (req) => {
   }
 
   const startTime = Date.now();
-  const TIMEOUT_THRESHOLD_MS = 50000; // 50 seconds - leave 10s buffer
+  const TIMEOUT_THRESHOLD_MS = 90000; // 90 seconds - allow more time for complex content
 
   try {
     const { content, existingQueries = [], topicOverride = null } = await req.json();
@@ -455,11 +455,11 @@ EXISTING QUERIES TO SKIP:
 ${existingQueries.map(q => `- ${q}`).join('\n') || '(none)'}
 
 CONTENT:
-${content.slice(0, 6000)}
+${content.slice(0, 4000)}
 
 Generate query suggestions with full intent preservation scoring:`;
 
-  const response = await callAI(systemPrompt, userPrompt, 'json_object', 6144);
+  const response = await callAI(systemPrompt, userPrompt, 'json_object', 4096);
   const parsed = parseAIResponse(response, { suggestions: [], summary: {} });
   
   // Ensure we have the right structure
@@ -718,8 +718,8 @@ ${JSON.stringify(suggestions.slice(0, 30), null, 2)}
 
 Perform iterative deep research gap analysis for "${topicFocus.primaryEntity}" content:`;
 
-  const response = await callAI(systemPrompt, userPrompt, 'json_object', 10240);
-  const parsed = parseAIResponse(response, { 
+  const response = await callAI(systemPrompt, userPrompt, 'json_object', 3072);
+  const parsed = parseAIResponse(response, {
     critical_gaps: [], 
     follow_up_queries: [], 
     competitive_gaps: [],

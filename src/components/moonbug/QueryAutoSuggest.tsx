@@ -157,15 +157,15 @@ interface QueryAutoSuggestProps {
   onSetPrimaryQuery?: (query: string) => void;
 }
 
-// Type aliases for backward compatibility with existing component code
-type QuerySuggestion = EnhancedQuerySuggestion;
-type CoverageGap = LegacyCoverageGap;
+// Type aliases are commented to use direct types throughout file for TypeScript compatibility
+// type QuerySuggestion = EnhancedQuerySuggestion;
+// type CoverageGap = LegacyCoverageGap;
 
 // ============================================================
 // INTENT DISTRIBUTION CHART COMPONENT
 // ============================================================
 
-function IntentDistributionChart({ suggestions }: { suggestions: QuerySuggestion[] }) {
+function IntentDistributionChart({ suggestions }: { suggestions: EnhancedQuerySuggestion[] }) {
   const distribution = useMemo(() => {
     const counts: Record<string, number> = {};
     suggestions.forEach(s => {
@@ -248,8 +248,8 @@ export function QueryAutoSuggest({
   
   // Results state
   const [intelligence, setIntelligence] = useState<ContentIntelligence | null>(null);
-  const [suggestions, setSuggestions] = useState<QuerySuggestion[]>([]);
-  const [legacyGaps, setLegacyGaps] = useState<CoverageGap[]>([]);
+  const [suggestions, setSuggestions] = useState<EnhancedQuerySuggestion[]>([]);
+  const [legacyGaps, setLegacyGaps] = useState<LegacyCoverageGap[]>([]);
   
   // Enhanced Query Intelligence state (new)
   const [intentSummary, setIntentSummary] = useState<IntentSummary | null>(null);
@@ -343,12 +343,12 @@ export function QueryAutoSuggest({
 
       // Pre-select strong matches and HIGH intent queries
       const strongMatches = (data.suggestions || [])
-        .filter((s: QuerySuggestion) => s.matchStrength === 'strong' || s.intentCategory === 'HIGH')
+        .filter((s: EnhancedQuerySuggestion) => s.matchStrength === 'strong' || s.intentCategory === 'HIGH')
         .slice(0, 5)
-        .map((s: QuerySuggestion) => s.query);
+        .map((s: EnhancedQuerySuggestion) => s.query);
       const gapQueries = (gapsData.legacy_gaps || [])
-        .filter((g: CoverageGap) => g.severity === 'critical')
-        .map((g: CoverageGap) => g.query);
+        .filter((g: LegacyCoverageGap) => g.severity === 'critical')
+        .map((g: LegacyCoverageGap) => g.query);
       
       setSelectedSuggestions(new Set(strongMatches));
       setSelectedGaps(new Set(gapQueries));
@@ -457,8 +457,9 @@ export function QueryAutoSuggest({
   const legacyImportantGaps = legacyGaps.filter(g => g.severity === 'important');
   const legacyNiceToHaveGaps = legacyGaps.filter(g => g.severity === 'nice-to-have');
   
-  // Check if we have enhanced intelligence data - show dashboard if we have intent data OR suggestions with intentCategory
-  const hasEnhancedData = intentSummary || suggestions.some(s => s.intentCategory);
+  // Check if we have enhanced intelligence data - show dashboard if we have ANY data
+  // Relaxed check: show if we have intent summary, any suggestions, OR a detected topic
+  const hasEnhancedData = intentSummary || suggestions.length > 0 || detectedTopic;
 
   return (
     <div className="space-y-4">
@@ -849,7 +850,7 @@ interface SuggestionGroupProps {
   title: string;
   description: string;
   icon: React.ReactNode;
-  suggestions: QuerySuggestion[];
+  suggestions: EnhancedQuerySuggestion[];
   selectedQueries: Set<string>;
   existingQueries: string[];
   onToggle: (query: string) => void;
@@ -934,7 +935,7 @@ function SuggestionGroup({
 interface GapGroupProps {
   title: string;
   description: string;
-  gaps: CoverageGap[];
+  gaps: LegacyCoverageGap[];
   selectedGaps: Set<string>;
   existingQueries: string[];
   onToggle: (query: string) => void;
