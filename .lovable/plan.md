@@ -1,150 +1,161 @@
 
-# Fix: PDF Export for Query Intelligence
+# Fix: Coverage Tab State Persistence
 
 ## Problem Summary
 
-The PDF export button for Query Intelligence doesn't work because of field name mismatches between what the edge function returns and what `gather-report-data.ts` expects.
+All edits, optimization work, and approvals in the Coverage panel are stored in **local React state** that is:
+1. Never lifted to the parent `Index.tsx`
+2. Never saved to the database
+3. Reset whenever the tab unmounts or the page reloads
+
+This means any analysis text you write, any optimized content you generate, and any approvals you make are **completely lost** when you navigate away.
 
 ---
 
-## Root Cause Analysis
+## Solution Overview
 
-The `gatherReportData` function in `src/lib/gather-report-data.ts` expects:
-- `suggestions[].intentPreservation` → **Actual field**: `intentScore`
-- `suggestions[].intentDrift` → **Actual field**: `intentAnalysis?.driftScore`
-- `suggestions[].intentDriftExplanation` → **Actual field**: `driftReason` or `intentAnalysis?.driftReasoning`
-- `suggestions[].routePrediction` as string → **Actual type**: Can be an object `{ route: string, ... }` or a string
-
-This causes:
-1. All scores to be calculated as 0 (since `intentPreservation` is undefined)
-2. Relevance distribution shows everything as "low" 
-3. Route distribution fails when `routePrediction` is an object
-4. Intent drift detection fails
+We need to:
+1. **Add a database column** for coverage state
+2. **Lift the coverage state** to `Index.tsx` (like we do for `queryIntelligence`)
+3. **Wire up the persistence** through `useProjects`
+4. **Restore the state** when loading a project
 
 ---
 
-## Solution
+## Implementation Steps
 
-### File: `src/lib/gather-report-data.ts`
+### Step 1: Add Database Migration
 
-**Fix 1: Update `IntelligenceState` interface** (lines 129-138)
+Add a new JSONB column `coverage_state` to the `chunk_daddy_projects` table to store:
+- Query work items with their statuses
+- Optimization states (analysis text, optimized content, user edits)
+- Approval states
 
-Update the suggestions interface to match actual data:
-```typescript
-suggestions?: Array<{
-  query: string;
-  variantType?: string;
-  routePrediction?: { route: string } | string;  // Can be object or string
-  intentScore?: number;          // Correct field name
-  entityOverlap?: number;
-  intentAnalysis?: {             // Actual drift structure
-    driftScore?: number;
-    driftLevel?: string;
-    driftReasoning?: string | null;
-  };
-  driftReason?: string | null;
-  matchStrength?: string;
-}>;
-```
-
-**Fix 2: Update relevance distribution calculation** (line 183)
-
-Change from `intentPreservation` to `intentScore`:
-```typescript
-// OLD
-const scores = suggestions?.map(s => s.intentPreservation || 0) || [];
-
-// NEW - use intentScore and convert from 0-1 to 0-100 scale
-const scores = suggestions?.map(s => {
-  const score = s.intentScore || 0;
-  return score > 1 ? score : score * 100; // Handle both 0-1 and 0-100 scales
-}) || [];
-```
-
-**Fix 3: Update route distribution calculation** (lines 196-205)
-
-Handle `routePrediction` being an object:
-```typescript
-suggestions?.forEach(s => {
-  // Handle routePrediction as object or string
-  const routeValue = typeof s.routePrediction === 'object' 
-    ? s.routePrediction?.route 
-    : s.routePrediction;
-  const route = (routeValue || 'web_search').toLowerCase();
-  // ... rest of logic
-});
-```
-
-**Fix 4: Update intent drift calculation** (line 208)
-
-Change from `intentDrift` to `intentAnalysis.driftScore`:
-```typescript
-// OLD
-const intentDriftFiltered = suggestions?.filter(s => (s.intentDrift || 0) > 40).length || 0;
-
-// NEW
-const intentDriftFiltered = suggestions?.filter(s => 
-  (s.intentAnalysis?.driftScore || 0) > 40
-).length || 0;
-```
-
-**Fix 5: Update queries array mapping** (lines 211-230)
-
-Fix the score field and drift extraction:
-```typescript
-const queries = suggestions?.map(s => {
-  // Use intentScore, handle 0-1 or 0-100 scale
-  const rawScore = s.intentScore || 0;
-  const score = rawScore > 1 ? rawScore : rawScore * 100;
-  
-  // Route handling
-  const routeValue = typeof s.routePrediction === 'object' 
-    ? s.routePrediction?.route?.toLowerCase() 
-    : (s.routePrediction || 'web_search').toLowerCase();
-  
-  // Coverage status based on score
-  let coverageStatus: 'strong' | 'partial' | 'weak' | 'none' = 'none';
-  if (score >= 70) coverageStatus = 'strong';
-  else if (score >= 50) coverageStatus = 'partial';
-  else if (score >= 30) coverageStatus = 'weak';
-  
-  // Drift extraction
-  const driftScore = s.intentAnalysis?.driftScore || 0;
-  
-  return {
-    query: s.query,
-    variantType: s.variantType || 'UNKNOWN',
-    routePrediction: routeValue as 'web_search' | 'parametric' | 'hybrid',
-    passageScore: Math.round(score),
-    entityOverlap: Math.round((s.entityOverlap || 0) * 100),
-    coverageStatus,
-    intentDrift: driftScore > 20 ? {
-      score: driftScore,
-      explanation: s.driftReason || s.intentAnalysis?.driftReasoning || '',
-    } : undefined,
-  };
-}) || [];
+```sql
+ALTER TABLE chunk_daddy_projects 
+ADD COLUMN coverage_state jsonb DEFAULT NULL;
 ```
 
 ---
 
-## Implementation Summary
+### Step 2: Update Project Types
 
-| Line Range | Change |
-|------------|--------|
-| 129-138 | Update suggestions interface with correct field names |
-| 183 | Use `intentScore` instead of `intentPreservation` |
-| 196-205 | Handle `routePrediction` as object or string |
-| 208 | Use `intentAnalysis.driftScore` for drift filtering |
-| 211-230 | Fix query mapping with correct fields and scale handling |
+Update `src/lib/project-types.ts` to include the new field:
+
+```typescript
+import type { CoverageState } from '@/types/coverage';
+
+export interface ChunkDaddyProject {
+  // ... existing fields ...
+  coverage_state: CoverageState | null;  // NEW
+}
+```
 
 ---
 
-## Expected Result
+### Step 3: Update useProjects Hook
 
-After the fix:
-- PDF export generates successfully
-- Metrics page shows correct relevance distribution
-- Route distribution is accurate
-- Query matrix shows proper scores and coverage status
-- Intent drift queries are correctly identified
+Modify `src/hooks/useProjects.ts`:
+
+1. Add `coverageState` to the `pendingData` ref type
+2. Add it as a parameter to `saveProject()`
+3. Add it as a parameter to `markUnsaved()`
+4. Include it in the database save payload
+
+---
+
+### Step 4: Lift State to Index.tsx
+
+In `src/pages/Index.tsx`:
+
+1. Add global state for coverage:
+   ```typescript
+   const [coverageState, setCoverageState] = useState<CoverageState | null>(null);
+   ```
+
+2. Pass coverage state to `CoverageTab` as props:
+   ```typescript
+   <CoverageTab
+     coverageState={coverageState}
+     onCoverageStateChange={setCoverageState}
+     // ... existing props
+   />
+   ```
+
+3. Include coverage state in `markUnsaved()` calls
+4. Restore coverage state when loading a project
+
+---
+
+### Step 5: Update CoverageTab Component
+
+Modify `src/components/moonbug/CoverageTab.tsx`:
+
+1. Accept `coverageState` and `onCoverageStateChange` as props
+2. Initialize from props instead of empty state
+3. Call `onCoverageStateChange` whenever local state changes
+4. Merge with base work items intelligently (preserve edits, update scores)
+
+---
+
+### Step 6: Restore State on Project Load
+
+In `Index.tsx`, when `currentProject` changes:
+
+```typescript
+if (currentProject.coverage_state) {
+  setCoverageState(currentProject.coverage_state);
+} else {
+  setCoverageState(null);
+}
+```
+
+---
+
+## Technical Details
+
+### CoverageState Structure (already defined)
+
+```typescript
+interface CoverageState {
+  queries: QueryWorkItem[];          // Status, scores, approved text
+  activeQueryId: string | null;      // Currently open panel
+  optimizationStates: Record<string, QueryOptimizationState>;  // Analysis/content per query
+}
+```
+
+### What Gets Persisted
+
+- **Query statuses**: `optimized`, `in_progress`, `ready`, `gap`
+- **Generated analysis/brief**: User can continue editing where they left off
+- **Generated content**: Optimized or new content
+- **User edits**: Any modifications to generated content
+- **Scores**: Before and after scores for comparisons
+- **Approvals**: Which queries have been approved
+
+### Merge Strategy on Load
+
+When loading a project with existing coverage state:
+1. Start with saved `queries` and `optimizationStates`
+2. Re-run `transformToWorkItems` to get fresh chunk assignments/scores
+3. Merge: preserve user edits and approvals, update derived data (chunk matches, scores)
+
+---
+
+## Files to Modify
+
+| File | Changes |
+|------|---------|
+| `supabase/migrations/` | Add `coverage_state` column |
+| `src/lib/project-types.ts` | Add `coverage_state` to interface |
+| `src/hooks/useProjects.ts` | Add to save/load/markUnsaved |
+| `src/pages/Index.tsx` | Lift state, pass to CoverageTab, restore on load |
+| `src/components/moonbug/CoverageTab.tsx` | Accept props, sync with parent |
+
+---
+
+## Risk Mitigation
+
+- **Backward Compatibility**: The column defaults to `NULL`, so existing projects load fine
+- **Large State**: JSONB can handle the coverage state size (typically <100KB)
+- **State Conflicts**: Clear state when creating a new project or running re-analysis
