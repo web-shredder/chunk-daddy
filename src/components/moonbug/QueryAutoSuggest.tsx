@@ -150,11 +150,26 @@ interface LegacyCoverageGap {
   estimatedEffort?: string;
 }
 
+// Query Intelligence state type (matches AnalyzeTab)
+interface QueryIntelligenceState {
+  detectedTopic: { primaryEntity: string; entityType: string; contentPurpose: string; targetAction: string; confidence: number } | null;
+  primaryQuery: { query: string; searchIntent: string; confidence: number; reasoning: string } | null;
+  intelligence: ContentIntelligence | null;
+  suggestions: EnhancedQuerySuggestion[];
+  intentSummary: IntentSummary | null;
+  gaps: any;
+  entities: { primary: string[]; secondary: string[]; temporal: string[]; branded: string[] } | null;
+  filtered: any[];
+}
+
 interface QueryAutoSuggestProps {
   content: string;
   existingQueries: string[];
   onAddQueries: (queries: string[]) => void;
   onSetPrimaryQuery?: (query: string) => void;
+  // Persistence support
+  initialState?: QueryIntelligenceState | null;
+  onStateChange?: (state: QueryIntelligenceState | null) => void;
 }
 
 // Type aliases are commented to use direct types throughout file for TypeScript compatibility
@@ -232,27 +247,49 @@ export function QueryAutoSuggest({
   existingQueries, 
   onAddQueries,
   onSetPrimaryQuery,
+  initialState,
+  onStateChange,
 }: QueryAutoSuggestProps) {
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [progress, setProgress] = useState(0);
   const [progressStage, setProgressStage] = useState('');
   
-  // Topic detection state
-  const [detectedTopic, setDetectedTopic] = useState<TopicFocus | null>(null);
+  // Topic detection state - initialize from saved state
+  const [detectedTopic, setDetectedTopic] = useState<TopicFocus | null>(
+    initialState?.detectedTopic || null
+  );
   const [topicOverride, setTopicOverride] = useState<string | null>(null);
   const [showOverrideDialog, setShowOverrideDialog] = useState(false);
   const [overrideInput, setOverrideInput] = useState('');
   
-  // Primary query state
-  const [primaryQuery, setPrimaryQuery] = useState<PrimaryQueryResult | null>(null);
+  // Primary query state - initialize from saved state
+  const [primaryQuery, setPrimaryQuery] = useState<PrimaryQueryResult | null>(
+    initialState?.primaryQuery || null
+  );
   
-  // Results state
-  const [intelligence, setIntelligence] = useState<ContentIntelligence | null>(null);
-  const [suggestions, setSuggestions] = useState<EnhancedQuerySuggestion[]>([]);
+  // Results state - initialize from saved state
+  const [intelligence, setIntelligence] = useState<ContentIntelligence | null>(
+    initialState?.intelligence || null
+  );
+  const [suggestions, setSuggestions] = useState<EnhancedQuerySuggestion[]>(
+    initialState?.suggestions || []
+  );
   const [legacyGaps, setLegacyGaps] = useState<LegacyCoverageGap[]>([]);
   
-  // Enhanced Query Intelligence state (new)
-  const [intentSummary, setIntentSummary] = useState<IntentSummary | null>(null);
+  // Entities from new API - initialize from saved state
+  const [entities, setEntities] = useState<{ primary: string[]; secondary: string[]; temporal: string[]; branded: string[] } | null>(
+    initialState?.entities || null
+  );
+  
+  // Filtered queries (drifted) - initialize from saved state
+  const [filteredQueries, setFilteredQueries] = useState<any[]>(
+    initialState?.filtered || []
+  );
+  
+  // Enhanced Query Intelligence state - initialize from saved state
+  const [intentSummary, setIntentSummary] = useState<IntentSummary | null>(
+    initialState?.intentSummary || null
+  );
   const [criticalGaps, setCriticalGaps] = useState<CriticalGap[]>([]);
   const [followUpQueries, setFollowUpQueries] = useState<FollowUpQuery[]>([]);
   const [priorityActions, setPriorityActions] = useState<PriorityAction[]>([]);
@@ -317,7 +354,8 @@ export function QueryAutoSuggest({
       setProgressStage('Complete!');
 
       // Set detected topic
-      setDetectedTopic(data.intelligence.detectedTopicFocus);
+      const newDetectedTopic = data.intelligence?.detectedTopicFocus || data.detectedTopic;
+      setDetectedTopic(newDetectedTopic);
       if (overrideTopic) {
         setTopicOverride(overrideTopic);
       }
@@ -328,6 +366,12 @@ export function QueryAutoSuggest({
       // Set results
       setIntelligence(data.intelligence);
       setSuggestions(data.suggestions || []);
+      
+      // Set entities from new API
+      setEntities(data.entities || null);
+      
+      // Set filtered (drifted) queries
+      setFilteredQueries(data.filtered || []);
       
       // Handle enhanced gap analysis response (new format)
       const gapsData = data.gaps || {};
@@ -353,15 +397,29 @@ export function QueryAutoSuggest({
       setSelectedSuggestions(new Set(strongMatches));
       setSelectedGaps(new Set(gapQueries));
       setIncludePrimaryQuery(true);
+      
+      // PERSIST STATE TO PARENT (so it survives tab switches)
+      if (onStateChange) {
+        onStateChange({
+          detectedTopic: newDetectedTopic,
+          primaryQuery: data.primaryQuery,
+          intelligence: data.intelligence,
+          suggestions: data.suggestions || [],
+          intentSummary: data.suggestionsSummary || null,
+          gaps: gapsData,
+          entities: data.entities || null,
+          filtered: data.filtered || [],
+        });
+      }
 
       // Show partial analysis warning if applicable
       if (data.partial) {
         toast.warning('Partial analysis complete', {
-          description: `Gap analysis skipped due to time limits. Topic: "${data.detectedTopic?.primaryEntity || 'Unknown'}"`,
+          description: `Gap analysis skipped due to time limits. Topic: "${newDetectedTopic?.primaryEntity || 'Unknown'}"`,
         });
       } else {
         toast.success('Analysis complete', {
-          description: `Detected topic: "${data.detectedTopic?.primaryEntity || 'Unknown'}"`,
+          description: `Detected topic: "${newDetectedTopic?.primaryEntity || 'Unknown'}"`,
         });
       }
 
