@@ -18,3 +18,14 @@ export { ArchitectureTasksPanel } from './ArchitectureTasksPanel';
 export { OptimizationPlanPanel } from './OptimizationPlanPanel';
 export { QuerySidebar } from './QuerySidebar';
 export { QueryAutoSuggest } from './QueryAutoSuggest';
+export { AnalysisStreamingPanel } from './AnalysisStreamingPanel';
+export type {
+  AnalysisStep,
+  EmbeddingInfo,
+  EmbeddingBatch,
+  DocumentChamferResult,
+  ChunkScoredEvent,
+  CoverageSummary,
+  DiagnosticProgress,
+  AnalysisSummary,
+} from './AnalysisStreamingPanel';
