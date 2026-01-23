@@ -110,8 +110,12 @@ export interface EnhancedQuerySuggestion {
   intentScore?: number;
   intentCategory?: 'HIGH' | 'MEDIUM' | 'LOW';
   
-  // Route prediction
-  routePrediction?: 'WEB_SEARCH' | 'PARAMETRIC' | 'HYBRID';
+  // Route prediction (can be object from API or legacy string)
+  routePrediction?: {
+    route: 'WEB_SEARCH' | 'PARAMETRIC' | 'HYBRID';
+    confidence: number;
+    signals: Array<{ type: string; detected: string; pushesTo: string }>;
+  } | 'WEB_SEARCH' | 'PARAMETRIC' | 'HYBRID';
   routeConfidence?: number;
   
   // Entity analysis (keep for backward compat)
@@ -1259,7 +1263,11 @@ function QueryCard({
   showVariantType?: boolean;
 }) {
   const intentStyles = INTENT_CATEGORY_STYLES[suggestion.intentCategory || 'MEDIUM'];
-  const routeInfo = ROUTE_ICONS[suggestion.routePrediction || 'WEB_SEARCH'];
+  // Handle routePrediction as object or string
+  const routeKey = typeof suggestion.routePrediction === 'object' 
+    ? suggestion.routePrediction?.route 
+    : suggestion.routePrediction;
+  const routeInfo = ROUTE_ICONS[routeKey || 'WEB_SEARCH'];
   const RouteIcon = routeInfo.icon;
   const intentScore = suggestion.intentScore ? Math.round(suggestion.intentScore * 100) : null;
 
@@ -1546,8 +1554,15 @@ function PriorityActionCard({
 }
 
 function QueryDetailsContent({ query }: { query: EnhancedQuerySuggestion }) {
-  const routeInfo = ROUTE_ICONS[query.routePrediction || 'WEB_SEARCH'];
+  // Handle routePrediction as object or string
+  const routeKey = typeof query.routePrediction === 'object' 
+    ? query.routePrediction?.route 
+    : query.routePrediction;
+  const routeInfo = ROUTE_ICONS[routeKey || 'WEB_SEARCH'];
   const RouteIcon = routeInfo.icon;
+  const routeConfidence = typeof query.routePrediction === 'object' 
+    ? query.routePrediction?.confidence 
+    : query.routeConfidence;
 
   return (
     <div className="space-y-6 py-2">
@@ -1636,13 +1651,13 @@ function QueryDetailsContent({ query }: { query: EnhancedQuerySuggestion }) {
             <span className="text-sm font-medium">{routeInfo.label}</span>
           </div>
           <div className="text-sm text-muted-foreground">
-            Confidence: <span className="font-medium text-foreground">{query.routeConfidence || 0}%</span>
+            Confidence: <span className="font-medium text-foreground">{routeConfidence || 0}%</span>
           </div>
         </div>
         <p className="text-xs text-muted-foreground">
-          {query.routePrediction === 'WEB_SEARCH' && 'This query is likely to trigger web search results, making it valuable for SEO.'}
-          {query.routePrediction === 'PARAMETRIC' && 'This query may be answered from AI memory, reducing web search visibility.'}
-          {query.routePrediction === 'HYBRID' && 'This query may trigger a mix of AI and web search results.'}
+          {routeKey === 'WEB_SEARCH' && 'This query is likely to trigger web search results, making it valuable for SEO.'}
+          {routeKey === 'PARAMETRIC' && 'This query may be answered from AI memory, reducing web search visibility.'}
+          {routeKey === 'HYBRID' && 'This query may trigger a mix of AI and web search results.'}
         </p>
       </div>
 

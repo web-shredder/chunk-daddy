@@ -182,7 +182,7 @@ interface ExtractedEntities {
 }
 
 async function extractEntities(content: string): Promise<ExtractedEntities> {
-  const systemPrompt = `You extract search entities for intent preservation scoring.
+  const systemPrompt = `You extract search entities for intent preservation scoring. You must respond with valid JSON.
 
 CRITICAL: PRIMARY entities are the foundation for detecting "intent drift" - queries that lose primary entities serve DIFFERENT user intents.
 
@@ -238,7 +238,7 @@ async function extractContentIntelligence(
   content: string, 
   entities: ExtractedEntities
 ): Promise<ContentIntelligence> {
-  const systemPrompt = `You analyze content to determine its primary topic and purpose.
+  const systemPrompt = `You analyze content to determine its primary topic and purpose. You must respond with valid JSON.
 
 TASK: Identify EXACTLY what this content is about - what is "X"?
 
@@ -308,7 +308,7 @@ async function generatePrimaryQuery(
   topicFocus: TopicFocus,
   entities: ExtractedEntities
 ): Promise<PrimaryQueryResult> {
-  const systemPrompt = `Generate the ONE PRIMARY SEARCH QUERY this content should rank #1 for.
+  const systemPrompt = `Generate the ONE PRIMARY SEARCH QUERY this content should rank #1 for. You must respond with valid JSON.
 
 This is the "money query" - the search someone would type that this content PERFECTLY answers.
 
@@ -355,7 +355,7 @@ async function generateQueryVariants(
   existingQueries: string[]
 ): Promise<{ variants: QueryVariant[] }> {
   
-  const systemPrompt = `You generate search query variants following Google's Query Fan-Out methodology (Patent US 11,663,201 B2).
+  const systemPrompt = `You generate search query variants following Google's Query Fan-Out methodology (Patent US 11,663,201 B2). You must respond with valid JSON.
 
 PRIMARY QUERY: "${primaryQuery.query}"
 PRIMARY ENTITIES (MUST preserve in high-intent variants): ${entities.primary.join(', ')}
@@ -822,7 +822,7 @@ async function detectCoverageGaps(
   entities: ExtractedEntities
 ): Promise<CoverageGapsAnalysis> {
   
-  const systemPrompt = `You identify content gaps for "${topicFocus.primaryEntity}".
+  const systemPrompt = `You identify content gaps for "${topicFocus.primaryEntity}". You must respond with valid JSON.
 
 Analyze which HIGH/MEDIUM intent queries have weak coverage and recommend fixes.
 
