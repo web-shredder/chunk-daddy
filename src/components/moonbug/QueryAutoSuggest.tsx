@@ -46,6 +46,16 @@ import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
 import { downloadQueryIntelligenceCSV } from '@/lib/csv-export';
+import { 
+  QueryIntelligenceDashboard,
+  type EnhancedQuerySuggestion,
+  type CriticalGap,
+  type FollowUpQuery,
+  type PriorityAction,
+  type CompetitiveGap,
+  type GapSummary,
+  type IntentSummary,
+} from './QueryIntelligenceDashboard';
 
 // ============================================================
 // INTENT COLORS FOR DISTRIBUTION CHART
@@ -127,16 +137,8 @@ interface ContentIntelligence {
   implicitKnowledge: string[];
 }
 
-interface QuerySuggestion {
-  query: string;
-  intentType: string;
-  matchStrength: 'strong' | 'partial' | 'weak';
-  matchReason: string;
-  relevantSection: string | null;
-  confidence: number;
-}
-
-interface CoverageGap {
+// Legacy gap type for backward compatibility
+interface LegacyCoverageGap {
   gapType: string;
   query: string;
   intentType: string;
@@ -154,6 +156,10 @@ interface QueryAutoSuggestProps {
   onAddQueries: (queries: string[]) => void;
   onSetPrimaryQuery?: (query: string) => void;
 }
+
+// Type aliases for backward compatibility with existing component code
+type QuerySuggestion = EnhancedQuerySuggestion;
+type CoverageGap = LegacyCoverageGap;
 
 // ============================================================
 // INTENT DISTRIBUTION CHART COMPONENT
@@ -243,13 +249,23 @@ export function QueryAutoSuggest({
   // Results state
   const [intelligence, setIntelligence] = useState<ContentIntelligence | null>(null);
   const [suggestions, setSuggestions] = useState<QuerySuggestion[]>([]);
-  const [gaps, setGaps] = useState<CoverageGap[]>([]);
+  const [legacyGaps, setLegacyGaps] = useState<CoverageGap[]>([]);
+  
+  // Enhanced Query Intelligence state (new)
+  const [intentSummary, setIntentSummary] = useState<IntentSummary | null>(null);
+  const [criticalGaps, setCriticalGaps] = useState<CriticalGap[]>([]);
+  const [followUpQueries, setFollowUpQueries] = useState<FollowUpQuery[]>([]);
+  const [priorityActions, setPriorityActions] = useState<PriorityAction[]>([]);
+  const [competitiveGaps, setCompetitiveGaps] = useState<CompetitiveGap[]>([]);
+  const [gapSummary, setGapSummary] = useState<GapSummary | null>(null);
   
   // Selection state
   const [selectedSuggestions, setSelectedSuggestions] = useState<Set<string>>(new Set());
   const [selectedGaps, setSelectedGaps] = useState<Set<string>>(new Set());
   const [includePrimaryQuery, setIncludePrimaryQuery] = useState(true);
   
+  // View mode: 'classic' (old tabs) or 'dashboard' (new intelligence dashboard)
+  const [viewMode, setViewMode] = useState<'classic' | 'dashboard'>('dashboard');
   const [activeTab, setActiveTab] = useState('suggestions');
 
   const activeTopic = topicOverride || detectedTopic?.primaryEntity || null;
@@ -317,19 +333,30 @@ export function QueryAutoSuggest({
       // Set results
       setIntelligence(data.intelligence);
       setSuggestions(data.suggestions || []);
-      setGaps(data.gaps || []);
+      
+      // Handle enhanced gap analysis response (new format)
+      const gapsData = data.gaps || {};
+      setLegacyGaps(gapsData.legacy_gaps || []);
+      setCriticalGaps(gapsData.critical_gaps || []);
+      setFollowUpQueries(gapsData.follow_up_queries || []);
+      setPriorityActions(gapsData.priority_actions || []);
+      setCompetitiveGaps(gapsData.competitive_gaps || []);
+      setGapSummary(gapsData.gap_summary || null);
+      
+      // Set intent summary from suggestions response
+      setIntentSummary(data.suggestionsSummary || null);
 
-      // Pre-select strong matches
+      // Pre-select strong matches and HIGH intent queries
       const strongMatches = (data.suggestions || [])
-        .filter((s: QuerySuggestion) => s.matchStrength === 'strong')
+        .filter((s: QuerySuggestion) => s.matchStrength === 'strong' || s.intentCategory === 'HIGH')
         .slice(0, 5)
         .map((s: QuerySuggestion) => s.query);
-      const criticalGaps = (data.gaps || [])
+      const gapQueries = (gapsData.legacy_gaps || [])
         .filter((g: CoverageGap) => g.severity === 'critical')
         .map((g: CoverageGap) => g.query);
       
       setSelectedSuggestions(new Set(strongMatches));
-      setSelectedGaps(new Set(criticalGaps));
+      setSelectedGaps(new Set(gapQueries));
       setIncludePrimaryQuery(true);
 
       toast.success('Analysis complete', {
@@ -423,10 +450,13 @@ export function QueryAutoSuggest({
   const partialSuggestions = suggestions.filter(s => s.matchStrength === 'partial');
   const weakSuggestions = suggestions.filter(s => s.matchStrength === 'weak');
 
-  // Group gaps by severity
-  const criticalGaps = gaps.filter(g => g.severity === 'critical');
-  const importantGaps = gaps.filter(g => g.severity === 'important');
-  const niceToHaveGaps = gaps.filter(g => g.severity === 'nice-to-have');
+  // Group legacy gaps by severity
+  const legacyCriticalGaps = legacyGaps.filter(g => g.severity === 'critical');
+  const legacyImportantGaps = legacyGaps.filter(g => g.severity === 'important');
+  const legacyNiceToHaveGaps = legacyGaps.filter(g => g.severity === 'nice-to-have');
+  
+  // Check if we have enhanced intelligence data
+  const hasEnhancedData = intentSummary && (criticalGaps.length > 0 || priorityActions.length > 0);
 
   return (
     <div className="space-y-4">
@@ -448,7 +478,7 @@ export function QueryAutoSuggest({
                     primaryQuery,
                     intelligence,
                     suggestions,
-                    gaps,
+                    gaps: legacyGaps,
                   }, detectedTopic.primaryEntity);
                   toast.success('CSV exported', {
                     description: `Saved query intelligence for "${detectedTopic.primaryEntity}"`,
@@ -642,102 +672,113 @@ export function QueryAutoSuggest({
       )}
 
       {/* Suggestions & Gaps Tabs */}
-      {(suggestions.length > 0 || gaps.length > 0) && !isAnalyzing && (
+      {(suggestions.length > 0 || legacyGaps.length > 0) && !isAnalyzing && (
         <>
-          <Tabs value={activeTab} onValueChange={setActiveTab}>
-            <div className="flex items-center justify-between">
-              <TabsList className="grid grid-cols-2 w-[280px]">
-                <TabsTrigger value="suggestions" className="text-xs">
-                  <Search className="h-3.5 w-3.5 mr-1.5" />
-                  Queries ({suggestions.length})
-                </TabsTrigger>
-                <TabsTrigger value="gaps" className="text-xs">
-                  <AlertCircle className="h-3.5 w-3.5 mr-1.5" />
-                  Gaps ({gaps.length})
-                </TabsTrigger>
-              </TabsList>
-            </div>
+          {/* NEW: Query Intelligence Dashboard when enhanced data available */}
+          {hasEnhancedData && viewMode === 'dashboard' && (
+            <QueryIntelligenceDashboard
+              suggestions={suggestions}
+              intentSummary={intentSummary}
+              criticalGaps={criticalGaps}
+              followUpQueries={followUpQueries}
+              priorityActions={priorityActions}
+              competitiveGaps={competitiveGaps}
+              gapSummary={gapSummary}
+              existingQueries={existingQueries}
+              onAddQueries={onAddQueries}
+            />
+          )}
 
-            <TabsContent value="suggestions" className="mt-3">
-              <ScrollArea className="h-[350px] pr-3">
-                <div className="space-y-3">
-                  {/* Strong Matches */}
-                  <SuggestionGroup
-                    title="Strong Matches"
-                    description="Content directly answers these"
-                    icon={<Check className="h-4 w-4 text-green-500" />}
-                    suggestions={strongSuggestions}
-                    selectedQueries={selectedSuggestions}
-                    existingQueries={existingQueries}
-                    onToggle={toggleSuggestion}
-                    color="green"
-                  />
+          {/* Classic View (legacy tabs) - show when no enhanced data or user switches */}
+          {(!hasEnhancedData || viewMode === 'classic') && (
+            <Tabs value={activeTab} onValueChange={setActiveTab}>
+              <div className="flex items-center justify-between">
+                <TabsList className="grid grid-cols-2 w-[280px]">
+                  <TabsTrigger value="suggestions" className="text-xs">
+                    <Search className="h-3.5 w-3.5 mr-1.5" />
+                    Queries ({suggestions.length})
+                  </TabsTrigger>
+                  <TabsTrigger value="gaps" className="text-xs">
+                    <AlertCircle className="h-3.5 w-3.5 mr-1.5" />
+                    Gaps ({legacyGaps.length})
+                  </TabsTrigger>
+                </TabsList>
+              </div>
 
-                  {/* Partial Matches */}
-                  <SuggestionGroup
-                    title="Partial Matches"
-                    description="Content touches on these"
-                    icon={<AlertTriangle className="h-4 w-4 text-yellow-500" />}
-                    suggestions={partialSuggestions}
-                    selectedQueries={selectedSuggestions}
-                    existingQueries={existingQueries}
-                    onToggle={toggleSuggestion}
-                    color="yellow"
-                  />
+              <TabsContent value="suggestions" className="mt-3">
+                <ScrollArea className="h-[350px] pr-3">
+                  <div className="space-y-3">
+                    <SuggestionGroup
+                      title="Strong Matches"
+                      description="Content directly answers these"
+                      icon={<Check className="h-4 w-4 text-green-500" />}
+                      suggestions={strongSuggestions}
+                      selectedQueries={selectedSuggestions}
+                      existingQueries={existingQueries}
+                      onToggle={toggleSuggestion}
+                      color="green"
+                    />
+                    <SuggestionGroup
+                      title="Partial Matches"
+                      description="Content touches on these"
+                      icon={<AlertTriangle className="h-4 w-4 text-yellow-500" />}
+                      suggestions={partialSuggestions}
+                      selectedQueries={selectedSuggestions}
+                      existingQueries={existingQueries}
+                      onToggle={toggleSuggestion}
+                      color="yellow"
+                    />
+                    <SuggestionGroup
+                      title="Weak Matches"
+                      description="Content barely addresses"
+                      icon={<X className="h-4 w-4 text-red-500" />}
+                      suggestions={weakSuggestions}
+                      selectedQueries={selectedSuggestions}
+                      existingQueries={existingQueries}
+                      onToggle={toggleSuggestion}
+                      color="red"
+                      defaultCollapsed
+                    />
+                  </div>
+                </ScrollArea>
+              </TabsContent>
 
-                  {/* Weak Matches */}
-                  <SuggestionGroup
-                    title="Weak Matches"
-                    description="Content barely addresses"
-                    icon={<X className="h-4 w-4 text-red-500" />}
-                    suggestions={weakSuggestions}
-                    selectedQueries={selectedSuggestions}
-                    existingQueries={existingQueries}
-                    onToggle={toggleSuggestion}
-                    color="red"
-                    defaultCollapsed
-                  />
-                </div>
-              </ScrollArea>
-            </TabsContent>
-
-            <TabsContent value="gaps" className="mt-3">
-              <ScrollArea className="h-[350px] pr-3">
-                <div className="space-y-3">
-                  <GapGroup
-                    title="Critical Gaps"
-                    description="High-value queries you should address"
-                    gaps={criticalGaps}
-                    selectedGaps={selectedGaps}
-                    existingQueries={existingQueries}
-                    onToggle={toggleGap}
-                    severity="critical"
-                  />
-
-                  <GapGroup
-                    title="Important Gaps"
-                    description="Recommended improvements"
-                    gaps={importantGaps}
-                    selectedGaps={selectedGaps}
-                    existingQueries={existingQueries}
-                    onToggle={toggleGap}
-                    severity="important"
-                  />
-
-                  <GapGroup
-                    title="Nice to Have"
-                    description="Optional enhancements"
-                    gaps={niceToHaveGaps}
-                    selectedGaps={selectedGaps}
-                    existingQueries={existingQueries}
-                    onToggle={toggleGap}
-                    severity="nice-to-have"
-                    defaultCollapsed
-                  />
-                </div>
-              </ScrollArea>
-            </TabsContent>
-          </Tabs>
+              <TabsContent value="gaps" className="mt-3">
+                <ScrollArea className="h-[350px] pr-3">
+                  <div className="space-y-3">
+                    <GapGroup
+                      title="Critical Gaps"
+                      description="High-value queries you should address"
+                      gaps={legacyCriticalGaps}
+                      selectedGaps={selectedGaps}
+                      existingQueries={existingQueries}
+                      onToggle={toggleGap}
+                      severity="critical"
+                    />
+                    <GapGroup
+                      title="Important Gaps"
+                      description="Recommended improvements"
+                      gaps={legacyImportantGaps}
+                      selectedGaps={selectedGaps}
+                      existingQueries={existingQueries}
+                      onToggle={toggleGap}
+                      severity="important"
+                    />
+                    <GapGroup
+                      title="Nice to Have"
+                      description="Optional enhancements"
+                      gaps={legacyNiceToHaveGaps}
+                      selectedGaps={selectedGaps}
+                      existingQueries={existingQueries}
+                      onToggle={toggleGap}
+                      severity="nice-to-have"
+                      defaultCollapsed
+                    />
+                  </div>
+                </ScrollArea>
+              </TabsContent>
+            </Tabs>
+          )}
 
           {/* Action Footer */}
           <div className="flex items-center justify-between pt-3 border-t">
