@@ -1,174 +1,150 @@
 
-# Fix: PDF Export and Query Intelligence Persistence
+# Fix: PDF Export for Query Intelligence
 
 ## Problem Summary
 
-Two issues need to be addressed:
-
-1. **PDF Export Button Fails**: The data structure passed to the PDF generator doesn't match what the generator expects, causing undefined property access errors.
-
-2. **Query Intelligence Doesn't Persist**: The Query Intelligence state (detected topic, primary query, suggestions, entities, etc.) is stored in React state but never saved to the database, so it's lost on reload, save, or refresh.
+The PDF export button for Query Intelligence doesn't work because of field name mismatches between what the edge function returns and what `gather-report-data.ts` expects.
 
 ---
 
 ## Root Cause Analysis
 
-### PDF Export Issue
+The `gatherReportData` function in `src/lib/gather-report-data.ts` expects:
+- `suggestions[].intentPreservation` → **Actual field**: `intentScore`
+- `suggestions[].intentDrift` → **Actual field**: `intentAnalysis?.driftScore`
+- `suggestions[].intentDriftExplanation` → **Actual field**: `driftReason` or `intentAnalysis?.driftReasoning`
+- `suggestions[].routePrediction` as string → **Actual type**: Can be an object `{ route: string, ... }` or a string
 
-The `intelligenceState` passed from `QueryAutoSuggest.tsx` has this structure:
-```typescript
-{
-  gaps: { 
-    criticalGaps: [...],      // Array
-    gapSummary: {...},
-    competitiveGaps: [...],
-    priorityActions: [...] 
-  }
-}
-```
-
-But `gather-report-data.ts` expects:
-```typescript
-{
-  gaps: {
-    critical: [...]           // Expected property name
-  },
-  intelligence: {
-    priorityActions: [...]    // Expected on intelligence object
-  }
-}
-```
-
-This mismatch causes `gaps.critical` to be undefined and `intel.priorityActions` to fail.
-
-### Persistence Issue
-
-- `queryIntelligence` state exists in `Index.tsx` (lines 71-80)
-- The database table `chunk_daddy_projects` has NO column for `query_intelligence`
-- The `saveProject` function doesn't include `queryIntelligence`
-- The project load effect doesn't restore `queryIntelligence`
+This causes:
+1. All scores to be calculated as 0 (since `intentPreservation` is undefined)
+2. Relevance distribution shows everything as "low" 
+3. Route distribution fails when `routePrediction` is an object
+4. Intent drift detection fails
 
 ---
 
 ## Solution
 
-### Part 1: Fix PDF Export Data Mapping
+### File: `src/lib/gather-report-data.ts`
 
-**File: `src/lib/gather-report-data.ts`**
+**Fix 1: Update `IntelligenceState` interface** (lines 129-138)
 
-Update the `IntelligenceState` interface and `gatherReportData` function to handle the actual data structure being passed:
-
-1. Update `IntelligenceState.gaps` to expect `criticalGaps` instead of `critical`
-2. Move `priorityActions` to be at the top level of gaps, not on intelligence
-3. Update gap extraction logic to use `gaps.criticalGaps`
-
+Update the suggestions interface to match actual data:
 ```typescript
-// Update interface (around line 145)
-gaps?: {
-  criticalGaps?: Array<{
-    query: string;
-    score?: number;
-    entityOverlap?: number;
-  }>;
-  priorityActions?: Array<{
-    action: string;
-    impact: string;
-    effort: string;
-    addressesQueries?: string[];
-  }>;
-};
+suggestions?: Array<{
+  query: string;
+  variantType?: string;
+  routePrediction?: { route: string } | string;  // Can be object or string
+  intentScore?: number;          // Correct field name
+  entityOverlap?: number;
+  intentAnalysis?: {             // Actual drift structure
+    driftScore?: number;
+    driftLevel?: string;
+    driftReasoning?: string | null;
+  };
+  driftReason?: string | null;
+  matchStrength?: string;
+}>;
 ```
 
-### Part 2: Add Database Column for Query Intelligence
+**Fix 2: Update relevance distribution calculation** (line 183)
 
-**Database Migration:**
-
-Add a new JSONB column to store Query Intelligence state:
-
-```sql
-ALTER TABLE chunk_daddy_projects 
-ADD COLUMN query_intelligence jsonb DEFAULT NULL;
-```
-
-### Part 3: Update Project Types
-
-**File: `src/lib/project-types.ts`**
-
-Add the `query_intelligence` field to `ChunkDaddyProject`:
-
+Change from `intentPreservation` to `intentScore`:
 ```typescript
-export interface ChunkDaddyProject {
-  // ... existing fields
-  query_intelligence: {
-    detectedTopic: { ... } | null;
-    primaryQuery: { ... } | null;
-    intelligence: any | null;
-    suggestions: any[];
-    intentSummary: any | null;
-    gaps: any;
-    entities: { primary: string[]; secondary: string[]; temporal: string[]; branded: string[] } | null;
-    filtered: any[];
-  } | null;
-}
+// OLD
+const scores = suggestions?.map(s => s.intentPreservation || 0) || [];
+
+// NEW - use intentScore and convert from 0-1 to 0-100 scale
+const scores = suggestions?.map(s => {
+  const score = s.intentScore || 0;
+  return score > 1 ? score : score * 100; // Handle both 0-1 and 0-100 scales
+}) || [];
 ```
 
-### Part 4: Update useProjects Hook
+**Fix 3: Update route distribution calculation** (lines 196-205)
 
-**File: `src/hooks/useProjects.ts`**
+Handle `routePrediction` being an object:
+```typescript
+suggestions?.forEach(s => {
+  // Handle routePrediction as object or string
+  const routeValue = typeof s.routePrediction === 'object' 
+    ? s.routePrediction?.route 
+    : s.routePrediction;
+  const route = (routeValue || 'web_search').toLowerCase();
+  // ... rest of logic
+});
+```
 
-1. Add `queryIntelligence` to the `pendingData` ref type
-2. Update `saveProject` to accept and save `queryIntelligence`
-3. Include `query_intelligence` in the project data object
+**Fix 4: Update intent drift calculation** (line 208)
 
-### Part 5: Update Index.tsx
+Change from `intentDrift` to `intentAnalysis.driftScore`:
+```typescript
+// OLD
+const intentDriftFiltered = suggestions?.filter(s => (s.intentDrift || 0) > 40).length || 0;
 
-**File: `src/pages/Index.tsx`**
+// NEW
+const intentDriftFiltered = suggestions?.filter(s => 
+  (s.intentAnalysis?.driftScore || 0) > 40
+).length || 0;
+```
 
-1. Update `markUnsaved` calls to include `queryIntelligence`
-2. Add restoration logic in the `currentProject` useEffect to restore `queryIntelligence`
-3. Update `handleSave` to include `queryIntelligence`
+**Fix 5: Update queries array mapping** (lines 211-230)
 
----
-
-## Technical Implementation Details
-
-### Files to Modify
-
-| File | Changes |
-|------|---------|
-| `src/lib/gather-report-data.ts` | Fix gaps and priorityActions data structure mapping |
-| `src/lib/project-types.ts` | Add `query_intelligence` field |
-| `src/hooks/useProjects.ts` | Add `queryIntelligence` to save/load flow |
-| `src/pages/Index.tsx` | Include `queryIntelligence` in persistence |
-
-### Database Change
-
-Add column via migration:
-```sql
-ALTER TABLE chunk_daddy_projects 
-ADD COLUMN query_intelligence jsonb DEFAULT NULL;
+Fix the score field and drift extraction:
+```typescript
+const queries = suggestions?.map(s => {
+  // Use intentScore, handle 0-1 or 0-100 scale
+  const rawScore = s.intentScore || 0;
+  const score = rawScore > 1 ? rawScore : rawScore * 100;
+  
+  // Route handling
+  const routeValue = typeof s.routePrediction === 'object' 
+    ? s.routePrediction?.route?.toLowerCase() 
+    : (s.routePrediction || 'web_search').toLowerCase();
+  
+  // Coverage status based on score
+  let coverageStatus: 'strong' | 'partial' | 'weak' | 'none' = 'none';
+  if (score >= 70) coverageStatus = 'strong';
+  else if (score >= 50) coverageStatus = 'partial';
+  else if (score >= 30) coverageStatus = 'weak';
+  
+  // Drift extraction
+  const driftScore = s.intentAnalysis?.driftScore || 0;
+  
+  return {
+    query: s.query,
+    variantType: s.variantType || 'UNKNOWN',
+    routePrediction: routeValue as 'web_search' | 'parametric' | 'hybrid',
+    passageScore: Math.round(score),
+    entityOverlap: Math.round((s.entityOverlap || 0) * 100),
+    coverageStatus,
+    intentDrift: driftScore > 20 ? {
+      score: driftScore,
+      explanation: s.driftReason || s.intentAnalysis?.driftReasoning || '',
+    } : undefined,
+  };
+}) || [];
 ```
 
 ---
 
-## Expected Behavior After Fix
+## Implementation Summary
 
-1. **PDF Export**: Clicking "Export PDF" generates and downloads the Query Intelligence Report with all sections populated correctly (gaps, priority actions, entities, etc.)
-
-2. **Persistence**: 
-   - Query Intelligence results persist when saving a project
-   - Results are restored when loading a project
-   - Results survive page refresh (if project was saved)
-   - Auto-save includes Query Intelligence data
+| Line Range | Change |
+|------------|--------|
+| 129-138 | Update suggestions interface with correct field names |
+| 183 | Use `intentScore` instead of `intentPreservation` |
+| 196-205 | Handle `routePrediction` as object or string |
+| 208 | Use `intentAnalysis.driftScore` for drift filtering |
+| 211-230 | Fix query mapping with correct fields and scale handling |
 
 ---
 
-## Testing Checklist
+## Expected Result
 
-After implementation:
-1. Run Query Intelligence analysis on content
-2. Export PDF - verify all sections render correctly
-3. Save project manually
-4. Refresh page and load project - verify Query Intelligence data is restored
-5. Switch tabs and return - verify data persists
-6. Create new project - verify clean state
+After the fix:
+- PDF export generates successfully
+- Metrics page shows correct relevance distribution
+- Route distribution is accurate
+- Query matrix shows proper scores and coverage status
+- Intent drift queries are correctly identified
