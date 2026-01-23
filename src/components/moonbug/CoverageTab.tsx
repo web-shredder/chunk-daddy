@@ -38,6 +38,9 @@ interface CoverageTabProps {
   elements: DocumentElement[];
   result?: AnalysisResult;
   onNavigateToDownloads?: () => void;
+  // NEW: Lifted state for persistence
+  coverageState: CoverageState | null;
+  onCoverageStateChange: (state: CoverageState) => void;
 }
 
 export function CoverageTab({
@@ -53,15 +56,27 @@ export function CoverageTab({
   onApplyOptimization,
   elements,
   result,
-  onNavigateToDownloads
+  onNavigateToDownloads,
+  coverageState: externalCoverageState,
+  onCoverageStateChange
 }: CoverageTabProps) {
   
-  // Coverage state management - now tracks query status locally
-  const [coverageState, setCoverageState] = useState<CoverageState>({
+  // Coverage state management - use external state if provided, otherwise initialize locally
+  const [localCoverageState, setLocalCoverageState] = useState<CoverageState>({
     queries: [],
     activeQueryId: null,
     optimizationStates: {},
   });
+  
+  // Use external state if provided, otherwise use local
+  const coverageState = externalCoverageState || localCoverageState;
+  
+  // Wrapper to update both local and external state
+  const setCoverageState = useCallback((updater: CoverageState | ((prev: CoverageState) => CoverageState)) => {
+    const newState = typeof updater === 'function' ? updater(coverageState) : updater;
+    setLocalCoverageState(newState);
+    onCoverageStateChange(newState);
+  }, [coverageState, onCoverageStateChange]);
   
   // Track if work items have been initialized
   const [workItemsInitialized, setWorkItemsInitialized] = useState(false);
@@ -87,19 +102,35 @@ export function CoverageTab({
     return transformToWorkItems(queryInputs, chunkScores, chunks, queryIntentTypes);
   }, [hasResults, keywords, chunkScores, chunks, queryIntentTypes]);
   
-  // Merge base work items with coverage state (preserves status updates)
+  // Merge base work items with coverage state (preserves status updates from persistence)
   const workItems = useMemo((): QueryWorkItem[] => {
-    if (!workItemsInitialized) {
-      return baseWorkItems;
+    // If we have persisted coverage state with queries, use them
+    if (coverageState.queries.length > 0) {
+      // Merge: preserve user edits/approvals from saved state, but update chunk assignments from fresh analysis
+      return coverageState.queries.map(savedQuery => {
+        const freshQuery = baseWorkItems.find(bwi => bwi.query === savedQuery.query);
+        if (freshQuery) {
+          // Merge: keep saved status, approvals, and optimization states; update chunk assignments
+          return {
+            ...freshQuery,
+            id: savedQuery.id, // Keep the same ID for optimization state lookup
+            status: savedQuery.status,
+            isApproved: savedQuery.isApproved,
+            approvedText: savedQuery.approvedText,
+            optimizedText: savedQuery.optimizedText,
+            currentScores: savedQuery.currentScores || freshQuery.currentScores,
+            originalScores: savedQuery.originalScores || freshQuery.originalScores,
+          };
+        }
+        return savedQuery;
+      });
     }
     
-    // Merge coverage state with base work items
-    return coverageState.queries.length > 0 
-      ? coverageState.queries 
-      : baseWorkItems;
-  }, [baseWorkItems, coverageState.queries, workItemsInitialized]);
+    // Otherwise use fresh work items
+    return baseWorkItems;
+  }, [baseWorkItems, coverageState.queries]);
   
-  // Initialize coverage state when base work items change
+  // Initialize coverage state when base work items change (only if no persisted state)
   useEffect(() => {
     if (baseWorkItems.length > 0 && coverageState.queries.length === 0) {
       setCoverageState(prev => ({
@@ -107,8 +138,11 @@ export function CoverageTab({
         queries: baseWorkItems,
       }));
       setWorkItemsInitialized(true);
+    } else if (coverageState.queries.length > 0) {
+      // Already have persisted state
+      setWorkItemsInitialized(true);
     }
-  }, [baseWorkItems.length]); // Only depend on length to avoid infinite loop
+  }, [baseWorkItems.length, coverageState.queries.length]); // eslint-disable-line react-hooks/exhaustive-deps
   
   // Group queries by status - uses the managed workItems
   const groupedQueries = useMemo(() => {

@@ -3,6 +3,7 @@
 import type { ChunkerOptions } from './layout-chunker';
 import type { AnalysisResult } from '@/hooks/useAnalysis';
 import type { FullOptimizationResult, ArchitectureAnalysis } from './optimizer-types';
+import type { CoverageState } from '@/types/coverage';
 
 export interface QueryIntelligenceState {
   detectedTopic: { 
@@ -43,6 +44,7 @@ export interface ChunkDaddyProject {
   optimization_result: FullOptimizationResult | null;
   architecture_analysis: ArchitectureAnalysis | null;
   query_intelligence: QueryIntelligenceState | null;
+  coverage_state: CoverageState | null;  // NEW: Coverage tab state persistence
   created_at: string;
   updated_at: string;
 }
