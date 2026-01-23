@@ -1,8 +1,9 @@
-import { FileText, Microscope, BarChart3, Sparkles, FileBarChart, Loader2, Check, Save, Layers, Package } from 'lucide-react';
+import { FileText, Microscope, Target, Download, TrendingUp, Loader2, Check, Save } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useIsMobile } from '@/hooks/use-mobile';
 
-export type TabId = 'content' | 'analyze' | 'results' | 'architecture' | 'optimize' | 'outputs' | 'report';
+// Updated tab IDs for 5-tab flow
+export type TabId = 'content' | 'queries' | 'coverage' | 'downloads' | 'progress';
 
 interface Tab {
   id: TabId;
@@ -10,14 +11,13 @@ interface Tab {
   label: string;
 }
 
+// New 5-tab structure
 const tabs: Tab[] = [
   { id: 'content', icon: FileText, label: 'Content' },
-  { id: 'analyze', icon: Microscope, label: 'Analyze' },
-  { id: 'results', icon: BarChart3, label: 'Results' },
-  { id: 'architecture', icon: Layers, label: 'Architecture' },
-  { id: 'optimize', icon: Sparkles, label: 'Optimize' },
-  { id: 'outputs', icon: Package, label: 'Outputs' },
-  { id: 'report', icon: FileBarChart, label: 'Report' },
+  { id: 'queries', icon: Microscope, label: 'Queries' },
+  { id: 'coverage', icon: Target, label: 'Coverage' },
+  { id: 'downloads', icon: Download, label: 'Downloads' },
+  { id: 'progress', icon: TrendingUp, label: 'Progress' },
 ];
 
 interface TabBarProps {
@@ -61,13 +61,12 @@ export function TabBar({
 }: TabBarProps) {
   const isMobile = useIsMobile();
 
+  // Updated validation for 5-tab flow
   const getTabDisabled = (tabId: TabId): boolean => {
-    if (tabId === 'analyze') return !hasContent;
-    if (tabId === 'results') return !hasAnalysis;
-    if (tabId === 'architecture') return !hasAnalysis;
-    if (tabId === 'optimize') return !hasAnalysis;
-    if (tabId === 'outputs') return !hasOutputs && !hasOptimizationResult;
-    if (tabId === 'report') return !hasOptimizationResult;
+    if (tabId === 'queries') return !hasContent;
+    if (tabId === 'coverage') return !hasAnalysis;
+    if (tabId === 'downloads') return !hasOutputs && !hasOptimizationResult;
+    if (tabId === 'progress') return !hasOptimizationResult;
     return false;
   };
 

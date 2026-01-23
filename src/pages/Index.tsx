@@ -2,7 +2,9 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { Loader2 } from "lucide-react";
 import { toast } from "sonner";
-import { TopBar, DebugPanel, WorkflowStepper, ContentTab, AnalyzeTab, ResultsTab, ArchitectureTab, OptimizeTab, OutputsTab, ReportTab, type WorkflowStep } from "@/components/moonbug";
+import { TopBar, DebugPanel, WorkflowStepper, ContentTab, AnalyzeTab, CoverageTab, DownloadsTab, ProgressTab, type WorkflowStep } from "@/components/moonbug";
+// Deprecated imports - commented out for Phase 1
+// import { ArchitectureTab, OptimizeTab } from "@/components/moonbug";
 import { DebugProvider, useDebug } from "@/contexts/DebugContext";
 import { useApiKey } from "@/hooks/useApiKey";
 import { useAnalysis, type AnalysisResult } from "@/hooks/useAnalysis";
@@ -1029,26 +1031,23 @@ const Index = () => {
   const contentModified = hasAnalysis && content !== contentHashAtAnalysis;
   const hasOutputs = streamedChunks.length > 0 || streamedArchitectureTasks.length > 0 || streamedBriefs.length > 0;
 
-  // Workflow steps definition
+  // Workflow steps definition - NEW 5-tab flow
   const WORKFLOW_STEPS: WorkflowStep[] = [
     { id: 'content', label: 'Content' },
-    { id: 'analyze', label: 'Queries', shortLabel: 'Queries' },
-    { id: 'results', label: 'Chunk Analysis', shortLabel: 'Analysis' },
-    { id: 'architecture', label: 'Structure', shortLabel: 'Structure' },
-    { id: 'optimize', label: 'Optimization', shortLabel: 'Optimize' },
-    { id: 'outputs', label: 'Outputs' },
-    { id: 'report', label: 'Final Report', shortLabel: 'Report' },
+    { id: 'queries', label: 'Queries', shortLabel: 'Queries' },
+    { id: 'coverage', label: 'Coverage', shortLabel: 'Coverage' },
+    { id: 'downloads', label: 'Downloads' },
+    { id: 'progress', label: 'Progress', shortLabel: 'Progress' },
   ];
 
-  // Compute completed steps based on state
+  // Compute completed steps based on state (updated for 5-tab flow)
   const completedStepIds = (() => {
     const completed: string[] = [];
     if (hasContent) completed.push('content');
-    if (keywords.length > 0) completed.push('analyze');
-    if (hasAnalysis) completed.push('results');
-    if (architectureAnalysis) completed.push('architecture');
-    if (hasOptimizationResult) completed.push('optimize');
-    if (hasOutputs) completed.push('outputs');
+    if (keywords.length > 0) completed.push('queries');
+    if (hasAnalysis) completed.push('coverage');
+    if (hasOutputs) completed.push('downloads');
+    if (hasOptimizationResult) completed.push('progress');
     return completed;
   })();
 
@@ -1106,7 +1105,7 @@ const Index = () => {
         />
       )}
 
-      {activeTab === 'analyze' && (
+      {activeTab === 'queries' && (
         <AnalyzeTab
           hasChunks={hasChunks}
           keywords={keywords}
@@ -1135,8 +1134,8 @@ const Index = () => {
         />
       )}
 
-      {activeTab === 'results' && (
-        <ResultsTab
+      {activeTab === 'coverage' && (
+        <CoverageTab
           hasResults={hasAnalysis}
           chunks={layoutChunks}
           chunkScores={result?.chunkScores || []}
@@ -1144,82 +1143,20 @@ const Index = () => {
           queryIntentTypes={queryIntentTypes}
           contentModified={contentModified}
           onReanalyze={handleAnalyze}
-          onGoToAnalyze={() => setActiveTab('analyze')}
+          onGoToAnalyze={() => setActiveTab('queries')}
           content={content}
           onApplyOptimization={handleApplyOptimization}
           elements={parsedElements}
           result={result}
-          onNavigateToOptimize={() => setActiveTab('architecture')}
+          onNavigateToDownloads={() => setActiveTab('downloads')}
         />
       )}
 
-      {activeTab === 'architecture' && (
-        <ArchitectureTab
-          hasResults={hasAnalysis}
-          chunks={layoutChunks}
-          chunkScores={result?.chunkScores || []}
-          keywords={keywords}
-          originalContent={content}
-          onGoToResults={() => setActiveTab('results')}
-          onNavigateToChunk={(idx) => {
-            setActiveTab('results');
-          }}
-          onNavigateToOptimize={() => setActiveTab('optimize')}
-          analysis={architectureAnalysis}
-          onAnalysisUpdate={(newAnalysis) => {
-            setArchitectureAnalysis(newAnalysis);
-            if (newAnalysis) {
-              markUnsaved(content, keywords, chunkerOptions, result, optimizedContent, optimizationResult, newAnalysis);
-            }
-          }}
-          isAnalyzing={architectureLoading}
-          onAnalyzingChange={setArchitectureLoading}
-          architectureTasks={architectureTasks}
-          onTasksChange={(tasks) => {
-            setArchitectureTasks(tasks);
-            markUnsaved(content, keywords, chunkerOptions, result, optimizedContent, optimizationResult, architectureAnalysis);
-          }}
-        />
-      )}
+      {/* DEPRECATED: Architecture and Optimize tabs removed in Phase 1 UX overhaul */}
+      {/* These will be deleted in cleanup phase - functionality moved to Coverage tab */}
 
-      {activeTab === 'optimize' && (
-        <OptimizeTab
-          hasResults={hasAnalysis}
-          content={content}
-          keywords={keywords}
-          currentScores={result?.chunkScores}
-          onApplyOptimization={handleApplyOptimization}
-          onGoToAnalyze={() => setActiveTab('analyze')}
-          onOptimizationComplete={handleOptimizationComplete}
-          // Architecture tasks
-          selectedArchitectureTasks={architectureTasks.filter(t => t.isSelected)}
-          // Lifted state props
-          viewState={optimizeViewState}
-          onViewStateChange={setOptimizeViewState}
-          optimizationResult={optimizationResult}
-          onOptimizationResultChange={setOptimizationResult}
-          optimizedContent={optimizedContent}
-          onOptimizedContentChange={setOptimizedContent}
-          acceptedChunks={acceptedChunks}
-          onAcceptedChunksChange={setAcceptedChunks}
-          rejectedChunks={rejectedChunks}
-          onRejectedChunksChange={setRejectedChunks}
-          editedChunks={editedChunks}
-          onEditedChunksChange={setEditedChunks}
-          // Force optimize tracking
-          forceOptimizeChunks={forceOptimizeChunks}
-          onForceOptimizeChunksChange={setForceOptimizeChunks}
-          onSkippedOptimalCountChange={setSkippedOptimalCount}
-          // Streaming optimization
-          onStreamingOptimize={handleStreamingOptimization}
-          isStreamingOptimization={isStreamingOptimization}
-          streamingStep={streamingStep}
-          streamingProgress={streamingProgress}
-        />
-      )}
-
-      {activeTab === 'outputs' && (
-        <OutputsTab
+      {activeTab === 'downloads' && (
+        <DownloadsTab
           isOptimizing={isStreamingOptimization}
           currentStep={streamingStep}
           progress={streamingProgress}
@@ -1259,11 +1196,11 @@ const Index = () => {
             a.click();
             URL.revokeObjectURL(url);
           }}
-          onGoToOptimize={() => setActiveTab('optimize')}
-          onGoToReport={() => setActiveTab('report')}
+          onGoToOptimize={() => setActiveTab('coverage')}
+          onGoToReport={() => setActiveTab('progress')}
           onRetry={() => {
             setStreamingError(null);
-            setActiveTab('optimize');
+            setActiveTab('coverage');
           }}
           onViewInDocument={(chunkIndex) => {
             // Navigate to the chunk in the content tab
@@ -1273,8 +1210,8 @@ const Index = () => {
         />
       )}
 
-      {activeTab === 'report' && (
-        <ReportTab
+      {activeTab === 'progress' && (
+        <ProgressTab
           hasOptimizationResult={hasOptimizationResult}
           optimizationResult={optimizationResult}
           optimizedContent={optimizedContent}
@@ -1282,13 +1219,13 @@ const Index = () => {
           keywords={keywords}
           layoutChunks={layoutChunks}
           onApplyContent={handleApplyOptimization}
-          onGoToOptimize={() => setActiveTab('optimization')}
+          onGoToOptimize={() => setActiveTab('coverage')}
           onReanalyze={handleAnalyze}
           onSaveProject={handleSave}
           projectName={localProjectName}
           onNavigateToOutputs={(chunkIndex) => {
-            setActiveTab('outputs');
-            // Could store chunkIndex for highlighting in outputs tab in the future
+            setActiveTab('downloads');
+            // Could store chunkIndex for highlighting in downloads tab in the future
           }}
           analysisResult={result}
           // New verified data props

@@ -4,11 +4,12 @@ export { TabBar, type TabId } from './TabBar';
 export { WorkflowStepper, type WorkflowStep } from './WorkflowStepper';
 export { ContentTab } from './ContentTab';
 export { AnalyzeTab } from './AnalyzeTab';
-export { ResultsTab } from './ResultsTab';
-export { ArchitectureTab } from './ArchitectureTab';
-export { OptimizeTab } from './OptimizeTab';
-export { OutputsTab } from './OutputsTab';
-export { ReportTab } from './ReportTab';
+export { CoverageTab } from './CoverageTab';
+// Deprecated: Commented out for Phase 1 - will be removed in cleanup
+// export { ArchitectureTab } from './ArchitectureTab';
+// export { OptimizeTab } from './OptimizeTab';
+export { DownloadsTab } from './DownloadsTab';
+export { ProgressTab } from './ProgressTab';
 export { ScoreItem, ScoreGrid } from './ScoreItem';
 export { PassageScoreHero, MiniPassageScore, DaddyScoreHero, MiniDaddyScore } from './PassageScoreHero';
 export { ExportGapsDialog } from './ExportGapsDialog';
