@@ -7,13 +7,26 @@ const corsHeaders = {
 
 const OPENAI_API_KEY = Deno.env.get('OPENAI_API_KEY');
 
+// ============================================================
+// GOOGLE PATENT US 11,663,201 B2 - 7 ACTUAL VARIANT TYPES
+// (8th is LANGUAGE_TRANSLATION - skipped unless multilingual)
+// ============================================================
+type GoogleVariantType = 
+  | 'EQUIVALENT'        // Alternative ways to ask the same question
+  | 'FOLLOW_UP'         // Logical next questions in user journey
+  | 'GENERALIZATION'    // Broader versions of the query
+  | 'CANONICALIZATION'  // Standardized/normalized forms (expand acronyms)
+  | 'ENTAILMENT'        // Queries logically implied by the original
+  | 'SPECIFICATION'     // Narrower, more detailed versions
+  | 'CLARIFICATION';    // Disambiguation queries
+
 serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response(null, { headers: corsHeaders });
   }
 
   const startTime = Date.now();
-  const TIMEOUT_THRESHOLD_MS = 90000; // 90 seconds - allow more time for complex content
+  const TIMEOUT_THRESHOLD_MS = 85000; // 85 seconds
 
   try {
     const { content, existingQueries = [], topicOverride = null } = await req.json();
@@ -25,89 +38,119 @@ serve(async (req) => {
       );
     }
 
-    console.log('Starting content analysis...');
+    console.log('=== QUERY INTELLIGENCE START ===');
     console.log('Content length:', content.length);
     console.log('Existing queries:', existingQueries.length);
     console.log('Topic override:', topicOverride);
 
-    // Step 1: Extract content intelligence (detect what X is)
-    console.log('Step 1: Extracting content intelligence...');
-    const contentIntelligence = await extractContentIntelligence(content);
-    console.log('Detected topic:', contentIntelligence.detectedTopicFocus?.primaryEntity);
-    
-    // Step 2: Determine topic focus (auto-detected or user override)
+    // STEP 1: Extract PRIMARY entities (foundation for drift detection)
+    console.log('Step 1: Extracting entities...');
+    const entities = await extractEntities(content);
+    console.log('Primary entities:', entities.primary.join(', '));
+    console.log('Temporal entities:', entities.temporal.join(', '));
+
+    // STEP 2: Extract content intelligence 
+    console.log('Step 2: Extracting content intelligence...');
+    const intelligence = await extractContentIntelligence(content, entities);
     const topicFocus = topicOverride 
-      ? { ...contentIntelligence.detectedTopicFocus, primaryEntity: topicOverride }
-      : contentIntelligence.detectedTopicFocus;
+      ? { ...intelligence.detectedTopicFocus, primaryEntity: topicOverride }
+      : intelligence.detectedTopicFocus;
+    console.log('Detected topic:', topicFocus.primaryEntity);
     
-    // Step 3: Generate the PRIMARY query (what this content is fundamentally about)
-    console.log('Step 2: Generating primary query...');
-    const primaryQuery = await generatePrimaryQuery(content, contentIntelligence, topicFocus);
+    // STEP 3: Generate the PRIMARY query
+    console.log('Step 3: Generating primary query...');
+    const primaryQuery = await generatePrimaryQuery(content, intelligence, topicFocus, entities);
     console.log('Primary query:', primaryQuery.query);
     
-    // Check elapsed time before Step 4 (expensive step)
-    const elapsedAfterStep2 = Date.now() - startTime;
-    console.log(`Elapsed after Step 2: ${elapsedAfterStep2}ms`);
-    
-    // Step 4: Generate query suggestions based on detected topic
-    console.log('Step 3: Generating query suggestions...');
-    const querySuggestionsResponse = await generateQuerySuggestions(
-      content, 
-      contentIntelligence, 
-      topicFocus,
-      primaryQuery,
-      existingQueries
-    );
-    console.log('Generated suggestions:', querySuggestionsResponse.suggestions.length);
-    console.log('Intent distribution: HIGH=%d, MEDIUM=%d, LOW=%d', 
-      querySuggestionsResponse.summary.high_intent,
-      querySuggestionsResponse.summary.medium_intent,
-      querySuggestionsResponse.summary.low_intent
-    );
-    
-    // Check if we have time for gap analysis
     const elapsedAfterStep3 = Date.now() - startTime;
     console.log(`Elapsed after Step 3: ${elapsedAfterStep3}ms`);
+    
+    // STEP 4: Generate variants using Google's 7 types
+    console.log('Step 4: Generating query variants (Google Patent)...');
+    const variantsResult = await generateQueryVariants(
+      content, 
+      intelligence, 
+      topicFocus,
+      primaryQuery,
+      entities,
+      existingQueries
+    );
+    
+    // STEP 5: Calculate intent scores & filter drift (iPullRank methodology)
+    console.log('Step 5: Scoring & filtering drift...');
+    const { kept, filtered, suggestionsByType } = processVariantsWithScoring(
+      variantsResult.variants,
+      entities
+    );
+    
+    console.log(`Generated: ${variantsResult.variants.length}, Kept: ${kept.length}, Filtered: ${filtered.length}`);
+    
+    // STEP 6: Add route predictions
+    console.log('Step 6: Adding route predictions...');
+    const suggestionsWithRoutes = kept.map(v => ({
+      ...v,
+      routePrediction: predictQueryRoute(v.query, entities)
+    }));
+
+    // Calculate summary
+    const summary = buildSummary(suggestionsWithRoutes, filtered);
+    console.log('Intent distribution: HIGH=%d, MEDIUM=%d, LOW(filtered)=%d', 
+      summary.high_intent, summary.medium_intent, filtered.length);
+
+    // STEP 7: Gap analysis (if time permits)
+    const elapsedAfterStep6 = Date.now() - startTime;
+    console.log(`Elapsed after Step 6: ${elapsedAfterStep6}ms`);
     
     let coverageGaps: CoverageGapsAnalysis;
     let isPartial = false;
     
-    if (elapsedAfterStep3 < TIMEOUT_THRESHOLD_MS) {
-      // Step 5: Detect coverage gaps (if we have time)
-      console.log('Step 4: Detecting coverage gaps...');
+    if (elapsedAfterStep6 < TIMEOUT_THRESHOLD_MS) {
+      console.log('Step 7: Detecting coverage gaps...');
       coverageGaps = await detectCoverageGaps(
-        content, 
-        contentIntelligence, 
-        topicFocus,
-        querySuggestionsResponse.suggestions
+        content, intelligence, topicFocus, suggestionsWithRoutes, entities
       );
-      console.log('Detected gaps:', coverageGaps.critical_gaps?.length || 0, 'critical,', coverageGaps.legacy_gaps?.length || 0, 'legacy');
     } else {
-      // Skip gap analysis to avoid timeout - return partial results
-      console.log('Step 4: SKIPPED (timeout threshold reached, elapsed:', elapsedAfterStep3, 'ms)');
+      console.log('Step 7: SKIPPED (timeout threshold)');
       isPartial = true;
-      coverageGaps = buildMinimalGapAnalysis(querySuggestionsResponse.suggestions);
+      coverageGaps = buildMinimalGapAnalysis(suggestionsWithRoutes);
     }
 
     const totalElapsed = Date.now() - startTime;
-    console.log(`Total elapsed: ${totalElapsed}ms, partial: ${isPartial}`);
+    console.log(`=== COMPLETE: ${totalElapsed}ms, partial: ${isPartial} ===`);
 
     return new Response(
       JSON.stringify({
         success: true,
         partial: isPartial,
-        // What the system detected
-        detectedTopic: contentIntelligence.detectedTopicFocus,
+        
+        // Entities (foundation of everything)
+        entities,
+        
+        // Topic detection
+        detectedTopic: intelligence.detectedTopicFocus,
         activeTopic: topicFocus,
         isOverridden: !!topicOverride,
         
-        // The auto-generated primary query
-        primaryQuery,
+        // Primary query with route prediction
+        primaryQuery: {
+          ...primaryQuery,
+          routePrediction: predictQueryRoute(primaryQuery.query, entities)
+        },
         
         // Full intelligence
-        intelligence: contentIntelligence,
-        suggestions: querySuggestionsResponse.suggestions,
-        suggestionsSummary: querySuggestionsResponse.summary,
+        intelligence,
+        
+        // Grouped by Google's variant types (for UI)
+        suggestionsByType,
+        
+        // Flat list of kept queries (HIGH + MEDIUM only)
+        suggestions: suggestionsWithRoutes,
+        suggestionsSummary: summary,
+        
+        // What was filtered (transparency)
+        filtered,
+        
+        // Gap analysis
         gaps: coverageGaps,
         
         timestamp: new Date().toISOString(),
@@ -127,39 +170,88 @@ serve(async (req) => {
 });
 
 // ============================================================
-// STEP 1: CONTENT INTELLIGENCE - DETECT WHAT "X" IS
+// STEP 1: ENTITY EXTRACTION (iPullRank Foundation)
+// Primary entities MUST be preserved in HIGH intent variants
 // ============================================================
 
-async function extractContentIntelligence(content: string): Promise<ContentIntelligence> {
-  const systemPrompt = `You are an expert content analyst. Your job is to determine EXACTLY what this content is about - what is "X"?
+interface ExtractedEntities {
+  primary: string[];      // MUST appear in HIGH intent variants
+  secondary: string[];    // Supporting concepts
+  temporal: string[];     // Time markers - affect routing
+  branded: string[];      // Proper nouns, products, companies
+}
 
-CRITICAL TASK: Identify the PRIMARY TOPIC (X) that this content is trying to explain, compare, teach, or sell.
+async function extractEntities(content: string): Promise<ExtractedEntities> {
+  const systemPrompt = `You extract search entities for intent preservation scoring.
 
-Think like a search engine: If someone found this page, what were they searching for?
+CRITICAL: PRIMARY entities are the foundation for detecting "intent drift" - queries that lose primary entities serve DIFFERENT user intents.
 
-DETECTION RULES:
-1. Look at the H1/title first - it usually declares the topic
-2. Look at what entities are EXPLAINED vs just MENTIONED
-3. Look at what the content is trying to HELP the reader DO
-4. Consider the content's PURPOSE: Is it teaching X? Comparing X to Y? Helping choose X? Solving X problem?
+Extract into these categories:
+
+PRIMARY ENTITIES:
+- Core subjects that define what this content is fundamentally about
+- These MUST appear in high-intent search queries
+- Examples: Main product/service names, core concepts, key technologies
+
+SECONDARY ENTITIES:
+- Supporting concepts that add specificity
+- Nice to have but not required for intent preservation
+
+TEMPORAL ENTITIES:
+- Time markers: years ("2024"), relative time ("current", "latest", "new")
+- Version numbers, release dates
+- These affect whether queries trigger web search
+
+BRANDED ENTITIES:
+- Company names, product names, proper nouns
+- Trademarks, frameworks, tools
+
+Return ONLY valid JSON:
+{
+  "primary": ["entity1", "entity2"],
+  "secondary": ["entity1", "entity2"],
+  "temporal": ["2024", "current"],
+  "branded": ["CompanyName", "ProductName"]
+}`;
+
+  const response = await callAI(systemPrompt, content.slice(0, 4000), 'json_object', 1024);
+  const parsed = parseAIResponse(response, {
+    primary: [],
+    secondary: [],
+    temporal: [],
+    branded: []
+  });
+  
+  return {
+    primary: parsed.primary || [],
+    secondary: parsed.secondary || [],
+    temporal: parsed.temporal || [],
+    branded: parsed.branded || []
+  };
+}
+
+// ============================================================
+// STEP 2: CONTENT INTELLIGENCE
+// ============================================================
+
+async function extractContentIntelligence(
+  content: string, 
+  entities: ExtractedEntities
+): Promise<ContentIntelligence> {
+  const systemPrompt = `You analyze content to determine its primary topic and purpose.
+
+TASK: Identify EXACTLY what this content is about - what is "X"?
 
 OUTPUT FORMAT (JSON):
 {
   "detectedTopicFocus": {
-    "primaryEntity": "The main thing (X) this content is about - be specific",
-    "entityType": "product|service|concept|process|tool|company|industry|role",
+    "primaryEntity": "The main thing (X) this content is about",
+    "entityType": "product|service|concept|process|tool|company|industry",
     "contentPurpose": "explain|compare|guide|teach|sell|review|troubleshoot",
-    "targetAction": "What the reader wants to DO (e.g., 'choose an RPO provider', 'learn Python basics', 'fix WordPress errors')",
-    "confidence": 0.0-1.0,
-    "alternativeInterpretations": [
-      {
-        "entity": "Alternative interpretation of X",
-        "confidence": 0.0-1.0,
-        "reason": "Why this could also be the focus"
-      }
-    ]
+    "targetAction": "What the reader wants to DO",
+    "confidence": 0.0-1.0
   },
-  "contentType": "guide|comparison|how-to|listicle|reference|opinion|news|case-study|landing-page",
+  "contentType": "guide|comparison|how-to|listicle|reference|landing-page",
   "primaryAudience": {
     "role": "Who is this written for",
     "expertiseLevel": "beginner|intermediate|advanced|mixed",
@@ -168,46 +260,31 @@ OUTPUT FORMAT (JSON):
   "coreEntities": [
     {
       "name": "Entity name",
-      "type": "product|company|concept|person|technology|process|competitor",
+      "type": "product|company|concept|technology|process",
       "role": "primary|secondary|competitor|example",
       "isExplained": true,
-      "mentionCount": 5,
-      "sections": ["Which sections mention this"]
+      "mentionCount": 5
     }
   ],
   "topicHierarchy": {
-    "broadCategory": "The general field (e.g., 'HR Technology', 'Web Development')",
-    "specificNiche": "The specific area (e.g., 'Recruitment Process Outsourcing', 'React State Management')",
-    "exactFocus": "The precise topic (e.g., 'How to choose an RPO provider', 'useState vs useReducer')"
+    "broadCategory": "General field",
+    "specificNiche": "Specific area",
+    "exactFocus": "Precise topic"
   },
-  "semanticClusters": [
-    {
-      "clusterName": "Group of related concepts",
-      "concepts": ["concept1", "concept2", "concept3"],
-      "coverageDepth": "surface|moderate|deep"
-    }
-  ],
   "contentStructure": {
     "hasDefinition": true,
     "hasProcess": false,
     "hasComparison": true,
-    "hasEvaluation": false,
-    "hasProblemSolution": false,
+    "hasPricing": false,
     "hasExamples": true,
-    "hasCaseStudy": false,
-    "hasStats": true,
-    "hasFAQ": false,
-    "hasCallToAction": true
-  },
-  "implicitKnowledge": [
-    "Things the content assumes readers already know"
-  ]
+    "hasFAQ": false
+  }
 }`;
 
-  const response = await callAI(systemPrompt, content.slice(0, 12000), 'json_object', 4096);
-  const parsed = parseAIResponse(response, {
+  const response = await callAI(systemPrompt, content.slice(0, 8000), 'json_object', 2048);
+  return parseAIResponse(response, {
     detectedTopicFocus: {
-      primaryEntity: 'Unknown topic',
+      primaryEntity: entities.primary[0] || 'Unknown topic',
       entityType: 'concept',
       contentPurpose: 'explain',
       targetAction: 'learn about the topic',
@@ -217,639 +294,629 @@ OUTPUT FORMAT (JSON):
     primaryAudience: { role: 'general reader', expertiseLevel: 'mixed', intent: 'learn' },
     coreEntities: [],
     topicHierarchy: { broadCategory: 'General', specificNiche: 'Unknown', exactFocus: 'Unknown' },
-    semanticClusters: [],
     contentStructure: {},
-    implicitKnowledge: [],
   });
-  return parsed;
 }
 
 // ============================================================
-// STEP 2: GENERATE PRIMARY QUERY
+// STEP 3: GENERATE PRIMARY QUERY
 // ============================================================
 
 async function generatePrimaryQuery(
   content: string,
   intelligence: ContentIntelligence,
-  topicFocus: TopicFocus
+  topicFocus: TopicFocus,
+  entities: ExtractedEntities
 ): Promise<PrimaryQueryResult> {
-  const systemPrompt = `You are a search behavior expert. Given content analysis, determine the ONE PRIMARY SEARCH QUERY this content should rank #1 for.
+  const systemPrompt = `Generate the ONE PRIMARY SEARCH QUERY this content should rank #1 for.
 
-This is the "money query" - the exact search someone would type that this content PERFECTLY answers.
+This is the "money query" - the search someone would type that this content PERFECTLY answers.
 
 RULES:
 1. Must be natural language (how real humans search)
 2. Must be 5-15 words
-3. Must reflect the content's PRIMARY purpose
+3. Must contain ALL primary entities: ${entities.primary.join(', ')}
 4. Should be the most valuable/high-intent version
-
-EXAMPLES:
-- Content about RPO selection → "how to choose the right RPO provider for your company"
-- Content comparing React hooks → "useState vs useReducer which should I use"
-- Content about fixing 404 errors → "how to fix 404 page not found error wordpress"
 
 OUTPUT FORMAT (JSON):
 {
-  "query": "The primary query (5-15 words, natural language)",
+  "query": "The primary query (5-15 words)",
   "searchIntent": "informational|navigational|transactional|commercial",
   "confidence": 0.95,
-  "reasoning": "Why this is THE primary query for this content",
-  "variants": [
-    {
-      "query": "Alternative phrasing of same intent",
-      "popularity": "likely search volume relative to primary"
-    }
-  ]
+  "reasoning": "Why this is THE primary query"
 }`;
 
-  const userPrompt = `DETECTED TOPIC FOCUS:
-${JSON.stringify(topicFocus, null, 2)}
+  const userPrompt = `TOPIC: ${topicFocus.primaryEntity}
+PURPOSE: ${topicFocus.contentPurpose}
+PRIMARY ENTITIES (MUST include): ${entities.primary.join(', ')}
 
-CONTENT STRUCTURE:
-${JSON.stringify(intelligence.contentStructure, null, 2)}
+CONTENT:
+${content.slice(0, 2000)}`;
 
-TOPIC HIERARCHY:
-${JSON.stringify(intelligence.topicHierarchy, null, 2)}
-
-CONTENT PREVIEW:
-${content.slice(0, 3000)}
-
-Generate the PRIMARY query this content should rank for:`;
-
-  const response = await callAI(systemPrompt, userPrompt, 'json_object', 2048);
-  const parsed = parseAIResponse(response, {
+  const response = await callAI(systemPrompt, userPrompt, 'json_object', 512);
+  return parseAIResponse(response, {
     query: `What is ${topicFocus.primaryEntity}`,
     searchIntent: 'informational',
     confidence: 0.5,
     reasoning: 'Default fallback query',
-    variants: [],
   });
-  return parsed;
 }
 
 // ============================================================
-// STEP 3: GENERATE FANOUT QUERIES
+// STEP 4: GENERATE VARIANTS (Google Patent US 11,663,201 B2)
 // ============================================================
 
-async function generateQuerySuggestions(
+async function generateQueryVariants(
   content: string,
   intelligence: ContentIntelligence,
   topicFocus: TopicFocus,
   primaryQuery: PrimaryQueryResult,
+  entities: ExtractedEntities,
   existingQueries: string[]
-): Promise<QuerySuggestionsResponse> {
+): Promise<{ variants: QueryVariant[] }> {
   
-  const systemPrompt = `You are an expert in search behavior, content retrieval, and query fan-out optimization.
-Based on Google Patent US 11,615,106 and Apple's synthetic query generation research.
+  const systemPrompt = `You generate search query variants following Google's Query Fan-Out methodology (Patent US 11,663,201 B2).
 
-Given detected topic "${topicFocus.primaryEntity}" and primary query "${primaryQuery.query}", generate ALL the queries this content could/should rank for WITH INTENT PRESERVATION SCORING.
+PRIMARY QUERY: "${primaryQuery.query}"
+PRIMARY ENTITIES (MUST preserve in high-intent variants): ${entities.primary.join(', ')}
 
-=== PHASE 1: ENTITY EXTRACTION ===
+=== GOOGLE'S 7 VARIANT TYPES ===
 
-For the PRIMARY QUERY "${primaryQuery.query}":
-1. Extract named entities (proper nouns, domain terms, key concepts, qualifiers)
-   Example: "how to choose an RPO provider" → ["RPO", "provider", "choose"]
+1. EQUIVALENT (Generate 3)
+   Alternative phrasings that ask the SAME question.
+   CRITICAL: entityOverlap MUST be 1.0 (all primary entities present)
 
-=== PHASE 2: QUERY GENERATION WITH VARIANT CLASSIFICATION ===
+2. FOLLOW_UP (Generate 3)
+   Logical NEXT questions in user journey.
+   entityOverlap SHOULD be ≥ 0.7
 
-VARIANT TYPES (Google Classification):
-- SYNONYM: Different phrasing of same query ("how to choose RPO" → "selecting RPO vendor")
-- GRANULAR: Breaking into component parts ("RPO selection" → "RPO pricing", "RPO implementation")
-- SPECIFICATION: Adding context ("RPO" → "RPO for startups", "RPO for tech companies")
-- TEMPORAL: Adding time specificity ("best RPO" → "best RPO providers 2026")
-- RELATED: Before/after questions ("how to choose RPO" → "questions to ask RPO vendor")
+3. GENERALIZATION (Generate 2)
+   BROADER versions zooming out from specific query.
+   entityOverlap CAN be ≥ 0.5
 
-INTENT TYPES TO COVER FOR "${topicFocus.primaryEntity}":
-1. DEFINITION - "What is ${topicFocus.primaryEntity}?"
-2. PROCESS - "How to [do something with ${topicFocus.primaryEntity}]"
-3. COMPARISON - "${topicFocus.primaryEntity} vs [alternative]"
-4. EVALUATION - "Best ${topicFocus.primaryEntity} for [context]"
-5. PROBLEM - "${topicFocus.primaryEntity} [problem/error/issue]"
-6. SPECIFICATION - Narrow variants with context
+4. CANONICALIZATION (Generate 2)
+   Standardized forms - expand acronyms, formal terminology.
+   entityOverlap MUST be 1.0
 
-=== PHASE 3: INTENT PRESERVATION SCORING ===
+5. ENTAILMENT (Generate 3)
+   Queries logically IMPLIED by the original.
+   entityOverlap SHOULD be ≥ 0.7
 
-For EACH suggested query:
-1. Extract named entities from this query
-2. Calculate semantic_similarity (0-1):
-   - 1.0 = identical/synonym
-   - 0.8-0.9 = very similar concept, different wording
-   - 0.6-0.7 = related but different aspect
-   - 0.4-0.5 = tangentially related
-   - <0.4 = intent drift
-3. Calculate entity_overlap (0-1):
-   - shared_entities / max(primary_entities, suggested_entities)
-4. Calculate intent_score:
-   - (semantic_similarity × 0.7) + (entity_overlap × 0.3)
-5. Categorize intent_category:
-   - HIGH if intent_score ≥ 0.7
-   - MEDIUM if intent_score 0.5-0.7
-   - LOW if intent_score < 0.5
+6. SPECIFICATION (Generate 3)
+   NARROWER versions with qualifiers (industry, size, use case).
+   entityOverlap MUST be ≥ 1.0 (keep all, add more)
 
-=== PHASE 4: ROUTE PREDICTION ===
+7. CLARIFICATION (Generate 2)
+   Disambiguation queries presenting alternatives.
+   entityOverlap varies
 
-For EACH suggested query, predict:
-- WEB_SEARCH: Query likely triggers web search
-  - Signals: temporal markers ("2026", "latest", "current")
-  - Specific entities (company names, products)
-  - Verification needs ("price", "cost", "rating", "review")
-  - Comparisons ("vs", "versus", "better than")
-- PARAMETRIC: Query likely answered from AI's memory
-  - Signals: general concepts ("what is", "explain")
-  - Definitions ("define", "meaning")
-  - Well-known facts
-- HYBRID: Mix of both
+=== INTENT DEGRADATION WARNING (iPullRank Research) ===
 
-Provide route_confidence (0-100) for the prediction.
+A variant has "drifted" if it serves a DIFFERENT user intent.
+Example:
+- Original: "best electric cars" (PURCHASE intent)
+- Drifted: "electric car maintenance costs" (OWNERSHIP intent)
 
-=== PHASE 5: DRIFT DETECTION ===
+Variants losing primary entities = INTENT DRIFT = useless for ranking.
 
-If intent_category is LOW, explain drift_reason:
-- WHY did this query drift from the original intent?
-- What different user need does it address?
-- Be specific and actionable.
+=== OUTPUT FORMAT ===
 
-=== MATCH STRENGTH ASSESSMENT ===
-- STRONG MATCH: Content directly and thoroughly answers this
-- PARTIAL MATCH: Content touches on this but incompletely
-- WEAK MATCH: Content barely addresses this
-
-=== OUTPUT FORMAT (JSON) ===
+For EACH query provide:
 {
-  "suggestions": [
-    {
-      "query": "Complete natural search query (8-20 words)",
-      "intentType": "definition|process|comparison|evaluation|problem|specification",
-      "matchStrength": "strong|partial|weak",
-      "matchReason": "Specific explanation of why content does/doesn't answer this",
-      "relevantSection": "Which heading/section addresses this (if any)",
-      "confidence": 85,
-      "searchVolumeTier": "high|medium|low|niche",
-      "competitiveness": "Easy to rank|Moderate|Competitive",
-      
-      "variantType": "SYNONYM|GRANULAR|SPECIFICATION|TEMPORAL|RELATED",
-      "semanticSimilarity": 0.85,
-      "entityOverlap": 0.67,
-      "intentScore": 0.80,
-      "intentCategory": "HIGH|MEDIUM|LOW",
-      "routePrediction": "WEB_SEARCH|PARAMETRIC|HYBRID",
-      "routeConfidence": 85,
-      "primaryQueryEntities": ["entity1", "entity2"],
-      "suggestedQueryEntities": ["entity1", "entity3"],
-      "sharedEntities": ["entity1"],
-      "driftReason": null
-    }
-  ],
-  "summary": {
-    "total_generated": 25,
-    "high_intent": 15,
-    "medium_intent": 7,
-    "low_intent": 3,
-    "filtered_count": 3,
-    "avg_intent_score": 0.72,
-    "web_search_likely": 18,
-    "parametric_likely": 5,
-    "hybrid_likely": 2
-  }
+  "query": "Full search query (8-20 words)",
+  "variantType": "EQUIVALENT|FOLLOW_UP|GENERALIZATION|CANONICALIZATION|ENTAILMENT|SPECIFICATION|CLARIFICATION",
+  "sharedEntities": ["entities from primary that appear here"],
+  "entityOverlap": 0.0-1.0,
+  "semanticEstimate": 0.0-1.0,
+  "userJourneyPosition": "early|middle|late"
 }
 
-CRITICAL QUALITY RULES:
-- Queries must be 8-20 words (complete natural sentences)
-- Use actual search language (questions, "how to", "best", "vs")
-- NO keyword-only phrases
-- NO duplicate intent
-- Skip queries already in existing list
-- Include LOW intent queries but flag them for transparency
+Return ONLY:
+{
+  "variants": [...]
+}`;
 
-Generate 20-35 high-quality queries covering ALL intent types with full scoring.`;
+  const userPrompt = `TOPIC: ${topicFocus.primaryEntity}
+PURPOSE: ${topicFocus.contentPurpose}
+AUDIENCE: ${intelligence.primaryAudience?.role || 'general'} (${intelligence.primaryAudience?.expertiseLevel || 'mixed'})
 
-  const semanticClustersText = intelligence.semanticClusters?.map(c => 
-    `- ${c.clusterName}: ${c.concepts?.join(', ') || 'N/A'} (${c.coverageDepth})`
-  ).join('\n') || 'N/A';
-
-  const structureSignals = Object.entries(intelligence.contentStructure || {})
-    .filter(([_, v]) => v)
-    .map(([k]) => `✓ ${k}`)
-    .join('\n') || 'N/A';
-
-  const entitiesText = intelligence.coreEntities?.map(e => 
-    `- ${e.name} (${e.role}, ${e.isExplained ? 'explained' : 'mentioned only'})`
-  ).join('\n') || 'N/A';
-
-  const userPrompt = `PRIMARY ENTITY (X): ${topicFocus.primaryEntity}
-CONTENT PURPOSE: ${topicFocus.contentPurpose}
-TARGET ACTION: ${topicFocus.targetAction}
-
-PRIMARY QUERY: ${primaryQuery.query}
-
-SEMANTIC CLUSTERS IN CONTENT:
-${semanticClustersText}
-
-CONTENT STRUCTURE SIGNALS:
-${structureSignals}
-
-ENTITIES MENTIONED:
-${entitiesText}
-
-EXISTING QUERIES TO SKIP:
-${existingQueries.map(q => `- ${q}`).join('\n') || '(none)'}
+EXISTING (skip these): ${existingQueries.slice(0, 10).join(', ') || 'none'}
 
 CONTENT:
-${content.slice(0, 4000)}
+${content.slice(0, 3000)}
 
-Generate query suggestions with full intent preservation scoring:`;
+Generate 18 query variants following Google's 7 types:`;
 
-  const response = await callAI(systemPrompt, userPrompt, 'json_object', 4096);
-  const parsed = parseAIResponse(response, { suggestions: [], summary: {} });
+  const response = await callAI(systemPrompt, userPrompt, 'json_object', 3000);
+  const parsed = parseAIResponse(response, { variants: [] });
   
-  // Ensure we have the right structure
-  let suggestions = parsed.suggestions || parsed.items || [];
+  let variants = parsed.variants || parsed.suggestions || [];
   
-  // FALLBACK: If AI suggestions failed but we have entities, generate basic queries from them
-  if (suggestions.length === 0 && intelligence.coreEntities && intelligence.coreEntities.length > 0) {
-    console.log('AI suggestions failed, generating fallback from', intelligence.coreEntities.length, 'entities');
-    
-    suggestions = intelligence.coreEntities
-      .filter(e => e.role === 'primary' || e.role === 'secondary')
-      .slice(0, 12)
-      .map((entity, idx) => ({
-        query: `what is ${entity.name.toLowerCase()}`,
-        intentType: 'definition' as const,
-        matchStrength: entity.isExplained ? 'strong' : 'partial' as const,
-        matchReason: `Derived from extracted entity: ${entity.name} (${entity.role})`,
-        relevantSection: entity.sections?.[0] || null,
-        confidence: entity.isExplained ? 0.75 : 0.5,
-        intentCategory: entity.role === 'primary' ? 'HIGH' : 'MEDIUM' as const,
-        intentScore: entity.role === 'primary' ? 78 : 55,
-        routePrediction: 'WEB_SEARCH' as const,
-        sharedEntities: [entity.name],
-        primaryQueryEntities: [topicFocus.primaryEntity],
-        suggestedQueryEntities: [entity.name],
-        variantType: 'Definition' as const,
-        isFallback: true,
-      }));
-    
-    console.log('Generated', suggestions.length, 'fallback suggestions from entities');
+  // FALLBACK: If AI failed, generate from entities
+  if (variants.length === 0 && entities.primary.length > 0) {
+    console.log('Variant generation failed, using entity fallback');
+    variants = generateFallbackVariants(entities, topicFocus.primaryEntity);
   }
   
-  const summary = {
-    total_generated: suggestions.length,
-    high_intent: suggestions.filter((s: QuerySuggestion) => s.intentCategory === 'HIGH').length,
-    medium_intent: suggestions.filter((s: QuerySuggestion) => s.intentCategory === 'MEDIUM').length,
-    low_intent: suggestions.filter((s: QuerySuggestion) => s.intentCategory === 'LOW').length,
-    filtered_count: suggestions.filter((s: QuerySuggestion) => s.intentCategory === 'LOW').length,
-    avg_intent_score: suggestions.length > 0 
-      ? suggestions.reduce((acc: number, s: QuerySuggestion) => acc + (s.intentScore || 0), 0) / suggestions.length 
-      : 0,
-    web_search_likely: suggestions.filter((s: QuerySuggestion) => s.routePrediction === 'WEB_SEARCH').length,
-    parametric_likely: suggestions.filter((s: QuerySuggestion) => s.routePrediction === 'PARAMETRIC').length,
-    hybrid_likely: suggestions.filter((s: QuerySuggestion) => s.routePrediction === 'HYBRID').length,
-    has_fallback: suggestions.some((s: QuerySuggestion) => s.isFallback),
-  };
+  return { variants };
+}
+
+function generateFallbackVariants(entities: ExtractedEntities, topic: string): QueryVariant[] {
+  const variants: QueryVariant[] = [];
+  const primary = entities.primary[0] || topic;
   
-  return { suggestions, summary };
+  // EQUIVALENT
+  variants.push({
+    query: `what is ${primary}`,
+    variantType: 'EQUIVALENT',
+    sharedEntities: [primary],
+    entityOverlap: 1.0,
+    semanticEstimate: 0.9,
+    userJourneyPosition: 'early',
+    isFallback: true
+  });
+  
+  // SPECIFICATION variants
+  entities.secondary.slice(0, 3).forEach(sec => {
+    variants.push({
+      query: `${primary} for ${sec}`,
+      variantType: 'SPECIFICATION',
+      sharedEntities: [primary],
+      entityOverlap: 1.0,
+      semanticEstimate: 0.75,
+      userJourneyPosition: 'middle',
+      isFallback: true
+    });
+  });
+  
+  // FOLLOW_UP
+  variants.push({
+    query: `how much does ${primary} cost`,
+    variantType: 'FOLLOW_UP',
+    sharedEntities: [primary],
+    entityOverlap: 1.0,
+    semanticEstimate: 0.7,
+    userJourneyPosition: 'late',
+    isFallback: true
+  });
+  
+  variants.push({
+    query: `${primary} pros and cons`,
+    variantType: 'FOLLOW_UP',
+    sharedEntities: [primary],
+    entityOverlap: 1.0,
+    semanticEstimate: 0.75,
+    userJourneyPosition: 'middle',
+    isFallback: true
+  });
+  
+  // GENERALIZATION
+  variants.push({
+    query: `${primary} overview and guide`,
+    variantType: 'GENERALIZATION',
+    sharedEntities: [primary],
+    entityOverlap: 1.0,
+    semanticEstimate: 0.8,
+    userJourneyPosition: 'early',
+    isFallback: true
+  });
+  
+  return variants;
 }
 
 // ============================================================
-// STEP 4: DETECT COVERAGE GAPS WITH ITERATIVE DEEP RESEARCH
-// Based on Perplexity's Deep Research methodology
+// STEP 5: INTENT SCORE CALCULATION & DRIFT FILTERING
+// Formula: intentScore = (semantic × 0.7) + (entityOverlap × 0.3)
+// ============================================================
+
+interface ProcessedResult {
+  kept: QueryVariant[];
+  filtered: FilteredVariant[];
+  suggestionsByType: Record<GoogleVariantType, QueryVariant[]>;
+}
+
+function processVariantsWithScoring(
+  variants: QueryVariant[],
+  entities: ExtractedEntities
+): ProcessedResult {
+  const kept: QueryVariant[] = [];
+  const filtered: FilteredVariant[] = [];
+  const suggestionsByType: Record<GoogleVariantType, QueryVariant[]> = {
+    EQUIVALENT: [],
+    FOLLOW_UP: [],
+    GENERALIZATION: [],
+    CANONICALIZATION: [],
+    ENTAILMENT: [],
+    SPECIFICATION: [],
+    CLARIFICATION: []
+  };
+
+  for (const variant of variants) {
+    // Calculate actual entity overlap (verify AI's claim)
+    const actualOverlap = calculateActualEntityOverlap(
+      variant.query,
+      variant.sharedEntities || [],
+      entities.primary
+    );
+    
+    // Use more conservative of AI's estimate vs actual
+    const entityOverlap = Math.min(variant.entityOverlap || 0, actualOverlap);
+    const semanticSimilarity = variant.semanticEstimate || 0.5;
+    
+    // Base formula from Google Patent (Dan Petrovic analysis)
+    let intentScore = (semanticSimilarity * 0.7) + (entityOverlap * 0.3);
+    
+    // Apply variant-type-specific adjustments (iPullRank methodology)
+    const variantType = variant.variantType as GoogleVariantType;
+    intentScore = applyVariantTypeAdjustments(intentScore, variantType, entityOverlap, semanticSimilarity);
+    
+    // Classify
+    const intentCategory = classifyIntent(intentScore);
+    
+    // Detect drift
+    const driftReason = detectDrift(variant, entities.primary, entityOverlap, semanticSimilarity);
+    
+    // Update variant with calculated values
+    const scoredVariant: QueryVariant = {
+      ...variant,
+      entityOverlap,
+      intentScore,
+      intentCategory,
+      driftReason
+    };
+    
+    if (intentCategory === 'LOW' || driftReason) {
+      filtered.push({
+        query: variant.query,
+        variantType: variantType,
+        intentScore,
+        driftReason: driftReason || `Intent score ${(intentScore * 100).toFixed(0)}% below threshold`
+      });
+    } else {
+      kept.push(scoredVariant);
+      if (suggestionsByType[variantType]) {
+        suggestionsByType[variantType].push(scoredVariant);
+      }
+    }
+  }
+
+  return { kept, filtered, suggestionsByType };
+}
+
+function calculateActualEntityOverlap(
+  query: string,
+  sharedEntities: string[],
+  primaryEntities: string[]
+): number {
+  if (!primaryEntities || primaryEntities.length === 0) return 1.0;
+  
+  const queryLower = query.toLowerCase();
+  let matchedCount = 0;
+  
+  for (const entity of primaryEntities) {
+    const entityLower = entity.toLowerCase();
+    // Check if entity appears in query (exact or partial match)
+    if (queryLower.includes(entityLower) || 
+        sharedEntities.some(se => 
+          se.toLowerCase().includes(entityLower) || 
+          entityLower.includes(se.toLowerCase())
+        )) {
+      matchedCount++;
+    }
+  }
+  
+  return matchedCount / primaryEntities.length;
+}
+
+function applyVariantTypeAdjustments(
+  intentScore: number,
+  variantType: GoogleVariantType,
+  entityOverlap: number,
+  semanticSimilarity: number
+): number {
+  switch (variantType) {
+    case 'EQUIVALENT':
+    case 'CANONICALIZATION':
+      // These MUST have high entity overlap - penalize heavily if they don't
+      if (entityOverlap < 0.9) {
+        intentScore *= 0.7; // Major penalty - this is drift
+      }
+      break;
+      
+    case 'FOLLOW_UP':
+    case 'ENTAILMENT':
+      // These naturally diverge slightly - no penalty
+      break;
+      
+    case 'GENERALIZATION':
+      // Expected to be broader - boost if semantic stays high
+      if (semanticSimilarity > 0.6 && entityOverlap >= 0.5) {
+        intentScore += 0.05;
+      }
+      break;
+      
+    case 'SPECIFICATION':
+      // Should ADD entities while keeping ALL originals
+      if (entityOverlap >= 1.0) {
+        intentScore += 0.1; // Bonus
+      } else if (entityOverlap < 0.9) {
+        intentScore *= 0.8; // Penalty
+      }
+      break;
+      
+    case 'CLARIFICATION':
+      // High value even with lower entity overlap IF semantic is high
+      if (semanticSimilarity >= 0.7) {
+        intentScore = Math.max(intentScore, 0.6);
+      }
+      break;
+  }
+  
+  return Math.min(1.0, Math.max(0, intentScore));
+}
+
+function classifyIntent(score: number): 'HIGH' | 'MEDIUM' | 'LOW' {
+  if (score >= 0.7) return 'HIGH';
+  if (score >= 0.5) return 'MEDIUM';
+  return 'LOW';
+}
+
+function detectDrift(
+  variant: QueryVariant,
+  primaryEntities: string[],
+  entityOverlap: number,
+  semanticSimilarity: number
+): string | null {
+  // Only flag LOW intent
+  const intentScore = (semanticSimilarity * 0.7) + (entityOverlap * 0.3);
+  if (intentScore >= 0.5) return null;
+  
+  if (entityOverlap < 0.3) {
+    const queryLower = variant.query.toLowerCase();
+    const missing = primaryEntities.filter(e => 
+      !queryLower.includes(e.toLowerCase())
+    );
+    return `Entity loss: Lost "${missing.join('", "')}" - serves different intent`;
+  }
+  
+  if (semanticSimilarity < 0.4) {
+    return `Semantic drift: Low similarity (${(semanticSimilarity * 100).toFixed(0)}%) - tangential topic`;
+  }
+  
+  const variantType = variant.variantType as GoogleVariantType;
+  if ((variantType === 'EQUIVALENT' || variantType === 'CANONICALIZATION') && entityOverlap < 0.9) {
+    return `Invalid ${variantType}: Should preserve all entities but only kept ${(entityOverlap * 100).toFixed(0)}%`;
+  }
+  
+  return null;
+}
+
+// ============================================================
+// STEP 6: ROUTE PREDICTION (Web Search vs Parametric)
+// ============================================================
+
+interface RouteInfo {
+  route: 'WEB_SEARCH' | 'PARAMETRIC' | 'HYBRID';
+  confidence: number;
+  signals: RouteSignal[];
+}
+
+interface RouteSignal {
+  type: 'temporal' | 'verification' | 'comparison' | 'transactional' | 'conceptual' | 'factual';
+  detected: string;
+  pushesTo: 'WEB_SEARCH' | 'PARAMETRIC';
+}
+
+function predictQueryRoute(query: string, entities: ExtractedEntities): RouteInfo {
+  const signals: RouteSignal[] = [];
+  const queryLower = query.toLowerCase();
+  
+  // TEMPORAL → WEB_SEARCH
+  if (/\b(202[4-9]|2030)\b/i.test(query)) {
+    signals.push({ type: 'temporal', detected: 'specific year', pushesTo: 'WEB_SEARCH' });
+  }
+  if (/\b(current|latest|recent|now|today|new)\b/i.test(query)) {
+    signals.push({ type: 'temporal', detected: 'temporal marker', pushesTo: 'WEB_SEARCH' });
+  }
+  
+  // Check if topic has temporal entities but query lacks them
+  if (entities.temporal.length > 0) {
+    const hasTemporal = entities.temporal.some(t => queryLower.includes(t.toLowerCase()));
+    if (!hasTemporal) {
+      signals.push({ type: 'temporal', detected: 'topic is temporal but query lacks markers', pushesTo: 'WEB_SEARCH' });
+    }
+  }
+  
+  // VERIFICATION → WEB_SEARCH
+  if (/\b(is it true|does .+ still|has .+ changed|is .+ still)\b/i.test(query)) {
+    signals.push({ type: 'verification', detected: 'verification question', pushesTo: 'WEB_SEARCH' });
+  }
+  
+  // COMPARISON → WEB_SEARCH
+  if (/\b(vs\.?|versus|compared to|better than|difference between)\b/i.test(query)) {
+    signals.push({ type: 'comparison', detected: 'comparison query', pushesTo: 'WEB_SEARCH' });
+  }
+  
+  // TRANSACTIONAL → WEB_SEARCH
+  if (/\b(price|pricing|cost|how much|buy|purchase|rate|fee)\b/i.test(query)) {
+    signals.push({ type: 'transactional', detected: 'pricing/purchase intent', pushesTo: 'WEB_SEARCH' });
+  }
+  
+  // BRANDED → WEB_SEARCH
+  if (entities.branded.some(b => queryLower.includes(b.toLowerCase()))) {
+    signals.push({ type: 'factual', detected: 'branded entity', pushesTo: 'WEB_SEARCH' });
+  }
+  
+  // CONCEPTUAL → PARAMETRIC (only if no web signals)
+  if (/^(what is|what are|explain|define|how does .+ work)\b/i.test(query)) {
+    if (signals.filter(s => s.pushesTo === 'WEB_SEARCH').length === 0) {
+      signals.push({ type: 'conceptual', detected: 'definition/explanation', pushesTo: 'PARAMETRIC' });
+    }
+  }
+  
+  // Calculate route
+  const webSignals = signals.filter(s => s.pushesTo === 'WEB_SEARCH').length;
+  const paramSignals = signals.filter(s => s.pushesTo === 'PARAMETRIC').length;
+  
+  let route: 'WEB_SEARCH' | 'PARAMETRIC' | 'HYBRID';
+  let confidence: number;
+  
+  if (webSignals > 0 && paramSignals === 0) {
+    route = 'WEB_SEARCH';
+    confidence = Math.min(95, 60 + webSignals * 12);
+  } else if (paramSignals > 0 && webSignals === 0) {
+    route = 'PARAMETRIC';
+    confidence = Math.min(85, 50 + paramSignals * 15);
+  } else if (webSignals === 0 && paramSignals === 0) {
+    route = 'HYBRID';
+    confidence = 50;
+  } else {
+    route = 'HYBRID';
+    confidence = 60 + Math.abs(webSignals - paramSignals) * 5;
+  }
+  
+  return { route, confidence, signals };
+}
+
+// ============================================================
+// SUMMARY BUILDER
+// ============================================================
+
+function buildSummary(suggestions: QueryVariant[], filtered: FilteredVariant[]): QuerySuggestionsSummary {
+  const byType: Record<string, number> = {};
+  suggestions.forEach(s => {
+    byType[s.variantType] = (byType[s.variantType] || 0) + 1;
+  });
+  
+  const avgScore = suggestions.length > 0
+    ? suggestions.reduce((acc, s) => acc + (s.intentScore || 0), 0) / suggestions.length
+    : 0;
+  
+  const entityPreservationRate = suggestions.length > 0
+    ? suggestions.reduce((acc, s) => acc + (s.entityOverlap || 0), 0) / suggestions.length
+    : 0;
+
+  return {
+    total_generated: suggestions.length + filtered.length,
+    by_type: byType,
+    high_intent: suggestions.filter(s => s.intentCategory === 'HIGH').length,
+    medium_intent: suggestions.filter(s => s.intentCategory === 'MEDIUM').length,
+    filtered_drift: filtered.length,
+    avg_intent_score: avgScore,
+    entity_preservation_rate: entityPreservationRate,
+    web_search_likely: suggestions.filter(s => s.routePrediction?.route === 'WEB_SEARCH').length,
+    parametric_likely: suggestions.filter(s => s.routePrediction?.route === 'PARAMETRIC').length,
+    hybrid_likely: suggestions.filter(s => s.routePrediction?.route === 'HYBRID').length,
+  };
+}
+
+// ============================================================
+// STEP 7: GAP ANALYSIS
 // ============================================================
 
 async function detectCoverageGaps(
   content: string,
   intelligence: ContentIntelligence,
   topicFocus: TopicFocus,
-  suggestions: QuerySuggestion[]
+  suggestions: QueryVariant[],
+  entities: ExtractedEntities
 ): Promise<CoverageGapsAnalysis> {
   
-  // Pre-compute intent coverage stats
-  const intentCoverage = {
-    definition: suggestions.filter(s => s.intentType === 'definition' && s.matchStrength === 'strong').length,
-    process: suggestions.filter(s => s.intentType === 'process' && s.matchStrength === 'strong').length,
-    comparison: suggestions.filter(s => s.intentType === 'comparison' && s.matchStrength === 'strong').length,
-    evaluation: suggestions.filter(s => s.intentType === 'evaluation' && s.matchStrength === 'strong').length,
-    problem: suggestions.filter(s => s.intentType === 'problem' && s.matchStrength === 'strong').length,
-    specification: suggestions.filter(s => s.intentType === 'specification' && s.matchStrength === 'strong').length,
-  };
+  const systemPrompt = `You identify content gaps for "${topicFocus.primaryEntity}".
 
-  // Pre-compute coverage statistics for summary
-  const coverageStats = {
-    total: suggestions.length,
-    strong: suggestions.filter(s => s.matchStrength === 'strong').length,
-    partial: suggestions.filter(s => s.matchStrength === 'partial').length,
-    weak: suggestions.filter(s => s.matchStrength === 'weak').length,
-    none: suggestions.filter(s => !s.matchStrength).length,
-  };
+Analyze which HIGH/MEDIUM intent queries have weak coverage and recommend fixes.
 
-  // Identify HIGH/MEDIUM intent queries with gaps (focus for deep analysis)
-  const criticalCandidates = suggestions.filter(s => 
-    (s.intentCategory === 'HIGH' || s.intentCategory === 'MEDIUM') &&
-    (s.matchStrength === 'weak' || s.matchStrength === 'partial' || !s.matchStrength)
-  );
-
-  // Identify WEB_SEARCH queries (higher competitive value)
-  const webSearchGaps = criticalCandidates.filter(s => s.routePrediction === 'WEB_SEARCH');
-
-  const systemPrompt = `You are a content strategist using Perplexity-style ITERATIVE DEEP RESEARCH methodology.
-
-The content is about "${topicFocus.primaryEntity}" (${topicFocus.contentPurpose}).
-
-You have received query suggestions with INTENT PRESERVATION SCORES from the previous analysis step.
-Your job: Perform deep gap analysis focusing on HIGH-VALUE gaps and generate actionable follow-up queries.
-
-=== TASK 1: CRITICAL GAP ANALYSIS ===
-
-For each query where:
-- intentCategory = HIGH or MEDIUM
-- matchStrength = weak, partial, or none
-- routePrediction = WEB_SEARCH (higher priority)
-
-Analyze:
-
-1. CURRENT COVERAGE STATUS:
-   - "none": Content doesn't address this at all
-   - "weak": Content mentions tangentially but lacks depth
-   - "partial": Content addresses some aspects but missing key elements
-
-2. MISSING ELEMENTS: What specific facts, sections, or details are needed?
-   Be specific: "Missing: specific timeframe (e.g., '60-90 days'), phase breakdown, cost implications"
-
-3. COMPETITIVE VALUE:
-   - "critical": Competitors definitely cover this (you're at a disadvantage)
-   - "high": Likely covered by competitors (important gap)
-   - "medium": Some competitors cover this (nice to have)
-   - "low": Niche topic, low competitive pressure
-
-4. ESTIMATED EFFORT:
-   - "quick_fix": Add 1-2 sentences or a bullet list (5-10 min)
-   - "moderate": Add new paragraph or subsection (20-30 min)
-   - "major_rewrite": Requires new section or significant restructuring (60+ min)
-
-5. RECOMMENDATION: Specific, actionable instruction.
-   Example: "Add subsection 'Implementation Timeline' with phase breakdown: Week 1-2 (kickoff), Week 3-6 (training). Include specific timeframes. 250-300 words."
-
-=== TASK 2: FOLLOW-UP QUERY GENERATION (Perplexity Deep Research) ===
-
-For each CRITICAL gap (HIGH intent + no/weak coverage + WEB_SEARCH):
-Generate 2-3 follow-up queries that would help fill this gap.
-
-FOLLOW-UP QUERY TYPES:
-- CLARIFICATION: More specific version ("RPO costs" → "average RPO cost per hire 2026")
-- SPECIFICATION: Adding context ("RPO implementation" → "RPO implementation timeline for startups")
-- DECOMPOSITION: Breaking into sub-queries ("RPO pricing models" → "per-hire RPO pricing", "retained RPO pricing")
-- ALTERNATIVE: Different angle ("RPO vendor selection" → "questions to ask RPO vendor before signing")
-
-For each follow-up query, specify:
-- Which gap it targets
-- What content would answer it
-- Priority (critical/high/medium/low)
-
-=== TASK 3: COMPETITIVE GAP ANALYSIS ===
-
-Identify gaps where competitors likely have an advantage:
-
-COMMON COMPETITIVE GAPS:
-- pricing: Specific price ranges, cost breakdowns, pricing model comparisons
-- comparison: Direct competitor comparisons, feature matrices, pros/cons
-- case_study: Real examples, customer stories, success metrics
-- specific_detail: Numbers, dates, timeframes, technical specs
-- process: Step-by-step guides, implementation checklists
-- timeline: Duration estimates, milestone schedules
-
-For each gap, explain:
-- What competitors likely provide
-- Why users search for this
-- How difficult to close this gap
-- Recommendation
-
-=== TASK 4: PRIORITY ACTION LIST ===
-
-Rank top 5-10 actions by:
-- Impact (how many HIGH intent queries improved?)
-- Effort (quick vs major work)
-- Competitive urgency (are competitors winning here?)
-
-For each action:
-- Rank (1, 2, 3...)
-- Clear action description
-- Target queries it helps
-- Impact and effort estimate
-- Expected improvement: "Would improve 3 HIGH intent queries from weak to strong"
-
-=== OUTPUT FORMAT (JSON) ===
-
+OUTPUT FORMAT (JSON):
 {
   "critical_gaps": [
     {
-      "query": "the specific query that reveals this gap",
-      "intentScore": 0.78,
+      "query": "the query revealing gap",
       "intentCategory": "HIGH",
-      "routePrediction": "WEB_SEARCH",
-      "currentCoverage": "weak",
-      "missingElements": ["Specific element 1", "Specific element 2"],
-      "competitiveValue": "critical",
-      "estimatedEffort": "moderate",
-      "recommendation": "Specific actionable recommendation"
-    }
-  ],
-  "follow_up_queries": [
-    {
-      "query": "the follow-up query",
-      "targetGap": "which critical gap this addresses",
-      "queryType": "SPECIFICATION",
-      "expectedCoverage": "What content would answer this",
-      "priority": "high"
-    }
-  ],
-  "competitive_gaps": [
-    {
-      "query": "the query revealing competitive gap",
-      "gapType": "pricing",
-      "competitorAdvantage": "What competitors likely provide",
-      "difficulty": "moderate",
-      "recommendation": "How to address this gap"
+      "currentCoverage": "weak|none|partial",
+      "missingElements": ["specific element 1", "element 2"],
+      "recommendation": "Specific actionable fix"
     }
   ],
   "priority_actions": [
     {
       "rank": 1,
-      "action": "Clear action description",
-      "targetQueries": ["query1", "query2"],
-      "impact": "critical",
-      "effort": "moderate",
-      "expectedImprovement": "Would improve X queries from Y to Z coverage"
+      "action": "Clear action",
+      "targetQueries": ["query1"],
+      "impact": "high",
+      "effort": "moderate"
     }
   ],
-  "legacy_gaps": [
+  "follow_up_queries": [
     {
-      "gapType": "missing_intent|incomplete_entity|journey_gap|audience_gap|objection_gap",
-      "query": "The specific search query this gap represents",
-      "intentType": "definition|process|comparison|evaluation|problem|specification",
-      "severity": "critical|important|nice-to-have",
-      "reason": "Why this gap matters",
-      "evidence": "What reveals this gap",
-      "suggestedFix": "How to address this gap",
-      "relatedEntities": ["entity1", "entity2"],
-      "estimatedEffort": "small|medium|large"
+      "query": "follow-up query",
+      "targetGap": "which gap this addresses",
+      "priority": "high"
     }
   ]
 }`;
 
-  // Build context from suggestions
-  const criticalCandidatesText = criticalCandidates.slice(0, 20).map(s => 
-    `- "${s.query}" | Intent: ${s.intentCategory} (${s.intentScore?.toFixed(2) || 'N/A'}) | Route: ${s.routePrediction} | Coverage: ${s.matchStrength} | Reason: ${s.matchReason}`
-  ).join('\n') || '(none)';
+  const weakQueries = suggestions
+    .filter(s => s.intentCategory === 'HIGH' || s.intentCategory === 'MEDIUM')
+    .slice(0, 15)
+    .map(s => `- "${s.query}" | Intent: ${s.intentCategory} | Score: ${(s.intentScore || 0).toFixed(2)}`)
+    .join('\n');
 
-  const webSearchGapsText = webSearchGaps.slice(0, 10).map(s =>
-    `- "${s.query}" | Score: ${s.intentScore?.toFixed(2) || 'N/A'} | Coverage: ${s.matchStrength}`
-  ).join('\n') || '(none)';
+  const userPrompt = `TOPIC: ${topicFocus.primaryEntity}
+PRIMARY ENTITIES: ${entities.primary.join(', ')}
 
-  const unexplainedEntities = intelligence.coreEntities
-    ?.filter(e => !e.isExplained && e.role !== 'example')
-    .map(e => `- ${e.name} (${e.type}, mentioned ${e.mentionCount}x)`)
-    .join('\n') || '(none)';
+HIGH/MEDIUM INTENT QUERIES:
+${weakQueries}
 
-  const implicitKnowledge = intelligence.implicitKnowledge?.map(k => `- ${k}`).join('\n') || '(none)';
+CONTENT PREVIEW:
+${content.slice(0, 2000)}
 
-  const userPrompt = `PRIMARY TOPIC: ${topicFocus.primaryEntity}
-CONTENT PURPOSE: ${topicFocus.contentPurpose}
-TARGET AUDIENCE: ${intelligence.primaryAudience?.role || 'Unknown'} (${intelligence.primaryAudience?.expertiseLevel || 'Unknown'})
+Identify gaps and recommend fixes:`;
 
-=== COVERAGE STATISTICS ===
-Total suggestions: ${coverageStats.total}
-- Strong coverage: ${coverageStats.strong}
-- Partial coverage: ${coverageStats.partial}
-- Weak coverage: ${coverageStats.weak}
-- No coverage: ${coverageStats.none}
-
-=== INTENT COVERAGE (strong matches only) ===
-- Definition queries: ${intentCoverage.definition} ${intentCoverage.definition === 0 ? '⚠️ MISSING' : ''}
-- Process queries: ${intentCoverage.process} ${intentCoverage.process === 0 ? '⚠️ MISSING' : ''}
-- Comparison queries: ${intentCoverage.comparison} ${intentCoverage.comparison === 0 ? '⚠️ MISSING' : ''}
-- Evaluation queries: ${intentCoverage.evaluation} ${intentCoverage.evaluation === 0 ? '⚠️ MISSING' : ''}
-- Problem queries: ${intentCoverage.problem} ${intentCoverage.problem === 0 ? '⚠️ MISSING' : ''}
-- Specification queries: ${intentCoverage.specification} ${intentCoverage.specification === 0 ? '⚠️ MISSING' : ''}
-
-=== CRITICAL GAP CANDIDATES (HIGH/MEDIUM intent + weak/no coverage) ===
-${criticalCandidatesText}
-
-=== WEB SEARCH GAPS (highest competitive priority) ===
-${webSearchGapsText}
-
-=== ENTITIES MENTIONED BUT NOT EXPLAINED ===
-${unexplainedEntities}
-
-=== IMPLICIT KNOWLEDGE ASSUMPTIONS ===
-${implicitKnowledge}
-
-=== FULL SUGGESTIONS DATA FOR CONTEXT ===
-${JSON.stringify(suggestions.slice(0, 30), null, 2)}
-
-Perform iterative deep research gap analysis for "${topicFocus.primaryEntity}" content:`;
-
-  const response = await callAI(systemPrompt, userPrompt, 'json_object', 3072);
+  const response = await callAI(systemPrompt, userPrompt, 'json_object', 2048);
   const parsed = parseAIResponse(response, {
-    critical_gaps: [], 
-    follow_up_queries: [], 
-    competitive_gaps: [],
+    critical_gaps: [],
     priority_actions: [],
-    legacy_gaps: []
+    follow_up_queries: []
   });
   
-  // Build the comprehensive analysis response
-  const analysis: CoverageGapsAnalysis = {
-    // Legacy fields for backward compatibility
-    missing_queries: (parsed.legacy_gaps || [])
-      .filter((g: LegacyGap) => g.severity === 'critical')
-      .map((g: LegacyGap) => g.query),
-    weak_queries: (parsed.legacy_gaps || [])
-      .filter((g: LegacyGap) => g.severity === 'important')
-      .map((g: LegacyGap) => g.query),
-    opportunities: (parsed.legacy_gaps || [])
-      .filter((g: LegacyGap) => g.severity === 'nice-to-have')
-      .map((g: LegacyGap) => g.query),
-    
-    // New enhanced fields
-    critical_gaps: parsed.critical_gaps || [],
-    follow_up_queries: parsed.follow_up_queries || [],
-    competitive_gaps: parsed.competitive_gaps || [],
-    priority_actions: parsed.priority_actions || [],
-    
-    // Gap summary statistics
-    gap_summary: {
-      total_suggestions: coverageStats.total,
-      strong_coverage: coverageStats.strong,
-      partial_coverage: coverageStats.partial,
-      weak_coverage: coverageStats.weak,
-      no_coverage: coverageStats.none,
-      critical_gaps: (parsed.critical_gaps || []).filter((g: CriticalGap) => g.intentCategory === 'HIGH').length,
-      opportunity_gaps: (parsed.critical_gaps || []).filter((g: CriticalGap) => 
-        g.intentCategory === 'HIGH' && g.currentCoverage === 'weak'
-      ).length,
-      low_priority_gaps: (parsed.critical_gaps || []).filter((g: CriticalGap) => 
-        g.intentCategory === 'MEDIUM' || g.intentCategory === 'LOW'
-      ).length,
-    },
-    
-    // Include legacy gaps for full compatibility
-    legacy_gaps: parsed.legacy_gaps || parsed.gaps || [],
-  };
-  
-  return analysis;
-}
-
-// Helper function to build minimal gap analysis when skipping Step 4 for timeout
-function buildMinimalGapAnalysis(suggestions: QuerySuggestion[]): CoverageGapsAnalysis {
-  const coverageStats = {
-    total: suggestions.length,
-    strong: suggestions.filter(s => s.matchStrength === 'strong').length,
-    partial: suggestions.filter(s => s.matchStrength === 'partial').length,
-    weak: suggestions.filter(s => s.matchStrength === 'weak').length,
-    none: suggestions.filter(s => !s.matchStrength).length,
-  };
-
-  // Build critical gaps from HIGH intent + weak coverage
-  const criticalGapsFromSuggestions: CriticalGap[] = suggestions
-    .filter(s => 
-      s.intentCategory === 'HIGH' &&
-      (s.matchStrength === 'weak' || !s.matchStrength) &&
-      s.routePrediction === 'WEB_SEARCH'
-    )
-    .slice(0, 5)
-    .map(s => ({
-      query: s.query,
-      intentScore: s.intentScore || 0.75,
-      intentCategory: 'HIGH' as const,
-      routePrediction: s.routePrediction || 'WEB_SEARCH',
-      currentCoverage: (s.matchStrength || 'none') as 'none' | 'weak' | 'partial',
-      missingElements: ['Full gap analysis skipped - run again for detailed recommendations'],
-      competitiveValue: 'high' as const,
-      estimatedEffort: 'moderate' as const,
-      recommendation: `This HIGH intent query has ${s.matchStrength || 'no'} coverage. Consider adding content to address: "${s.query}"`,
-    }));
-
   return {
     missing_queries: [],
     weak_queries: [],
     opportunities: [],
-    critical_gaps: criticalGapsFromSuggestions,
+    critical_gaps: parsed.critical_gaps || [],
+    follow_up_queries: parsed.follow_up_queries || [],
+    competitive_gaps: [],
+    priority_actions: parsed.priority_actions || [],
+    gap_summary: {
+      total_suggestions: suggestions.length,
+      strong_coverage: 0,
+      partial_coverage: 0,
+      weak_coverage: 0,
+      no_coverage: 0,
+      critical_gaps: (parsed.critical_gaps || []).length,
+      opportunity_gaps: 0,
+      low_priority_gaps: 0,
+    },
+    legacy_gaps: [],
+  };
+}
+
+function buildMinimalGapAnalysis(suggestions: QueryVariant[]): CoverageGapsAnalysis {
+  return {
+    missing_queries: [],
+    weak_queries: [],
+    opportunities: [],
+    critical_gaps: [],
     follow_up_queries: [],
     competitive_gaps: [],
-    priority_actions: criticalGapsFromSuggestions.slice(0, 3).map((g, i) => ({
-      rank: i + 1,
-      action: `Address gap: "${g.query}"`,
-      targetQueries: [g.query],
-      impact: 'high' as const,
-      effort: 'moderate' as const,
-      expectedImprovement: 'Would improve coverage for HIGH intent query',
-    })),
+    priority_actions: [],
     gap_summary: {
-      total_suggestions: coverageStats.total,
-      strong_coverage: coverageStats.strong,
-      partial_coverage: coverageStats.partial,
-      weak_coverage: coverageStats.weak,
-      no_coverage: coverageStats.none,
-      critical_gaps: criticalGapsFromSuggestions.length,
+      total_suggestions: suggestions.length,
+      strong_coverage: 0,
+      partial_coverage: 0,
+      weak_coverage: 0,
+      no_coverage: 0,
+      critical_gaps: 0,
       opportunity_gaps: 0,
       low_priority_gaps: 0,
     },
@@ -867,11 +934,6 @@ interface TopicFocus {
   contentPurpose: string;
   targetAction: string;
   confidence: number;
-  alternativeInterpretations?: Array<{
-    entity: string;
-    confidence: number;
-    reason: string;
-  }>;
 }
 
 interface ContentIntelligence {
@@ -888,20 +950,13 @@ interface ContentIntelligence {
     role: string;
     isExplained: boolean;
     mentionCount: number;
-    sections: string[];
   }>;
   topicHierarchy: {
     broadCategory: string;
     specificNiche: string;
     exactFocus: string;
   };
-  semanticClusters: Array<{
-    clusterName: string;
-    concepts: string[];
-    coverageDepth: string;
-  }>;
   contentStructure: Record<string, boolean>;
-  implicitKnowledge: string[];
 }
 
 interface PrimaryQueryResult {
@@ -909,216 +964,131 @@ interface PrimaryQueryResult {
   searchIntent: string;
   confidence: number;
   reasoning: string;
-  variants: Array<{
-    query: string;
-    popularity: string;
-  }>;
 }
 
-interface QuerySuggestion {
-  // EXISTING FIELDS
+interface QueryVariant {
   query: string;
-  intentType: string;
-  matchStrength: 'strong' | 'partial' | 'weak';
-  matchReason: string;
-  relevantSection: string | null;
-  confidence: number;
-  searchVolumeTier?: string;
-  competitiveness?: string;
-  
-  // INTENT PRESERVATION SCORING (Google Patent US 11,615,106)
-  variantType: 'SYNONYM' | 'GRANULAR' | 'SPECIFICATION' | 'TEMPORAL' | 'RELATED';
-  semanticSimilarity: number;        // 0-1 (to primary query)
-  entityOverlap: number;             // 0-1 (shared entities ratio)
-  intentScore: number;               // (semantic × 0.7) + (entity × 0.3)
-  intentCategory: 'HIGH' | 'MEDIUM' | 'LOW';
-  
-  // ROUTE PREDICTION (Apple research)
-  routePrediction: 'WEB_SEARCH' | 'PARAMETRIC' | 'HYBRID';
-  routeConfidence: number;           // 0-100
-  
-  // ENTITY ANALYSIS
-  primaryQueryEntities: string[];
-  suggestedQueryEntities: string[];
+  variantType: GoogleVariantType | string;
   sharedEntities: string[];
+  entityOverlap: number;
+  semanticEstimate: number;
+  userJourneyPosition: 'early' | 'middle' | 'late';
   
-  // DRIFT DETECTION
-  driftReason: string | null;        // If intentCategory is LOW
-  
-  // FALLBACK INDICATOR
-  isFallback?: boolean;              // True if generated from entity fallback
+  // Calculated server-side
+  intentScore?: number;
+  intentCategory?: 'HIGH' | 'MEDIUM' | 'LOW';
+  driftReason?: string | null;
+  routePrediction?: RouteInfo;
+  isFallback?: boolean;
 }
 
-interface QuerySuggestionsResponse {
-  suggestions: QuerySuggestion[];
-  summary: {
-    total_generated: number;
-    high_intent: number;
-    medium_intent: number;
-    low_intent: number;
-    filtered_count: number;
-    avg_intent_score: number;
-    web_search_likely: number;
-    parametric_likely: number;
-    hybrid_likely: number;
-  };
+interface FilteredVariant {
+  query: string;
+  variantType: GoogleVariantType | string;
+  intentScore: number;
+  driftReason: string;
 }
 
-// ============================================================
-// COVERAGE GAP ANALYSIS TYPES (Perplexity Deep Research)
-// ============================================================
+interface QuerySuggestionsSummary {
+  total_generated: number;
+  by_type: Record<string, number>;
+  high_intent: number;
+  medium_intent: number;
+  filtered_drift: number;
+  avg_intent_score: number;
+  entity_preservation_rate: number;
+  web_search_likely: number;
+  parametric_likely: number;
+  hybrid_likely: number;
+}
 
 interface CriticalGap {
-  query: string;                          // The query we can't answer
-  intentScore: number;                    // From Step 3
-  intentCategory: 'HIGH' | 'MEDIUM' | 'LOW';
-  routePrediction: 'WEB_SEARCH' | 'PARAMETRIC' | 'HYBRID';
-  currentCoverage: 'none' | 'weak' | 'partial';
-  missingElements: string[];              // Specific facts/sections needed
-  competitiveValue: 'critical' | 'high' | 'medium' | 'low';
-  estimatedEffort: 'quick_fix' | 'moderate' | 'major_rewrite';
-  recommendation: string;                 // What to do about it
-}
-
-interface FollowUpQuery {
-  query: string;                          // The follow-up query
-  targetGap: string;                      // Which gap this addresses
-  queryType: 'CLARIFICATION' | 'SPECIFICATION' | 'DECOMPOSITION' | 'ALTERNATIVE';
-  expectedCoverage: string;               // What content would answer this
-  priority: 'critical' | 'high' | 'medium' | 'low';
-}
-
-interface GapSummary {
-  total_suggestions: number;              // From Step 3
-  strong_coverage: number;                // matchStrength = strong
-  partial_coverage: number;               // matchStrength = partial
-  weak_coverage: number;                  // matchStrength = weak
-  no_coverage: number;                    // matchStrength not present or none
-  critical_gaps: number;                  // HIGH intent + no coverage
-  opportunity_gaps: number;               // HIGH intent + weak coverage
-  low_priority_gaps: number;              // MEDIUM/LOW intent + no coverage
-}
-
-interface CompetitiveGap {
   query: string;
-  gapType: 'pricing' | 'comparison' | 'case_study' | 'specific_detail' | 'process' | 'timeline';
-  competitorAdvantage: string;            // What competitors likely provide
-  difficulty: 'easy' | 'moderate' | 'hard';
+  intentCategory: string;
+  currentCoverage: string;
+  missingElements: string[];
   recommendation: string;
 }
 
-interface PriorityAction {
-  rank: number;                           // 1, 2, 3...
-  action: string;                         // "Add pricing section"
-  targetQueries: string[];                // Which queries this helps
-  impact: 'critical' | 'high' | 'medium' | 'low';
-  effort: 'quick' | 'moderate' | 'major';
-  expectedImprovement: string;            // "Would improve 5 HIGH intent queries from weak to strong"
+interface FollowUpQuery {
+  query: string;
+  targetGap: string;
+  priority: string;
 }
 
-interface LegacyGap {
-  gapType: string;
-  query: string;
-  intentType: string;
-  severity: 'critical' | 'important' | 'nice-to-have';
-  reason: string;
-  evidence: string;
-  suggestedFix: string;
-  relatedEntities: string[];
-  estimatedEffort: string;
+interface GapSummary {
+  total_suggestions: number;
+  strong_coverage: number;
+  partial_coverage: number;
+  weak_coverage: number;
+  no_coverage: number;
+  critical_gaps: number;
+  opportunity_gaps: number;
+  low_priority_gaps: number;
+}
+
+interface PriorityAction {
+  rank: number;
+  action: string;
+  targetQueries: string[];
+  impact: string;
+  effort: string;
 }
 
 interface CoverageGapsAnalysis {
-  // Legacy fields for backward compatibility
   missing_queries: string[];
   weak_queries: string[];
   opportunities: string[];
-  
-  // New enhanced fields (Perplexity Deep Research)
-  critical_gaps: CriticalGap[];           // High-priority gaps requiring attention
-  follow_up_queries: FollowUpQuery[];     // Generated queries targeting gaps
-  gap_summary: GapSummary;                // Statistics about coverage
-  competitive_gaps: CompetitiveGap[];     // What competitors likely cover
-  priority_actions: PriorityAction[];     // Ranked list of what to fix first
-  
-  // Legacy gaps for full compatibility
-  legacy_gaps: LegacyGap[];
+  critical_gaps: CriticalGap[];
+  follow_up_queries: FollowUpQuery[];
+  gap_summary: GapSummary;
+  competitive_gaps: any[];
+  priority_actions: PriorityAction[];
+  legacy_gaps: any[];
 }
-
-// Legacy type alias for backward compatibility
-type CoverageGap = LegacyGap;
 
 // ============================================================
 // ROBUST JSON PARSING
 // ============================================================
 
 function parseAIResponse(response: string, defaultValue: any = null): any {
-  // First, try direct parsing
   try {
     return JSON.parse(response);
   } catch (e) {
     console.log('Direct JSON parse failed, attempting recovery...');
   }
 
-  // Try to extract JSON from markdown code blocks
   const codeBlockMatch = response.match(/```(?:json)?\s*([\s\S]*?)```/);
   if (codeBlockMatch) {
     try {
       return JSON.parse(codeBlockMatch[1].trim());
-    } catch (e) {
-      console.log('Code block JSON parse failed');
-    }
+    } catch (e) {}
   }
 
-  // Try to find JSON object boundaries
   const jsonMatch = response.match(/\{[\s\S]*\}/);
   if (jsonMatch) {
     try {
       return JSON.parse(jsonMatch[0]);
-    } catch (e) {
-      console.log('JSON object extraction failed');
-    }
+    } catch (e) {}
   }
 
-  // Attempt to fix common truncation issues
+  // Fix truncation
   let cleaned = response.trim();
+  const lastComplete = Math.max(cleaned.lastIndexOf('",'), cleaned.lastIndexOf('"}'));
   
-  // Fix unterminated strings by finding the last complete property
-  const lastCompleteComma = cleaned.lastIndexOf('",');
-  const lastCompleteBrace = cleaned.lastIndexOf('"}');
-  const lastCompletePosition = Math.max(lastCompleteComma, lastCompleteBrace);
-  
-  if (lastCompletePosition > 0) {
-    // Truncate to last complete property and try to close the structure
-    let truncated = cleaned.substring(0, lastCompletePosition + 2);
-    
-    // Count open braces and brackets to close them
+  if (lastComplete > 0) {
+    let truncated = cleaned.substring(0, lastComplete + 2);
     const openBraces = (truncated.match(/\{/g) || []).length;
     const closeBraces = (truncated.match(/\}/g) || []).length;
     const openBrackets = (truncated.match(/\[/g) || []).length;
     const closeBrackets = (truncated.match(/\]/g) || []).length;
     
-    // Close any unclosed structures
     truncated += ']'.repeat(Math.max(0, openBrackets - closeBrackets));
     truncated += '}'.repeat(Math.max(0, openBraces - closeBraces));
     
     try {
-      const result = JSON.parse(truncated);
-      console.log('JSON recovered after truncation fix');
-      return result;
-    } catch (e) {
-      console.log('Truncation fix failed:', e);
-    }
-  }
-
-  // Last resort: try to extract array content
-  const arrayMatch = response.match(/\[[\s\S]*?\]/);
-  if (arrayMatch) {
-    try {
-      return { items: JSON.parse(arrayMatch[0]) };
-    } catch (e) {
-      console.log('Array extraction failed');
-    }
+      return JSON.parse(truncated);
+    } catch (e) {}
   }
 
   console.error('All JSON parsing attempts failed, returning default');
@@ -1126,7 +1096,7 @@ function parseAIResponse(response: string, defaultValue: any = null): any {
 }
 
 // ============================================================
-// AI HELPER - Uses OpenAI GPT-5.2
+// AI HELPER
 // ============================================================
 
 async function callAI(
@@ -1159,10 +1129,10 @@ async function callAI(
 
   if (!response.ok) {
     if (response.status === 429) {
-      throw new Error('Rate limit exceeded. Please try again in a moment.');
+      throw new Error('Rate limit exceeded. Please try again.');
     }
     if (response.status === 402) {
-      throw new Error('AI credits exhausted. Please add credits to continue.');
+      throw new Error('AI credits exhausted.');
     }
     const errorData = await response.json().catch(() => ({}));
     throw new Error(`OpenAI API error: ${errorData.error?.message || response.status}`);
