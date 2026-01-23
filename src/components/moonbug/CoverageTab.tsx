@@ -130,6 +130,16 @@ export function CoverageTab({
     return chunks[activeQuery.assignedChunk.index];
   }, [activeQuery, chunks]);
   
+  // Derive content summary from chunks
+  const contentSummary = useMemo(() => {
+    if (!chunks.length) return '';
+    const headings = chunks
+      .map(c => c.headingPath?.slice(-1)[0])
+      .filter(Boolean)
+      .slice(0, 10);
+    return `Document covers: ${headings.join(', ')}`;
+  }, [chunks]);
+  
   // Get initial optimization state for active query
   const activeOptState = activeQuery 
     ? coverageState.optimizationStates[activeQuery.id] 
@@ -303,6 +313,8 @@ export function CoverageTab({
         isOpen={!!activeQuery}
         queryItem={activeQuery}
         chunk={activeChunk}
+        chunks={chunks}
+        contentSummary={contentSummary}
         initialOptState={activeOptState}
         onClose={handleClosePanel}
         onUpdate={(updates) => {

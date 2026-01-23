@@ -11,6 +11,8 @@ import type { LayoutAwareChunk } from '@/lib/layout-chunker';
 interface UseQueryOptimizationProps {
   queryItem: QueryWorkItem;
   chunk?: LayoutAwareChunk;
+  existingHeadings?: string[];      // All headings from the document
+  contentContext?: string;          // Brief summary of what the content covers
   initialState?: QueryOptimizationState;
   onStateChange: (state: QueryOptimizationState) => void;
 }
@@ -21,7 +23,9 @@ const DEFAULT_STATE: QueryOptimizationState = {
 
 export function useQueryOptimization({ 
   queryItem, 
-  chunk, 
+  chunk,
+  existingHeadings = [],
+  contentContext = '',
   initialState,
   onStateChange 
 }: UseQueryOptimizationProps) {
@@ -147,6 +151,105 @@ export function useQueryOptimization({
     }
   }, [queryItem, chunk, updateState]);
 
+  /**
+   * Generate a content brief for gap queries (no existing content)
+   */
+  const generateBrief = useCallback(async () => {
+    updateState({ step: 'analyzing', error: undefined });
+
+    try {
+      const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+      const supabaseKey = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
+      
+      const response = await fetch(`${supabaseUrl}/functions/v1/optimize-content-stream`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${supabaseKey}`,
+        },
+        body: JSON.stringify({
+          type: 'generate_gap_brief',
+          query: queryItem.query,
+          intentType: queryItem.intentType,
+          existingHeadings,
+          contentContext
+        })
+      });
+
+      if (!response.ok) {
+        if (response.status === 429) {
+          throw new Error('Rate limit exceeded. Please try again in a moment.');
+        }
+        if (response.status === 402) {
+          throw new Error('Usage limit reached. Please add credits to continue.');
+        }
+        throw new Error(`Request failed: ${response.status}`);
+      }
+
+      if (!response.body) {
+        throw new Error('No response body');
+      }
+
+      // Parse SSE response
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
+      let brief = '';
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        
+        buffer += decoder.decode(value, { stream: true });
+        
+        const lines = buffer.split('\n');
+        buffer = lines.pop() || '';
+        
+        for (const line of lines) {
+          if (line.startsWith('data: ')) {
+            const jsonStr = line.slice(6).trim();
+            if (jsonStr === '[DONE]') continue;
+            
+            try {
+              const event = JSON.parse(jsonStr);
+              
+              if (event.type === 'error') {
+                throw new Error(event.message);
+              }
+              
+              if (event.type === 'brief_complete' && event.brief) {
+                brief = event.brief;
+              }
+            } catch (e) {
+              if (e instanceof SyntaxError) continue;
+              throw e;
+            }
+          }
+        }
+      }
+
+      if (!brief) {
+        throw new Error('No brief returned from API');
+      }
+
+      updateState({
+        step: 'analysis_ready',
+        generatedAnalysis: brief,
+        userEditedAnalysis: brief,
+      });
+      
+      toast.success('Content brief generated successfully');
+    } catch (error) {
+      console.error('Brief generation error:', error);
+      const errorMessage = error instanceof Error ? error.message : 'Failed to generate brief';
+      updateState({
+        step: 'idle',
+        error: errorMessage
+      });
+      toast.error(errorMessage);
+    }
+  }, [queryItem, existingHeadings, contentContext, updateState]);
+
   const setUserAnalysis = useCallback((text: string) => {
     updateState({ userEditedAnalysis: text });
   }, [updateState]);
@@ -253,6 +356,111 @@ export function useQueryOptimization({
       toast.error(errorMessage);
     }
   }, [queryItem, chunk, state.userEditedAnalysis, updateState]);
+
+  /**
+   * Generate new content for gap queries based on the brief
+   */
+  const generateGapContent = useCallback(async () => {
+    if (!state.userEditedAnalysis?.trim()) {
+      toast.error('Please generate and review the content brief first');
+      return;
+    }
+    
+    updateState({ step: 'optimizing', error: undefined });
+
+    try {
+      const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+      const supabaseKey = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
+      
+      const response = await fetch(`${supabaseUrl}/functions/v1/optimize-content-stream`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${supabaseKey}`,
+        },
+        body: JSON.stringify({
+          type: 'generate_gap_content',
+          query: queryItem.query,
+          intentType: queryItem.intentType,
+          brief: state.userEditedAnalysis,
+          existingHeadings,
+          contentContext
+        })
+      });
+
+      if (!response.ok) {
+        if (response.status === 429) {
+          throw new Error('Rate limit exceeded. Please try again in a moment.');
+        }
+        if (response.status === 402) {
+          throw new Error('Usage limit reached. Please add credits to continue.');
+        }
+        throw new Error(`Request failed: ${response.status}`);
+      }
+
+      if (!response.body) {
+        throw new Error('No response body');
+      }
+
+      // Parse SSE response
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
+      let generatedContent = '';
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        
+        buffer += decoder.decode(value, { stream: true });
+        
+        const lines = buffer.split('\n');
+        buffer = lines.pop() || '';
+        
+        for (const line of lines) {
+          if (line.startsWith('data: ')) {
+            const jsonStr = line.slice(6).trim();
+            if (jsonStr === '[DONE]') continue;
+            
+            try {
+              const event = JSON.parse(jsonStr);
+              
+              if (event.type === 'error') {
+                throw new Error(event.message);
+              }
+              
+              if (event.type === 'content_complete' && event.content) {
+                generatedContent = event.content;
+              }
+            } catch (e) {
+              if (e instanceof SyntaxError) continue;
+              throw e;
+            }
+          }
+        }
+      }
+
+      if (!generatedContent) {
+        throw new Error('No content returned from API');
+      }
+
+      updateState({
+        step: 'optimization_ready',
+        generatedContent,
+        userEditedContent: generatedContent,
+      });
+      
+      toast.success('New content generated successfully');
+    } catch (error) {
+      console.error('Gap content generation error:', error);
+      const errorMessage = error instanceof Error ? error.message : 'Failed to generate content';
+      updateState({
+        step: 'analysis_ready',
+        error: errorMessage
+      });
+      toast.error(errorMessage);
+    }
+  }, [queryItem, state.userEditedAnalysis, existingHeadings, contentContext, updateState]);
 
   const setUserContent = useCallback((text: string) => {
     updateState({ userEditedContent: text });
@@ -376,8 +584,10 @@ export function useQueryOptimization({
   return {
     state,
     generateAnalysis,
+    generateBrief,
     setUserAnalysis,
     runOptimization,
+    generateGapContent,
     setUserContent,
     rescoreContent,
     approveOptimization,

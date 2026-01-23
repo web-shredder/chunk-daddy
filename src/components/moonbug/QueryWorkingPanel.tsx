@@ -3,7 +3,7 @@
  * Slide-over panel for optimizing individual queries
  */
 
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useMemo } from 'react';
 import { 
   ArrowLeft, 
   AlertTriangle, 
@@ -38,7 +38,7 @@ import { WorkingPanelEditor, MarkdownPreview } from '@/components/moonbug/Workin
 import { ScoreTooltip } from '@/components/moonbug/ScoreTooltip';
 import { ScoreInfoDialog } from '@/components/moonbug/ScoreInfoDialog';
 import { SCORE_DEFINITIONS, ScoreKey } from '@/constants/scoreDefinitions';
-import { extractMissingConcepts } from '@/utils/coverageHelpers';
+import { extractMissingConcepts, extractHeadingFromContent } from '@/utils/coverageHelpers';
 import type { QueryWorkItem, QueryIntentType, QueryOptimizationState } from '@/types/coverage';
 import type { LayoutAwareChunk } from '@/lib/layout-chunker';
 
@@ -46,6 +46,8 @@ interface QueryWorkingPanelProps {
   isOpen: boolean;
   queryItem?: QueryWorkItem;
   chunk?: LayoutAwareChunk;
+  chunks?: LayoutAwareChunk[];          // All chunks for context
+  contentSummary?: string;              // Summary of document content
   initialOptState?: QueryOptimizationState;
   onClose: () => void;
   onUpdate: (updates: Partial<QueryWorkItem>) => void;
@@ -180,6 +182,8 @@ export function QueryWorkingPanel({
   isOpen,
   queryItem,
   chunk,
+  chunks = [],
+  contentSummary = '',
   initialOptState,
   onClose,
   onUpdate,
@@ -189,18 +193,29 @@ export function QueryWorkingPanel({
   const [isScoresExpanded, setIsScoresExpanded] = useState(false);
   const [showOriginal, setShowOriginal] = useState(false);
   
+  // Derive existing headings from chunks
+  const existingHeadings = useMemo(() => {
+    return chunks
+      .map(c => c.headingPath?.slice(-1)[0])
+      .filter((h): h is string => !!h);
+  }, [chunks]);
+  
   // Use the optimization hook
   const { 
     state: optState, 
-    generateAnalysis, 
+    generateAnalysis,
+    generateBrief,
     setUserAnalysis, 
-    runOptimization, 
+    runOptimization,
+    generateGapContent,
     setUserContent,
     rescoreContent,
     approveOptimization
   } = useQueryOptimization({
     queryItem: queryItem!,
     chunk,
+    existingHeadings,
+    contentContext: contentSummary,
     initialState: initialOptState,
     onStateChange: (newState) => {
       if (queryItem) {
@@ -209,17 +224,36 @@ export function QueryWorkingPanel({
     },
   });
 
+  // Detect if this is a gap query
+  const isGapQuery = queryItem ? (queryItem.status === 'gap' || !chunk) : false;
+
   // Handle approve button click
   const handleApprove = useCallback(() => {
     const result = approveOptimization();
     
-    // Update the query item in parent state
-    onUpdate({
-      status: 'optimized',
-      isApproved: true,
-      approvedText: result.approvedText,
-      currentScores: result.finalScores
-    });
+    if (isGapQuery) {
+      // Update as a filled gap
+      const suggestedHeading = result.approvedText 
+        ? extractHeadingFromContent(result.approvedText) 
+        : undefined;
+      
+      onUpdate({
+        status: 'optimized',
+        isApproved: true,
+        isGap: false,  // No longer a gap
+        approvedText: result.approvedText,
+        currentScores: result.finalScores,
+        suggestedHeading,
+      });
+    } else {
+      // Existing optimization update
+      onUpdate({
+        status: 'optimized',
+        isApproved: true,
+        approvedText: result.approvedText,
+        currentScores: result.finalScores
+      });
+    }
     
     // Call the onApprove callback
     if (result.approvedText) {
@@ -230,7 +264,7 @@ export function QueryWorkingPanel({
     setTimeout(() => {
       onClose();
     }, 1500);
-  }, [approveOptimization, onUpdate, onApprove, onClose]);
+  }, [approveOptimization, onUpdate, onApprove, onClose, isGapQuery]);
 
   if (!queryItem) {
     return null;
@@ -242,8 +276,7 @@ export function QueryWorkingPanel({
   const chunkHeading = chunk?.headingPath?.slice(-1)[0] || 'Untitled Section';
   const chunkHeadingPath = chunk?.headingPath ?? [];
   
-  // Detect if this is a gap query
-  const isGapQuery = queryItem.status === 'gap' || !chunk;
+  // missingConcepts uses the already-defined isGapQuery
   const missingConcepts = isGapQuery ? extractMissingConcepts(queryItem.query) : [];
   
   const isAnalyzing = optState.step === 'analyzing';
@@ -479,7 +512,7 @@ export function QueryWorkingPanel({
                 </span>
                 <Button 
                   size="sm" 
-                  onClick={generateAnalysis}
+                  onClick={isGapQuery ? generateBrief : generateAnalysis}
                   disabled={isAnalyzing}
                 >
                   {isAnalyzing ? (
@@ -555,7 +588,7 @@ export function QueryWorkingPanel({
               <CardFooter className="border-t pt-4">
                 <Button 
                   className="ml-auto"
-                  onClick={runOptimization}
+                  onClick={isGapQuery ? generateGapContent : runOptimization}
                   disabled={!optState.userEditedAnalysis?.trim() || isOptimizing}
                 >
                   {isOptimizing ? (
