@@ -720,6 +720,104 @@ Format as a clear, actionable brief that a writer could use to rewrite this chun
             break;
           }
 
+          case 'optimize_single_chunk': {
+            const { 
+              query, 
+              intentType, 
+              originalChunkText, 
+              headingPath, 
+              analysisPrompt,
+              originalScores 
+            } = params;
+            
+            console.log(`Processing optimize_single_chunk for query: "${query?.slice(0, 50)}..."`);
+            
+            const systemPrompt = `You are an expert content optimizer specializing in AI search retrieval. Your task is to rewrite content chunks so they rank higher in RAG (Retrieval-Augmented Generation) systems like Google AI Overviews, Perplexity, and ChatGPT Search.
+
+You understand that optimized content should:
+- Open with a sentence that directly addresses or restates the query
+- Include key entities and terminology prominently (not buried in the middle)
+- Provide specific, concrete information rather than vague statements
+- Be structured for easy extraction of quotable answers
+- Maintain natural readability while being semantically aligned
+- Preserve the factual accuracy and intent of the original content
+
+IMPORTANT: Do not add information that wasn't implied by the original content or the analysis brief. Stay faithful to what the content is actually about.`;
+
+            const userPrompt = `Rewrite this chunk following the optimization analysis provided.
+
+TARGET QUERY: "${query}"
+INTENT TYPE: ${intentType || 'INFORMATIONAL'}
+
+HEADING CONTEXT:
+${(headingPath || []).join(' > ') || 'Root level'}
+
+ORIGINAL CHUNK:
+"""
+${originalChunkText}
+"""
+
+OPTIMIZATION ANALYSIS & INSTRUCTIONS:
+"""
+${analysisPrompt}
+"""
+
+CURRENT SCORES (for reference):
+- Passage Score: ${originalScores?.passageScore ?? 'N/A'}/100
+- Semantic Similarity: ${(originalScores?.semanticSimilarity ?? 0).toFixed?.(2) ?? originalScores?.semanticSimilarity ?? 'N/A'}
+- Lexical Score: ${(originalScores?.lexicalScore ?? 0).toFixed?.(2) ?? originalScores?.lexicalScore ?? 'N/A'}
+
+Rewrite the chunk following the analysis instructions. Output ONLY the rewritten chunk content, no explanations or meta-commentary. Maintain approximately the same length as the original (within 20%).`;
+
+            const response = await fetch(AI_GATEWAY_URL, {
+              method: 'POST',
+              headers: {
+                'Authorization': `Bearer ${LOVABLE_API_KEY}`,
+                'Content-Type': 'application/json',
+              },
+              body: JSON.stringify({
+                model: 'google/gemini-3-flash-preview',
+                messages: [
+                  { role: 'system', content: systemPrompt },
+                  { role: 'user', content: userPrompt }
+                ],
+                temperature: 0.7,
+                max_tokens: 2000,
+                stream: false,
+              }),
+            });
+
+            if (!response.ok) {
+              const errorText = await response.text();
+              console.error('AI gateway error:', response.status, errorText);
+              
+              if (response.status === 429) {
+                await sendEvent({ type: 'error', message: 'Rate limit exceeded. Please try again in a moment.' });
+              } else if (response.status === 402) {
+                await sendEvent({ type: 'error', message: 'Usage limit reached. Please add credits to continue.' });
+              } else {
+                await sendEvent({ type: 'error', message: `AI service error: ${response.status}` });
+              }
+              break;
+            }
+
+            const data = await response.json();
+            const optimizedContent = data.choices?.[0]?.message?.content;
+
+            if (!optimizedContent) {
+              await sendEvent({ type: 'error', message: 'No optimized content generated' });
+              break;
+            }
+
+            await sendEvent({
+              type: 'optimization_complete',
+              optimizedContent,
+            });
+            
+            console.log('Single chunk optimization completed successfully');
+            break;
+          }
+
           case 'apply_architecture_stream': {
             const { content, tasks } = params;
             let currentContent = content;

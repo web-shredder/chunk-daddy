@@ -3,7 +3,7 @@
  * Slide-over panel for optimizing individual queries
  */
 
-import { useState } from 'react';
+import { useState, useCallback } from 'react';
 import { 
   ArrowLeft, 
   AlertTriangle, 
@@ -13,7 +13,9 @@ import {
   RefreshCw,
   FileText,
   ArrowRight,
-  AlertCircle
+  AlertCircle,
+  FileEdit,
+  BarChart3
 } from 'lucide-react';
 import {
   Sheet,
@@ -78,6 +80,29 @@ function ScoreBox({ label, value }: { label: string; value: number }) {
   );
 }
 
+function ScoreCompare({ label, before, after }: { label: string; before: number; after: number }) {
+  const diff = after - before;
+  const isImproved = diff > 0;
+  const isDeclined = diff < 0;
+  
+  return (
+    <div className="text-center">
+      <div className="text-xs text-muted-foreground uppercase tracking-wide mb-1">{label}</div>
+      <div className="flex items-center justify-center gap-1">
+        <span className="text-muted-foreground">{Math.round(before)}</span>
+        <ArrowRight className="w-3 h-3 text-muted-foreground" />
+        <span className="font-medium">{Math.round(after)}</span>
+      </div>
+      <div className={cn(
+        'text-xs font-medium',
+        isImproved ? 'text-success' : isDeclined ? 'text-destructive' : 'text-muted-foreground'
+      )}>
+        {diff > 0 ? `+${Math.round(diff)}` : diff < 0 ? Math.round(diff) : '—'}
+      </div>
+    </div>
+  );
+}
+
 export function QueryWorkingPanel({
   isOpen,
   queryItem,
@@ -89,9 +114,16 @@ export function QueryWorkingPanel({
   onOptimizationStateChange,
 }: QueryWorkingPanelProps) {
   const [isScoresExpanded, setIsScoresExpanded] = useState(false);
+  const [showOriginal, setShowOriginal] = useState(false);
   
   // Use the optimization hook
-  const { state: optState, generateAnalysis, setUserAnalysis } = useQueryOptimization({
+  const { 
+    state: optState, 
+    generateAnalysis, 
+    setUserAnalysis, 
+    runOptimization, 
+    setUserContent 
+  } = useQueryOptimization({
     queryItem: queryItem!,
     chunk,
     initialState: initialOptState,
@@ -101,6 +133,12 @@ export function QueryWorkingPanel({
       }
     },
   });
+
+  // Stub for re-scoring (will be implemented in next prompt)
+  const handleRescore = useCallback(async () => {
+    console.log('Rescoring content...');
+    // Will be implemented in next prompt
+  }, []);
 
   if (!queryItem) {
     return null;
@@ -113,10 +151,15 @@ export function QueryWorkingPanel({
   const chunkHeadingPath = chunk?.headingPath ?? [];
   
   const isAnalyzing = optState.step === 'analyzing';
+  const isOptimizing = optState.step === 'optimizing';
   const hasAnalysis = !!optState.generatedAnalysis;
+  const hasOptimizedContent = !!optState.generatedContent;
   const isStep1Complete = optState.step === 'analysis_ready' || 
                           optState.step === 'optimizing' || 
                           optState.step === 'optimization_ready' ||
+                          optState.step === 'scoring' ||
+                          optState.step === 'approved';
+  const isStep2Complete = optState.step === 'optimization_ready' ||
                           optState.step === 'scoring' ||
                           optState.step === 'approved';
 
@@ -370,10 +413,25 @@ export function QueryWorkingPanel({
               <CardFooter className="border-t pt-4">
                 <Button 
                   className="ml-auto"
-                  disabled
+                  onClick={runOptimization}
+                  disabled={!optState.userEditedAnalysis?.trim() || isOptimizing}
                 >
-                  Run Optimization
-                  <ArrowRight className="w-4 h-4 ml-2" />
+                  {isOptimizing ? (
+                    <>
+                      <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                      Optimizing...
+                    </>
+                  ) : hasOptimizedContent ? (
+                    <>
+                      <RefreshCw className="w-4 h-4 mr-2" />
+                      Re-optimize
+                    </>
+                  ) : (
+                    <>
+                      Run Optimization
+                      <ArrowRight className="w-4 h-4 ml-2" />
+                    </>
+                  )}
                 </Button>
               </CardFooter>
             )}
@@ -381,46 +439,177 @@ export function QueryWorkingPanel({
 
           {/* Step 2: Optimized Content */}
           <Card className={cn(
-            !isStep1Complete && 'opacity-50'
+            (optState.step === 'idle' || optState.step === 'analyzing' || optState.step === 'analysis_ready') && !hasOptimizedContent 
+              && 'opacity-50 pointer-events-none'
           )}>
+            <CardHeader className="pb-3">
+              <div className="flex items-center justify-between">
+                <CardTitle className="text-base flex items-center gap-2">
+                  Step 2: Optimized Content
+                  {isStep2Complete && (
+                    <Badge variant="outline" className="text-xs bg-success/10 text-success border-success/30">
+                      Complete
+                    </Badge>
+                  )}
+                </CardTitle>
+                {isStep2Complete && (
+                  <Button 
+                    variant="outline" 
+                    size="sm"
+                    onClick={handleRescore}
+                    disabled={optState.step === 'scoring'}
+                  >
+                    {optState.step === 'scoring' ? (
+                      <>
+                        <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                        Scoring...
+                      </>
+                    ) : (
+                      <>
+                        <BarChart3 className="w-4 h-4 mr-2" />
+                        Re-score
+                      </>
+                    )}
+                  </Button>
+                )}
+              </div>
+              <CardDescription>
+                {isOptimizing 
+                  ? 'Generating optimized content...'
+                  : isStep2Complete
+                  ? 'Review and edit the optimized content below'
+                  : 'Complete Step 1 first'}
+              </CardDescription>
+            </CardHeader>
+            
+            <CardContent>
+              {isOptimizing ? (
+                <div className="flex items-center justify-center py-12">
+                  <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
+                  <span className="ml-3 text-muted-foreground">Generating optimized content...</span>
+                </div>
+              ) : hasOptimizedContent ? (
+                <div className="space-y-4">
+                  {/* Original vs Optimized comparison toggle */}
+                  <div className="flex items-center gap-2 mb-2">
+                    <Button
+                      variant={showOriginal ? "default" : "outline"}
+                      size="sm"
+                      onClick={() => setShowOriginal(true)}
+                    >
+                      Original
+                    </Button>
+                    <Button
+                      variant={!showOriginal ? "default" : "outline"}
+                      size="sm"
+                      onClick={() => setShowOriginal(false)}
+                    >
+                      Optimized
+                    </Button>
+                  </div>
+
+                  {showOriginal ? (
+                    <div className="p-4 bg-muted rounded-lg text-sm">
+                      <p className="text-xs text-muted-foreground uppercase tracking-wide mb-2">Original Content</p>
+                      <div className="whitespace-pre-wrap">{chunk?.text}</div>
+                    </div>
+                  ) : (
+                    <Textarea 
+                      className="min-h-[250px] text-sm"
+                      value={optState.userEditedContent || ''}
+                      onChange={(e) => setUserContent(e.target.value)}
+                      placeholder="Optimized content will appear here..."
+                    />
+                  )}
+
+                  {/* Word count comparison */}
+                  <div className="flex justify-between text-xs text-muted-foreground">
+                    <span>Original: {chunk?.text.split(/\s+/).length || 0} words</span>
+                    <span>Optimized: {optState.userEditedContent?.split(/\s+/).length || 0} words</span>
+                    <span>
+                      {(() => {
+                        const origLen = chunk?.text.split(/\s+/).length || 1;
+                        const newLen = optState.userEditedContent?.split(/\s+/).length || 0;
+                        const diff = Math.round(((newLen - origLen) / origLen) * 100);
+                        return diff >= 0 ? `+${diff}%` : `${diff}%`;
+                      })()}
+                    </span>
+                  </div>
+
+                  {/* Show rescored results if available */}
+                  {optState.lastScoredResults && (
+                    <div className="mt-4 p-4 bg-muted/50 rounded-lg">
+                      <p className="text-sm font-medium mb-3">Updated Scores</p>
+                      <div className="grid grid-cols-4 gap-3">
+                        <ScoreCompare 
+                          label="Passage" 
+                          before={queryItem.originalScores?.passageScore ?? 0}
+                          after={optState.lastScoredResults.passageScore}
+                        />
+                        <ScoreCompare 
+                          label="Semantic" 
+                          before={(queryItem.originalScores?.semanticSimilarity ?? 0) * 100}
+                          after={optState.lastScoredResults.semanticSimilarity * 100}
+                        />
+                        <ScoreCompare 
+                          label="Lexical" 
+                          before={(queryItem.originalScores?.lexicalScore ?? 0) * 100}
+                          after={optState.lastScoredResults.lexicalScore * 100}
+                        />
+                        <ScoreCompare 
+                          label="Entity" 
+                          before={(queryItem.originalScores?.entityOverlap ?? 0) * 100}
+                          after={optState.lastScoredResults.entityOverlap * 100}
+                        />
+                      </div>
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <div className="text-center py-8 text-muted-foreground">
+                  <FileEdit className="w-8 h-8 mx-auto mb-3 opacity-50" />
+                  <p className="text-sm">Complete analysis in Step 1, then run optimization</p>
+                </div>
+              )}
+            </CardContent>
+            
+            {isStep2Complete && (
+              <CardFooter className="border-t pt-4 flex justify-between">
+                <p className="text-xs text-muted-foreground">
+                  Edit the content as needed, then proceed to review
+                </p>
+                <Button disabled={!optState.userEditedContent?.trim()}>
+                  Continue to Review
+                  <ArrowRight className="w-4 h-4 ml-2" />
+                </Button>
+              </CardFooter>
+            )}
+          </Card>
+
+          {/* Step 3: Review & Approve */}
+          <Card className={cn(!isStep2Complete && 'opacity-50')}>
             <CardHeader>
               <CardTitle className="text-base flex items-center gap-2">
-                Step 2: Optimized Content
-                {isStep1Complete && (
+                Step 3: Review & Approve
+                {isStep2Complete && (
                   <Badge variant="outline" className="text-xs">Ready</Badge>
                 )}
               </CardTitle>
               <CardDescription>
-                {isStep1Complete 
-                  ? 'Click "Run Optimization" above to generate optimized content'
-                  : 'Complete Step 1 first'}
+                {isStep2Complete 
+                  ? 'Review changes and approve to apply to your content'
+                  : 'Waiting for Step 2...'}
               </CardDescription>
-            </CardHeader>
-            <CardContent>
-              <Textarea 
-                className="min-h-[120px]"
-                placeholder="Optimized content will appear here..."
-                disabled
-                value={optState.generatedContent ?? queryItem.optimizedText ?? ''}
-              />
-            </CardContent>
-          </Card>
-
-          {/* Step 3: Review & Approve */}
-          <Card className="opacity-50">
-            <CardHeader>
-              <CardTitle className="text-base">Step 3: Review & Approve</CardTitle>
-              <CardDescription>Waiting for Step 2...</CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
               <p className="text-sm text-muted-foreground">
                 Review the optimized content and approve or reject the changes.
               </p>
               <div className="flex gap-3">
-                <Button variant="outline" disabled className="flex-1">
+                <Button variant="outline" disabled={!isStep2Complete} className="flex-1">
                   Reject
                 </Button>
-                <Button disabled className="flex-1">
+                <Button disabled={!isStep2Complete} className="flex-1">
                   Approve Changes
                 </Button>
               </div>
