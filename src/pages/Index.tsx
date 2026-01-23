@@ -1195,8 +1195,12 @@ const Index = () => {
           generatedBriefs={streamedBriefs}
           verificationSummary={verificationSummary}
           skippedOptimalCount={skippedOptimalCount}
+          originalContent={content}
+          coverageState={coverageState}
+          chunks={layoutChunks}
+          chunkScores={result?.chunkScores || []}
+          projectName={localProjectName}
           onApplyChanges={() => {
-            // Apply optimized content using the reconstructed document
             if (optimizedContent) {
               handleApplyOptimization(optimizedContent);
             } else if (streamedChunks.length > 0) {
@@ -1209,7 +1213,6 @@ const Index = () => {
             navigator.clipboard.writeText(text);
           }}
           onExportReport={() => {
-            // Export as JSON
             const report = {
               timestamp: new Date().toISOString(),
               architectureTasks: streamedArchitectureTasks,
@@ -1232,9 +1235,7 @@ const Index = () => {
             setActiveTab('coverage');
           }}
           onViewInDocument={(chunkIndex) => {
-            // Navigate to the chunk in the content tab
             setActiveTab('content');
-            // Could add scroll-to-chunk functionality here
           }}
         />
       )}

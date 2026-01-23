@@ -28,6 +28,11 @@ import {
   TrendingUp,
   TrendingDown,
   Minus,
+  FileDown,
+  BarChart3,
+  FileJson,
+  FileSpreadsheet,
+  FileCode,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import type { 
@@ -35,6 +40,18 @@ import type {
   ContentBrief,
   VerificationSummary,
 } from '@/lib/optimizer-types';
+import type { CoverageState } from '@/types/coverage';
+import type { LayoutAwareChunk } from '@/lib/layout-chunker';
+import type { ChunkScore } from '@/hooks/useAnalysis';
+import { DownloadCard } from './DownloadCard';
+import {
+  downloadOriginalContent,
+  downloadOptimizedContent,
+  downloadQueryResearch,
+  downloadContentBriefs,
+  downloadChunkAnalysis,
+  downloadFullReport,
+} from '@/utils/downloads';
 import { toast } from 'sonner';
 
 // Extended StreamedChunk with verification data
@@ -77,6 +94,13 @@ interface OutputsTabProps {
   
   // Skipped chunks count (already optimal)
   skippedOptimalCount?: number;
+  
+  // NEW: Data for exports
+  originalContent?: string;
+  coverageState?: CoverageState | null;
+  chunks?: LayoutAwareChunk[];
+  chunkScores?: ChunkScore[];
+  projectName?: string;
   
   // Actions
   onApplyChanges: () => void;
@@ -425,6 +449,11 @@ export function DownloadsTab({
   generatedBriefs,
   verificationSummary,
   skippedOptimalCount = 0,
+  originalContent = '',
+  coverageState,
+  chunks = [],
+  chunkScores = [],
+  projectName = 'Untitled',
   onApplyChanges,
   onCopyContent,
   onExportReport,
@@ -711,6 +740,132 @@ export function DownloadsTab({
               </Card>
             </Collapsible>
           )}
+
+          {/* ============ EXPORT DOWNLOADS ============ */}
+          <Card className="border-2 border-dashed border-primary/30 bg-primary/5">
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2 text-lg">
+                <FileDown className="h-5 w-5 text-primary" />
+                Export Downloads
+              </CardTitle>
+              <p className="text-sm text-muted-foreground">
+                Download your optimization work in various formats
+              </p>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              {/* Summary Stats */}
+              {coverageState && (
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6 p-4 bg-muted/50 rounded-lg">
+                  <div className="text-center">
+                    <p className="text-2xl font-bold text-foreground tabular-nums">
+                      {coverageState.queries.length}
+                    </p>
+                    <p className="text-xs text-muted-foreground">Total Queries</p>
+                  </div>
+                  <div className="text-center">
+                    <p className="text-2xl font-bold text-success tabular-nums">
+                      {coverageState.queries.filter(q => q.status === 'optimized').length}
+                    </p>
+                    <p className="text-xs text-muted-foreground">Optimized</p>
+                  </div>
+                  <div className="text-center">
+                    <p className="text-2xl font-bold text-primary tabular-nums">
+                      {coverageState.queries.filter(q => q.isGap === false && q.approvedText).length}
+                    </p>
+                    <p className="text-xs text-muted-foreground">Gaps Filled</p>
+                  </div>
+                  <div className="text-center">
+                    <p className="text-2xl font-bold text-foreground tabular-nums">
+                      {chunks.length}
+                    </p>
+                    <p className="text-xs text-muted-foreground">Chunks</p>
+                  </div>
+                </div>
+              )}
+              
+              {/* Download Cards Grid */}
+              <div className="grid gap-4 md:grid-cols-2">
+                {/* Original Content */}
+                <DownloadCard
+                  title="Original Content"
+                  description="Your original document before optimization"
+                  icon={<FileText className="h-5 w-5" />}
+                  formats={['markdown', 'txt']}
+                  onDownload={(format) => downloadOriginalContent(originalContent, format as 'markdown' | 'txt')}
+                  disabled={!originalContent}
+                />
+                
+                {/* Optimized Content */}
+                <DownloadCard
+                  title="Optimized Content"
+                  description="Document with all approved optimizations applied"
+                  icon={<Sparkles className="h-5 w-5" />}
+                  formats={['markdown', 'txt', 'html']}
+                  onDownload={(format) => {
+                    if (coverageState) {
+                      downloadOptimizedContent(coverageState, chunks, format as 'markdown' | 'txt' | 'html');
+                    }
+                  }}
+                  disabled={!coverageState || coverageState.queries.filter(q => q.status === 'optimized').length === 0}
+                  badge={coverageState ? `${coverageState.queries.filter(q => q.status === 'optimized').length} optimized` : undefined}
+                />
+                
+                {/* Query Research */}
+                <DownloadCard
+                  title="Query Research"
+                  description="All query scores, status, and improvements"
+                  icon={<BarChart3 className="h-5 w-5" />}
+                  formats={['csv', 'json']}
+                  onDownload={(format) => {
+                    if (coverageState) {
+                      downloadQueryResearch(coverageState, format as 'csv' | 'json');
+                    }
+                  }}
+                  disabled={!coverageState || coverageState.queries.length === 0}
+                />
+                
+                {/* Content Briefs */}
+                <DownloadCard
+                  title="Content Briefs"
+                  description="AI-generated briefs for gap content"
+                  icon={<FileCode className="h-5 w-5" />}
+                  formats={['markdown', 'json']}
+                  onDownload={(format) => {
+                    if (coverageState) {
+                      downloadContentBriefs(coverageState, format as 'markdown' | 'json');
+                    }
+                  }}
+                  disabled={!coverageState || coverageState.queries.filter(q => (q.isGap || q.status === 'gap') && q.analysisPrompt).length === 0}
+                  badge={coverageState ? `${coverageState.queries.filter(q => (q.isGap || q.status === 'gap') && q.analysisPrompt).length} briefs` : undefined}
+                />
+                
+                {/* Chunk Analysis */}
+                <DownloadCard
+                  title="Chunk Analysis"
+                  description="Detailed chunk breakdown with scores"
+                  icon={<FileSpreadsheet className="h-5 w-5" />}
+                  formats={['csv', 'json']}
+                  onDownload={(format) => downloadChunkAnalysis(chunks, chunkScores, format as 'csv' | 'json')}
+                  disabled={chunks.length === 0}
+                />
+                
+                {/* Full Report */}
+                <DownloadCard
+                  title="Optimization Report"
+                  description="Comprehensive summary of all optimization work"
+                  icon={<FileJson className="h-5 w-5" />}
+                  formats={['markdown', 'json']}
+                  onDownload={(format) => {
+                    if (coverageState) {
+                      downloadFullReport(projectName, originalContent, coverageState, chunks, chunkScores, format as 'markdown' | 'json');
+                    }
+                  }}
+                  disabled={!coverageState || coverageState.queries.filter(q => q.status === 'optimized').length === 0}
+                  featured
+                />
+              </div>
+            </CardContent>
+          </Card>
         </div>
       </ScrollArea>
       
