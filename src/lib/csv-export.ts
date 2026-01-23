@@ -49,11 +49,14 @@ interface QueryIntelligenceExportData {
   } | null;
   suggestions: Array<{
     query: string;
-    intentType: string;
-    matchStrength: 'strong' | 'partial' | 'weak';
-    matchReason: string;
-    relevantSection: string | null;
-    confidence: number;
+    intentType?: string;
+    matchStrength?: 'strong' | 'partial' | 'weak';
+    matchReason?: string;
+    relevantSection?: string | null;
+    confidence?: number;
+    variantType?: string;
+    intentScore?: number;
+    intentCategory?: string;
   }>;
   gaps: Array<{
     gapType: string;

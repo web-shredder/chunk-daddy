@@ -75,37 +75,63 @@ export interface ContentIntelligence {
   }>;
 }
 
+// Google Patent US 11,663,201 B2 - 7 Actual Variant Types
+export type GoogleVariantType = 
+  | 'EQUIVALENT'
+  | 'FOLLOW_UP'
+  | 'GENERALIZATION'
+  | 'CANONICALIZATION'
+  | 'ENTAILMENT'
+  | 'SPECIFICATION'
+  | 'CLARIFICATION';
+
 export interface EnhancedQuerySuggestion {
   query: string;
-  intentType: string;
-  matchStrength: 'strong' | 'partial' | 'weak';
-  matchReason: string;
-  relevantSection: string | null;
-  confidence: number;
+  intentType?: string;
+  matchStrength?: 'strong' | 'partial' | 'weak';
+  matchReason?: string;
+  relevantSection?: string | null;
+  confidence?: number;
   searchVolumeTier?: string;
   competitiveness?: string;
   
-  // Intent preservation scoring (Google Patent)
-  variantType?: 'SYNONYM' | 'GRANULAR' | 'SPECIFICATION' | 'TEMPORAL' | 'RELATED';
-  semanticSimilarity?: number;
+  // Google Patent variant types
+  variantType?: GoogleVariantType | string;
+  
+  // Entity tracking
+  sharedEntities?: string[];
   entityOverlap?: number;
+  semanticSimilarity?: number;
+  semanticEstimate?: number;
+  
+  // Calculated server-side
   intentScore?: number;
   intentCategory?: 'HIGH' | 'MEDIUM' | 'LOW';
   
-  // Route prediction (Apple research)
+  // Route prediction
   routePrediction?: 'WEB_SEARCH' | 'PARAMETRIC' | 'HYBRID';
   routeConfidence?: number;
   
-  // Entity analysis
+  // Entity analysis (keep for backward compat)
   primaryQueryEntities?: string[];
   suggestedQueryEntities?: string[];
-  sharedEntities?: string[];
+  
+  // User journey
+  userJourneyPosition?: 'early' | 'middle' | 'late';
   
   // Drift detection
   driftReason?: string | null;
   
   // Fallback indicator
   isFallback?: boolean;
+}
+
+// Filtered variant (drifted queries)
+export interface FilteredVariant {
+  query: string;
+  variantType: GoogleVariantType | string;
+  intentScore: number;
+  driftReason: string;
 }
 
 export interface CriticalGap {
