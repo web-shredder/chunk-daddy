@@ -28,12 +28,12 @@ import {
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
-import { Textarea } from '@/components/ui/textarea';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { cn } from '@/lib/utils';
 import { getTierFromScore, TIER_COLORS, getTierLabel } from '@/lib/tier-colors';
 import { useQueryOptimization } from '@/hooks/useQueryOptimization';
+import { WorkingPanelEditor, MarkdownPreview } from '@/components/moonbug/WorkingPanelEditor';
 import type { QueryWorkItem, QueryIntentType, QueryOptimizationState } from '@/types/coverage';
 import type { LayoutAwareChunk } from '@/lib/layout-chunker';
 
@@ -446,24 +446,29 @@ export function QueryWorkingPanel({
                 </div>
               ) : hasAnalysis ? (
                 <div className="space-y-3">
-                  <Textarea 
-                    className="min-h-[200px] font-mono text-sm"
+                  <WorkingPanelEditor
                     value={optState.userEditedAnalysis ?? ''}
-                    onChange={(e) => setUserAnalysis(e.target.value)}
-                    placeholder="Edit the analysis as needed..."
+                    onChange={setUserAnalysis}
+                    placeholder={queryItem.status === 'gap' 
+                      ? "Edit the content brief as needed..." 
+                      : "Edit the analysis as needed..."}
+                    minHeight="200px"
+                    maxHeight="400px"
                   />
                   <p className="text-xs text-muted-foreground">
                     Edit this analysis to add your own context, data, or specific requirements before optimization.
                   </p>
                 </div>
               ) : (
-                <div className="text-center py-8 text-muted-foreground">
-                  <FileText className="w-8 h-8 mx-auto mb-3 opacity-50" />
-                  <p className="text-sm">
-                    {queryItem.status === 'gap' 
-                      ? 'Analysis not available for content gaps'
-                      : 'Click "Generate Analysis" to get optimization recommendations'}
-                  </p>
+                <div className="border rounded-md border-dashed bg-muted/20 p-8 min-h-[200px] flex items-center justify-center">
+                  <div className="text-center text-muted-foreground">
+                    <FileText className="w-8 h-8 mx-auto mb-3 opacity-50" />
+                    <p className="text-sm">
+                      {queryItem.status === 'gap' 
+                        ? 'Click "Generate Brief" to get content recommendations'
+                        : 'Click "Generate Analysis" to get optimization recommendations'}
+                    </p>
+                  </div>
                 </div>
               )}
             </CardContent>
@@ -569,16 +574,19 @@ export function QueryWorkingPanel({
                   </div>
 
                   {showOriginal ? (
-                    <div className="p-4 bg-muted rounded-lg text-sm">
-                      <p className="text-xs text-muted-foreground uppercase tracking-wide mb-2">Original Content</p>
-                      <div className="whitespace-pre-wrap">{chunk?.text}</div>
-                    </div>
+                    <MarkdownPreview
+                      content={chunk?.text || ''}
+                      label="Original Content"
+                    />
                   ) : (
-                    <Textarea 
-                      className="min-h-[250px] text-sm"
+                    <WorkingPanelEditor
                       value={optState.userEditedContent || ''}
-                      onChange={(e) => setUserContent(e.target.value)}
-                      placeholder="Optimized content will appear here..."
+                      onChange={setUserContent}
+                      placeholder={queryItem.status === 'gap' 
+                        ? "New content will appear here..." 
+                        : "Optimized content will appear here..."}
+                      minHeight="250px"
+                      maxHeight="500px"
                     />
                   )}
 
