@@ -827,6 +827,15 @@ export function QueryAutoSuggest({
               contentIntelligence={intelligence}
               extractedEntities={entities}
               filteredQueries={filteredQueries}
+              intelligenceState={{
+                detectedTopic,
+                primaryQuery,
+                intelligence,
+                suggestions,
+                intentSummary,
+                gaps: { criticalGaps, gapSummary, competitiveGaps, priorityActions },
+                entities,
+              }}
             />
           )}
 

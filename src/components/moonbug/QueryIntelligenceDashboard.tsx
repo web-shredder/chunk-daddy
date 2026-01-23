@@ -57,11 +57,14 @@ import {
   Copy,
   Download,
   Sprout,
+  FileDown,
+  Loader2,
   type LucideIcon,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
 import { getTierFromScore, TIER_COLORS } from '@/lib/tier-colors';
+import { exportIntelligenceReport } from '@/lib/export-intelligence-report';
 
 // ============================================================
 // TYPES
@@ -220,6 +223,17 @@ export interface ExtractedEntities {
   branded: string[];
 }
 
+// Intelligence state for PDF export
+export interface IntelligenceState {
+  detectedTopic?: any;
+  primaryQuery?: any;
+  intelligence?: any;
+  suggestions?: any[];
+  intentSummary?: any;
+  gaps?: any;
+  entities?: any;
+}
+
 interface QueryIntelligenceDashboardProps {
   suggestions: EnhancedQuerySuggestion[];
   intentSummary: IntentSummary | null;
@@ -236,6 +250,8 @@ interface QueryIntelligenceDashboardProps {
   extractedEntities?: ExtractedEntities | null;
   filteredQueries?: FilteredVariant[];
   suggestionsByType?: Record<GoogleVariantType, EnhancedQuerySuggestion[]>;
+  // For PDF export
+  intelligenceState?: IntelligenceState | null;
 }
 
 // Entity type color mappings
@@ -409,16 +425,41 @@ export function QueryIntelligenceDashboard({
   extractedEntities,
   filteredQueries = [],
   suggestionsByType,
+  intelligenceState,
 }: QueryIntelligenceDashboardProps) {
   const [filter, setFilter] = useState<'all' | 'high' | 'medium' | 'low' | 'web_search' | 'by_type'>('all');
   const [selectedQueries, setSelectedQueries] = useState<Set<string>>(new Set());
   const [detailsQuery, setDetailsQuery] = useState<EnhancedQuerySuggestion | null>(null);
   const [expandedGaps, setExpandedGaps] = useState<Set<string>>(new Set());
   const [showFiltered, setShowFiltered] = useState(false);
+  const [isExporting, setIsExporting] = useState(false);
 
   // Entity-related state
   const [entityFilter, setEntityFilter] = useState<string | null>(null);
   const [entityViewMode, setEntityViewMode] = useState<'chips' | 'table'>('chips');
+
+  // Handle PDF export
+  const handleExportPDF = async () => {
+    if (!intelligenceState) {
+      toast.error('No data available for export');
+      return;
+    }
+    
+    setIsExporting(true);
+    try {
+      await exportIntelligenceReport(intelligenceState, existingQueries);
+      toast.success('Report exported', {
+        description: 'Query Intelligence Report saved as PDF',
+      });
+    } catch (error) {
+      console.error('Export failed:', error);
+      toast.error('Export failed', {
+        description: 'Could not generate PDF report',
+      });
+    } finally {
+      setIsExporting(false);
+    }
+  };
 
   // NEW: Filter suggestions based on entity filter too
   const filteredSuggestions = useMemo(() => {
@@ -627,6 +668,28 @@ export function QueryIntelligenceDashboard({
 
   return (
     <div className="space-y-6">
+      {/* Dashboard Header with Export Button */}
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <Sparkles className="h-5 w-5 text-primary" />
+          <h2 className="text-lg font-semibold">Query Intelligence Dashboard</h2>
+        </div>
+        <Button
+          onClick={handleExportPDF}
+          disabled={isExporting || !intelligenceState}
+          variant="outline"
+          size="sm"
+          className="gap-2"
+        >
+          {isExporting ? (
+            <Loader2 className="h-4 w-4 animate-spin" />
+          ) : (
+            <FileDown className="h-4 w-4" />
+          )}
+          Export PDF
+        </Button>
+      </div>
+
       {/* Section 1: Intent Distribution Summary */}
       {/* Section 1: Intent Distribution Summary - compute from suggestions if intentSummary missing fields */}
       {(intentSummary || suggestions.length > 0) && (
