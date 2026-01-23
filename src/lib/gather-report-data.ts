@@ -129,11 +129,15 @@ interface IntelligenceState {
   suggestions?: Array<{
     query: string;
     variantType?: string;
-    routePrediction?: string;
-    intentPreservation?: number;
+    routePrediction?: { route: string } | string;
+    intentScore?: number;
     entityOverlap?: number;
-    intentDrift?: number;
-    intentDriftExplanation?: string;
+    intentAnalysis?: {
+      driftScore?: number;
+      driftLevel?: string;
+      driftReasoning?: string | null;
+    };
+    driftReason?: string | null;
     matchStrength?: string;
   }>;
   intentSummary?: {
@@ -179,8 +183,11 @@ export function gatherReportData(
     variantTypeDistribution[type] = (variantTypeDistribution[type] || 0) + 1;
   });
   
-  // Calculate relevance distribution
-  const scores = suggestions?.map(s => s.intentPreservation || 0) || [];
+  // Calculate relevance distribution - use intentScore and handle 0-1 or 0-100 scale
+  const scores = suggestions?.map(s => {
+    const score = s.intentScore || 0;
+    return score > 1 ? score : score * 100;
+  }) || [];
   const relevanceDistribution = {
     high: scores.filter(s => s >= 70).length,
     medium: scores.filter(s => s >= 40 && s < 70).length,
@@ -194,7 +201,11 @@ export function gatherReportData(
     hybrid: 0,
   };
   suggestions?.forEach(s => {
-    const route = (s.routePrediction || 'web_search').toLowerCase();
+    // Handle routePrediction as object or string
+    const routeValue = typeof s.routePrediction === 'object' 
+      ? s.routePrediction?.route 
+      : s.routePrediction;
+    const route = (routeValue || 'web_search').toLowerCase();
     if (route === 'web_search' || route === 'web') {
       routeDistribution.web_search++;
     } else if (route === 'parametric' || route === 'ai_memory') {
@@ -204,27 +215,41 @@ export function gatherReportData(
     }
   });
   
-  // Count intent drift filtered
-  const intentDriftFiltered = suggestions?.filter(s => (s.intentDrift || 0) > 40).length || 0;
+  // Count intent drift filtered - use intentAnalysis.driftScore
+  const intentDriftFiltered = suggestions?.filter(s => 
+    (s.intentAnalysis?.driftScore || 0) > 40
+  ).length || 0;
   
   // Build queries array with coverage status
   const queries = suggestions?.map(s => {
-    const score = s.intentPreservation || 0;
+    // Use intentScore, handle 0-1 or 0-100 scale
+    const rawScore = s.intentScore || 0;
+    const score = rawScore > 1 ? rawScore : rawScore * 100;
+    
+    // Route handling - can be object or string
+    const routeValue = typeof s.routePrediction === 'object' 
+      ? s.routePrediction?.route?.toLowerCase() 
+      : (s.routePrediction || 'web_search').toLowerCase();
+    
+    // Coverage status based on score
     let coverageStatus: 'strong' | 'partial' | 'weak' | 'none' = 'none';
     if (score >= 70) coverageStatus = 'strong';
     else if (score >= 50) coverageStatus = 'partial';
     else if (score >= 30) coverageStatus = 'weak';
     
+    // Drift extraction from intentAnalysis
+    const driftScore = s.intentAnalysis?.driftScore || 0;
+    
     return {
       query: s.query,
       variantType: s.variantType || 'UNKNOWN',
-      routePrediction: (s.routePrediction?.toLowerCase() || 'web_search') as 'web_search' | 'parametric' | 'hybrid',
+      routePrediction: routeValue as 'web_search' | 'parametric' | 'hybrid',
       passageScore: Math.round(score),
       entityOverlap: Math.round((s.entityOverlap || 0) * 100),
       coverageStatus,
-      intentDrift: s.intentDrift && s.intentDrift > 20 ? {
-        score: s.intentDrift,
-        explanation: s.intentDriftExplanation || '',
+      intentDrift: driftScore > 20 ? {
+        score: driftScore,
+        explanation: s.driftReason || s.intentAnalysis?.driftReasoning || '',
       } : undefined,
     };
   }) || [];
