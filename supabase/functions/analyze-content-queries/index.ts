@@ -44,14 +44,19 @@ serve(async (req) => {
     
     // Step 4: Generate query suggestions based on detected topic
     console.log('Step 3: Generating query suggestions...');
-    const querySuggestions = await generateQuerySuggestions(
+    const querySuggestionsResponse = await generateQuerySuggestions(
       content, 
       contentIntelligence, 
       topicFocus,
       primaryQuery,
       existingQueries
     );
-    console.log('Generated suggestions:', querySuggestions.length);
+    console.log('Generated suggestions:', querySuggestionsResponse.suggestions.length);
+    console.log('Intent distribution: HIGH=%d, MEDIUM=%d, LOW=%d', 
+      querySuggestionsResponse.summary.high_intent,
+      querySuggestionsResponse.summary.medium_intent,
+      querySuggestionsResponse.summary.low_intent
+    );
     
     // Step 5: Detect coverage gaps
     console.log('Step 4: Detecting coverage gaps...');
@@ -59,7 +64,7 @@ serve(async (req) => {
       content, 
       contentIntelligence, 
       topicFocus,
-      querySuggestions
+      querySuggestionsResponse.suggestions
     );
     console.log('Detected gaps:', coverageGaps.length);
 
@@ -76,7 +81,8 @@ serve(async (req) => {
         
         // Full intelligence
         intelligence: contentIntelligence,
-        suggestions: querySuggestions,
+        suggestions: querySuggestionsResponse.suggestions,
+        suggestionsSummary: querySuggestionsResponse.summary,
         gaps: coverageGaps,
         
         timestamp: new Date().toISOString(),
@@ -265,60 +271,84 @@ async function generateQuerySuggestions(
   topicFocus: TopicFocus,
   primaryQuery: PrimaryQueryResult,
   existingQueries: string[]
-): Promise<QuerySuggestion[]> {
+): Promise<QuerySuggestionsResponse> {
   
-  const systemPrompt = `You are an expert in search behavior and content retrieval.
+  const systemPrompt = `You are an expert in search behavior, content retrieval, and query fan-out optimization.
+Based on Google Patent US 11,615,106 and Apple's synthetic query generation research.
 
-Given detected topic "${topicFocus.primaryEntity}" and primary query "${primaryQuery.query}", generate ALL the queries this content could/should rank for.
+Given detected topic "${topicFocus.primaryEntity}" and primary query "${primaryQuery.query}", generate ALL the queries this content could/should rank for WITH INTENT PRESERVATION SCORING.
 
-YOUR JOB: Think of every way someone might search for information this content provides.
+=== PHASE 1: ENTITY EXTRACTION ===
+
+For the PRIMARY QUERY "${primaryQuery.query}":
+1. Extract named entities (proper nouns, domain terms, key concepts, qualifiers)
+   Example: "how to choose an RPO provider" → ["RPO", "provider", "choose"]
+
+=== PHASE 2: QUERY GENERATION WITH VARIANT CLASSIFICATION ===
+
+VARIANT TYPES (Google Classification):
+- SYNONYM: Different phrasing of same query ("how to choose RPO" → "selecting RPO vendor")
+- GRANULAR: Breaking into component parts ("RPO selection" → "RPO pricing", "RPO implementation")
+- SPECIFICATION: Adding context ("RPO" → "RPO for startups", "RPO for tech companies")
+- TEMPORAL: Adding time specificity ("best RPO" → "best RPO providers 2026")
+- RELATED: Before/after questions ("how to choose RPO" → "questions to ask RPO vendor")
 
 INTENT TYPES TO COVER FOR "${topicFocus.primaryEntity}":
+1. DEFINITION - "What is ${topicFocus.primaryEntity}?"
+2. PROCESS - "How to [do something with ${topicFocus.primaryEntity}]"
+3. COMPARISON - "${topicFocus.primaryEntity} vs [alternative]"
+4. EVALUATION - "Best ${topicFocus.primaryEntity} for [context]"
+5. PROBLEM - "${topicFocus.primaryEntity} [problem/error/issue]"
+6. SPECIFICATION - Narrow variants with context
 
-1. DEFINITION QUERIES - "What is ${topicFocus.primaryEntity}?"
-   - Basic definitions
-   - Explanations for beginners
-   - Technical definitions
-   
-2. PROCESS QUERIES - "How to [do something with ${topicFocus.primaryEntity}]"
-   - Step-by-step guides
-   - Implementation processes
-   - Best practices
-   
-3. COMPARISON QUERIES - "${topicFocus.primaryEntity} vs [alternative]"
-   - Direct comparisons
-   - Pros and cons
-   - When to use which
-   
-4. EVALUATION QUERIES - "Best ${topicFocus.primaryEntity} for [context]"
-   - Selection criteria
-   - Recommendations
-   - Reviews
-   
-5. PROBLEM QUERIES - "${topicFocus.primaryEntity} [problem/error/issue]"
-   - Troubleshooting
-   - Common mistakes
-   - Risk mitigation
-   
-6. SPECIFICATION QUERIES - Narrow variants with context
-   - Industry-specific: "${topicFocus.primaryEntity} for [industry]"
-   - Size-specific: "${topicFocus.primaryEntity} for [company size]"
-   - Use-case specific: "${topicFocus.primaryEntity} for [specific situation]"
+=== PHASE 3: INTENT PRESERVATION SCORING ===
 
-FOR EACH QUERY, assess:
+For EACH suggested query:
+1. Extract named entities from this query
+2. Calculate semantic_similarity (0-1):
+   - 1.0 = identical/synonym
+   - 0.8-0.9 = very similar concept, different wording
+   - 0.6-0.7 = related but different aspect
+   - 0.4-0.5 = tangentially related
+   - <0.4 = intent drift
+3. Calculate entity_overlap (0-1):
+   - shared_entities / max(primary_entities, suggested_entities)
+4. Calculate intent_score:
+   - (semantic_similarity × 0.7) + (entity_overlap × 0.3)
+5. Categorize intent_category:
+   - HIGH if intent_score ≥ 0.7
+   - MEDIUM if intent_score 0.5-0.7
+   - LOW if intent_score < 0.5
+
+=== PHASE 4: ROUTE PREDICTION ===
+
+For EACH suggested query, predict:
+- WEB_SEARCH: Query likely triggers web search
+  - Signals: temporal markers ("2026", "latest", "current")
+  - Specific entities (company names, products)
+  - Verification needs ("price", "cost", "rating", "review")
+  - Comparisons ("vs", "versus", "better than")
+- PARAMETRIC: Query likely answered from AI's memory
+  - Signals: general concepts ("what is", "explain")
+  - Definitions ("define", "meaning")
+  - Well-known facts
+- HYBRID: Mix of both
+
+Provide route_confidence (0-100) for the prediction.
+
+=== PHASE 5: DRIFT DETECTION ===
+
+If intent_category is LOW, explain drift_reason:
+- WHY did this query drift from the original intent?
+- What different user need does it address?
+- Be specific and actionable.
+
+=== MATCH STRENGTH ASSESSMENT ===
 - STRONG MATCH: Content directly and thoroughly answers this
 - PARTIAL MATCH: Content touches on this but incompletely
 - WEAK MATCH: Content barely addresses this
 
-CRITICAL QUALITY RULES:
-- Queries must be 8-20 words (complete natural sentences)
-- Use actual search language (questions, "how to", "best", "vs")
-- Include context qualifiers where appropriate
-- NO keyword-only phrases
-- NO duplicate intent (each query should have distinct value)
-- Skip queries already in existing list
-
-OUTPUT FORMAT (JSON):
+=== OUTPUT FORMAT (JSON) ===
 {
   "suggestions": [
     {
@@ -327,14 +357,45 @@ OUTPUT FORMAT (JSON):
       "matchStrength": "strong|partial|weak",
       "matchReason": "Specific explanation of why content does/doesn't answer this",
       "relevantSection": "Which heading/section addresses this (if any)",
-      "confidence": 0.85,
+      "confidence": 85,
       "searchVolumeTier": "high|medium|low|niche",
-      "competitiveness": "Easy to rank|Moderate|Competitive"
+      "competitiveness": "Easy to rank|Moderate|Competitive",
+      
+      "variantType": "SYNONYM|GRANULAR|SPECIFICATION|TEMPORAL|RELATED",
+      "semanticSimilarity": 0.85,
+      "entityOverlap": 0.67,
+      "intentScore": 0.80,
+      "intentCategory": "HIGH|MEDIUM|LOW",
+      "routePrediction": "WEB_SEARCH|PARAMETRIC|HYBRID",
+      "routeConfidence": 85,
+      "primaryQueryEntities": ["entity1", "entity2"],
+      "suggestedQueryEntities": ["entity1", "entity3"],
+      "sharedEntities": ["entity1"],
+      "driftReason": null
     }
-  ]
+  ],
+  "summary": {
+    "total_generated": 25,
+    "high_intent": 15,
+    "medium_intent": 7,
+    "low_intent": 3,
+    "filtered_count": 3,
+    "avg_intent_score": 0.72,
+    "web_search_likely": 18,
+    "parametric_likely": 5,
+    "hybrid_likely": 2
+  }
 }
 
-Generate 20-35 high-quality queries covering ALL intent types.`;
+CRITICAL QUALITY RULES:
+- Queries must be 8-20 words (complete natural sentences)
+- Use actual search language (questions, "how to", "best", "vs")
+- NO keyword-only phrases
+- NO duplicate intent
+- Skip queries already in existing list
+- Include LOW intent queries but flag them for transparency
+
+Generate 20-35 high-quality queries covering ALL intent types with full scoring.`;
 
   const semanticClustersText = intelligence.semanticClusters?.map(c => 
     `- ${c.clusterName}: ${c.concepts?.join(', ') || 'N/A'} (${c.coverageDepth})`
@@ -370,12 +431,28 @@ ${existingQueries.map(q => `- ${q}`).join('\n') || '(none)'}
 CONTENT:
 ${content.slice(0, 6000)}
 
-Generate query suggestions:`;
+Generate query suggestions with full intent preservation scoring:`;
 
-  const response = await callAI(systemPrompt, userPrompt, 'json_object', 8192);
-  const parsed = parseAIResponse(response, { suggestions: [] });
+  const response = await callAI(systemPrompt, userPrompt, 'json_object', 12288);
+  const parsed = parseAIResponse(response, { suggestions: [], summary: {} });
   
-  return parsed.suggestions || parsed.items || [];
+  // Ensure we have the right structure
+  const suggestions = parsed.suggestions || parsed.items || [];
+  const summary = parsed.summary || {
+    total_generated: suggestions.length,
+    high_intent: suggestions.filter((s: QuerySuggestion) => s.intentCategory === 'HIGH').length,
+    medium_intent: suggestions.filter((s: QuerySuggestion) => s.intentCategory === 'MEDIUM').length,
+    low_intent: suggestions.filter((s: QuerySuggestion) => s.intentCategory === 'LOW').length,
+    filtered_count: suggestions.filter((s: QuerySuggestion) => s.intentCategory === 'LOW').length,
+    avg_intent_score: suggestions.length > 0 
+      ? suggestions.reduce((acc: number, s: QuerySuggestion) => acc + (s.intentScore || 0), 0) / suggestions.length 
+      : 0,
+    web_search_likely: suggestions.filter((s: QuerySuggestion) => s.routePrediction === 'WEB_SEARCH').length,
+    parametric_likely: suggestions.filter((s: QuerySuggestion) => s.routePrediction === 'PARAMETRIC').length,
+    hybrid_likely: suggestions.filter((s: QuerySuggestion) => s.routePrediction === 'HYBRID').length,
+  };
+  
+  return { suggestions, summary };
 }
 
 // ============================================================
@@ -554,6 +631,7 @@ interface PrimaryQueryResult {
 }
 
 interface QuerySuggestion {
+  // EXISTING FIELDS
   query: string;
   intentType: string;
   matchStrength: 'strong' | 'partial' | 'weak';
@@ -562,6 +640,40 @@ interface QuerySuggestion {
   confidence: number;
   searchVolumeTier?: string;
   competitiveness?: string;
+  
+  // INTENT PRESERVATION SCORING (Google Patent US 11,615,106)
+  variantType: 'SYNONYM' | 'GRANULAR' | 'SPECIFICATION' | 'TEMPORAL' | 'RELATED';
+  semanticSimilarity: number;        // 0-1 (to primary query)
+  entityOverlap: number;             // 0-1 (shared entities ratio)
+  intentScore: number;               // (semantic × 0.7) + (entity × 0.3)
+  intentCategory: 'HIGH' | 'MEDIUM' | 'LOW';
+  
+  // ROUTE PREDICTION (Apple research)
+  routePrediction: 'WEB_SEARCH' | 'PARAMETRIC' | 'HYBRID';
+  routeConfidence: number;           // 0-100
+  
+  // ENTITY ANALYSIS
+  primaryQueryEntities: string[];
+  suggestedQueryEntities: string[];
+  sharedEntities: string[];
+  
+  // DRIFT DETECTION
+  driftReason: string | null;        // If intentCategory is LOW
+}
+
+interface QuerySuggestionsResponse {
+  suggestions: QuerySuggestion[];
+  summary: {
+    total_generated: number;
+    high_intent: number;
+    medium_intent: number;
+    low_intent: number;
+    filtered_count: number;
+    avg_intent_score: number;
+    web_search_likely: number;
+    parametric_likely: number;
+    hybrid_likely: number;
+  };
 }
 
 interface CoverageGap {
