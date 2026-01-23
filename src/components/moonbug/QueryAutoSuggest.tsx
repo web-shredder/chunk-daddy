@@ -825,6 +825,8 @@ export function QueryAutoSuggest({
               existingQueries={existingQueries}
               onAddQueries={onAddQueries}
               contentIntelligence={intelligence}
+              extractedEntities={entities}
+              filteredQueries={filteredQueries}
             />
           )}
 
