@@ -205,6 +205,7 @@ export interface IntentSummary {
   high_intent: number;
   medium_intent: number;
   low_intent: number;
+  filtered_drift?: number; // From API - number of filtered queries
   web_search_likely: number;
   parametric_likely: number;
   hybrid_likely: number;
@@ -626,7 +627,8 @@ export function QueryIntelligenceDashboard({
   return (
     <div className="space-y-6">
       {/* Section 1: Intent Distribution Summary */}
-      {intentSummary && (
+      {/* Section 1: Intent Distribution Summary - compute from suggestions if intentSummary missing fields */}
+      {(intentSummary || suggestions.length > 0) && (
         <div className="rounded-lg border border-border bg-card p-4 space-y-4">
           <div className="flex items-center gap-2">
             <Target className="h-5 w-5 text-primary" />
@@ -636,54 +638,63 @@ export function QueryIntelligenceDashboard({
             </Badge>
           </div>
 
-          {/* Intent Category Bars */}
+          {/* Intent Category Bars - Calculate from suggestions if intentSummary values are missing */}
           <div className="space-y-2">
             <IntentBar
               label="HIGH Relevance"
-              count={intentSummary.high_intent}
+              count={intentSummary?.high_intent ?? suggestions.filter(s => s.intentCategory === 'HIGH').length}
               total={suggestions.length}
               colorClass="bg-emerald-500"
               description="Strong intent match - prioritize these"
             />
             <IntentBar
               label="MEDIUM Relevance"
-              count={intentSummary.medium_intent}
+              count={intentSummary?.medium_intent ?? suggestions.filter(s => s.intentCategory === 'MEDIUM').length}
               total={suggestions.length}
               colorClass="bg-blue-500"
               description="Acceptable intent - review carefully"
             />
             <IntentBar
               label="LOW Relevance"
-              count={intentSummary.low_intent}
-              total={suggestions.length}
+              count={intentSummary?.low_intent ?? intentSummary?.filtered_drift ?? suggestions.filter(s => s.intentCategory === 'LOW').length}
+              total={suggestions.length + (intentSummary?.filtered_drift ?? 0)}
               colorClass="bg-red-500"
               description="Intent drift - likely not valuable"
             />
           </div>
 
-          {/* Route Prediction Summary */}
+          {/* Route Prediction Summary - Compute from suggestions' routePrediction field */}
           <div className="flex flex-wrap gap-3 pt-2 border-t border-border">
             <RouteIndicator
               icon={Globe}
               label="Web Search"
-              count={intentSummary.web_search_likely}
+              count={intentSummary?.web_search_likely ?? suggestions.filter(s => {
+                const route = typeof s.routePrediction === 'object' ? s.routePrediction?.route : s.routePrediction;
+                return route === 'WEB_SEARCH';
+              }).length}
               colorClass="text-emerald-500"
             />
             <RouteIndicator
               icon={Brain}
               label="AI Memory"
-              count={intentSummary.parametric_likely}
+              count={intentSummary?.parametric_likely ?? suggestions.filter(s => {
+                const route = typeof s.routePrediction === 'object' ? s.routePrediction?.route : s.routePrediction;
+                return route === 'PARAMETRIC';
+              }).length}
               colorClass="text-amber-500"
             />
             <RouteIndicator
               icon={Shuffle}
               label="Hybrid"
-              count={intentSummary.hybrid_likely}
+              count={intentSummary?.hybrid_likely ?? suggestions.filter(s => {
+                const route = typeof s.routePrediction === 'object' ? s.routePrediction?.route : s.routePrediction;
+                return route === 'HYBRID';
+              }).length}
               colorClass="text-blue-500"
             />
             <div className="ml-auto flex items-center gap-1.5 text-xs text-muted-foreground">
               <TrendingUp className="h-3.5 w-3.5" />
-              Avg Score: <span className="font-medium text-foreground">{Math.round((intentSummary.avg_intent_score || 0) * 100)}</span>
+              Avg Score: <span className="font-medium text-foreground">{Math.round((intentSummary?.avg_intent_score || 0) * 100)}</span>
             </div>
           </div>
         </div>
@@ -1363,7 +1374,10 @@ function IntentBar({
   colorClass: string; 
   description: string;
 }) {
-  const percentage = total > 0 ? (count / total) * 100 : 0;
+  // Guard against NaN - ensure count and total are valid numbers
+  const safeCount = typeof count === 'number' && !isNaN(count) ? count : 0;
+  const safeTotal = typeof total === 'number' && !isNaN(total) && total > 0 ? total : 1;
+  const percentage = (safeCount / safeTotal) * 100;
   
   return (
     <TooltipProvider>
@@ -1372,7 +1386,7 @@ function IntentBar({
           <div className="space-y-1">
             <div className="flex items-center justify-between text-xs">
               <span className="font-medium">{label}</span>
-              <span className="text-muted-foreground">{count} ({Math.round(percentage)}%)</span>
+              <span className="text-muted-foreground">{safeCount} ({Math.round(percentage)}%)</span>
             </div>
             <div className="h-2 rounded-full bg-muted overflow-hidden">
               <div 
@@ -1401,11 +1415,14 @@ function RouteIndicator({
   count: number; 
   colorClass: string;
 }) {
+  // Guard against undefined/NaN values
+  const safeCount = typeof count === 'number' && !isNaN(count) ? count : 0;
+  
   return (
     <div className="flex items-center gap-1.5 text-xs">
       <Icon className={cn("h-3.5 w-3.5", colorClass)} />
       <span className="text-muted-foreground">{label}:</span>
-      <span className="font-medium">{count}</span>
+      <span className="font-medium">{safeCount}</span>
     </div>
   );
 }

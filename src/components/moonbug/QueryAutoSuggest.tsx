@@ -59,24 +59,27 @@ import {
 
 // ============================================================
 // INTENT COLORS FOR DISTRIBUTION CHART
+// Use variantType (Google Patent) instead of intentType for distribution
 // ============================================================
 
-const INTENT_COLORS: Record<string, string> = {
-  definition: 'hsl(142, 76%, 36%)',
-  process: 'hsl(217, 91%, 60%)',
-  comparison: 'hsl(24, 95%, 53%)',
-  evaluation: 'hsl(330, 81%, 60%)',
-  problem: 'hsl(0, 84%, 60%)',
-  specification: 'hsl(262, 83%, 58%)',
+const VARIANT_COLORS: Record<string, string> = {
+  EQUIVALENT: 'hsl(142, 76%, 36%)',      // emerald
+  FOLLOW_UP: 'hsl(217, 91%, 60%)',       // blue
+  GENERALIZATION: 'hsl(263, 70%, 50%)',  // violet
+  CANONICALIZATION: 'hsl(239, 84%, 67%)',// indigo
+  ENTAILMENT: 'hsl(187, 85%, 43%)',      // cyan
+  SPECIFICATION: 'hsl(24, 95%, 53%)',    // amber
+  CLARIFICATION: 'hsl(330, 81%, 60%)',   // pink
 };
 
-const INTENT_LABELS: Record<string, string> = {
-  definition: 'Definition',
-  process: 'Process',
-  comparison: 'Compare',
-  evaluation: 'Evaluate',
-  problem: 'Problem',
-  specification: 'Specific',
+const VARIANT_LABELS: Record<string, string> = {
+  EQUIVALENT: 'Equivalent',
+  FOLLOW_UP: 'Follow-up',
+  GENERALIZATION: 'General',
+  CANONICALIZATION: 'Canonical',
+  ENTAILMENT: 'Entailment',
+  SPECIFICATION: 'Specific',
+  CLARIFICATION: 'Clarify',
 };
 
 // ============================================================
@@ -181,12 +184,16 @@ interface QueryAutoSuggestProps {
 // ============================================================
 
 function IntentDistributionChart({ suggestions }: { suggestions: EnhancedQuerySuggestion[] }) {
+  // Use variantType instead of intentType for distribution
   const distribution = useMemo(() => {
     const counts: Record<string, number> = {};
     suggestions.forEach(s => {
-      counts[s.intentType] = (counts[s.intentType] || 0) + 1;
+      // Use variantType (Google Patent type) as the primary categorization
+      const type = s.variantType || 'UNKNOWN';
+      counts[type] = (counts[type] || 0) + 1;
     });
     return Object.entries(counts)
+      .filter(([type]) => type !== 'UNKNOWN') // Filter out unknown types
       .map(([type, count]) => ({ type, count }))
       .sort((a, b) => b.count - a.count);
   }, [suggestions]);
@@ -200,7 +207,7 @@ function IntentDistributionChart({ suggestions }: { suggestions: EnhancedQuerySu
       <div className="rounded-lg border border-border/50 bg-muted/30 p-3 space-y-2">
         <div className="flex items-center gap-2">
           <BarChart3 className="h-4 w-4 text-muted-foreground" />
-          <span className="text-xs font-medium text-muted-foreground">Intent Distribution</span>
+          <span className="text-xs font-medium text-muted-foreground">Variant Type Distribution</span>
           <Badge variant="secondary" className="text-xs ml-auto">{total} queries</Badge>
         </div>
         <div className="flex h-3 rounded-full overflow-hidden bg-muted/50">
@@ -210,14 +217,14 @@ function IntentDistributionChart({ suggestions }: { suggestions: EnhancedQuerySu
                 <div
                   className="h-full transition-all hover:opacity-80 cursor-pointer first:rounded-l-full last:rounded-r-full"
                   style={{
-                    width: `${(count / total) * 100}%`,
-                    backgroundColor: INTENT_COLORS[type] || 'hsl(var(--muted-foreground))',
+                    width: `${Math.max((count / total) * 100, 2)}%`, // Min 2% width for visibility
+                    backgroundColor: VARIANT_COLORS[type] || 'hsl(var(--muted-foreground))',
                   }}
                 />
               </TooltipTrigger>
               <TooltipContent side="top" className="text-xs">
-                <p className="font-medium">{INTENT_LABELS[type] || type}</p>
-                <p className="text-muted-foreground">{count} queries ({Math.round((count / total) * 100)}%)</p>
+                <p className="font-medium">{VARIANT_LABELS[type] || type}</p>
+                <p className="text-muted-foreground">{count} queries ({total > 0 ? Math.round((count / total) * 100) : 0}%)</p>
               </TooltipContent>
             </Tooltip>
           ))}
@@ -227,9 +234,9 @@ function IntentDistributionChart({ suggestions }: { suggestions: EnhancedQuerySu
             <span key={type} className="text-xs text-muted-foreground flex items-center gap-1.5">
               <span
                 className="w-2 h-2 rounded-full shrink-0"
-                style={{ backgroundColor: INTENT_COLORS[type] || 'hsl(var(--muted-foreground))' }}
+                style={{ backgroundColor: VARIANT_COLORS[type] || 'hsl(var(--muted-foreground))' }}
               />
-              {count} {INTENT_LABELS[type] || type}
+              {count} {VARIANT_LABELS[type] || type}
             </span>
           ))}
         </div>
