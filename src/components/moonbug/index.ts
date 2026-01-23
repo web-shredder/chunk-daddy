@@ -32,6 +32,7 @@ export {
   CategoryDetailView,
 } from './CategoryDetailViews';
 export { ContentBriefDisplay } from './ContentBriefDisplay';
+export { BatchOptimizationDialog } from './BatchOptimizationDialog';
 export type {
   AnalysisStep,
   EmbeddingInfo,
