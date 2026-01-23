@@ -280,30 +280,25 @@ export function QueryAutoSuggest({
 
     setIsAnalyzing(true);
     setProgress(0);
-    setProgressStage('Reading content...');
+    setProgressStage('Starting analysis...');
 
     try {
+      // Show step-based progress (not fake percentages)
+      const steps = [
+        { pct: 15, msg: 'Step 1/4: Detecting topic...' },
+        { pct: 35, msg: 'Step 2/4: Generating primary query...' },
+        { pct: 60, msg: 'Step 3/4: Finding query opportunities...' },
+        { pct: 85, msg: 'Step 4/4: Analyzing coverage gaps...' },
+      ];
+      let stepIndex = 0;
+      
       const progressInterval = setInterval(() => {
-        setProgress(prev => {
-          if (prev < 20) {
-            setProgressStage('Detecting primary topic...');
-            return prev + 4;
-          } else if (prev < 40) {
-            setProgressStage('Analyzing content structure...');
-            return prev + 3;
-          } else if (prev < 60) {
-            setProgressStage('Generating primary query...');
-            return prev + 3;
-          } else if (prev < 80) {
-            setProgressStage('Finding query opportunities...');
-            return prev + 2;
-          } else if (prev < 95) {
-            setProgressStage('Detecting coverage gaps...');
-            return prev + 1;
-          }
-          return prev;
-        });
-      }, 400);
+        if (stepIndex < steps.length) {
+          setProgress(steps[stepIndex].pct);
+          setProgressStage(steps[stepIndex].msg);
+          stepIndex++;
+        }
+      }, 3500); // Each step takes ~3.5s with reduced tokens
 
       const { data, error } = await supabase.functions.invoke('analyze-content-queries', {
         body: { 
@@ -359,9 +354,16 @@ export function QueryAutoSuggest({
       setSelectedGaps(new Set(gapQueries));
       setIncludePrimaryQuery(true);
 
-      toast.success('Analysis complete', {
-        description: `Detected topic: "${data.detectedTopic?.primaryEntity || 'Unknown'}"`,
-      });
+      // Show partial analysis warning if applicable
+      if (data.partial) {
+        toast.warning('Partial analysis complete', {
+          description: `Gap analysis skipped due to time limits. Topic: "${data.detectedTopic?.primaryEntity || 'Unknown'}"`,
+        });
+      } else {
+        toast.success('Analysis complete', {
+          description: `Detected topic: "${data.detectedTopic?.primaryEntity || 'Unknown'}"`,
+        });
+      }
 
     } catch (error) {
       console.error('Analysis error:', error);
@@ -455,8 +457,8 @@ export function QueryAutoSuggest({
   const legacyImportantGaps = legacyGaps.filter(g => g.severity === 'important');
   const legacyNiceToHaveGaps = legacyGaps.filter(g => g.severity === 'nice-to-have');
   
-  // Check if we have enhanced intelligence data
-  const hasEnhancedData = intentSummary && (criticalGaps.length > 0 || priorityActions.length > 0);
+  // Check if we have enhanced intelligence data - show dashboard if we have intent data OR suggestions with intentCategory
+  const hasEnhancedData = intentSummary || suggestions.some(s => s.intentCategory);
 
   return (
     <div className="space-y-4">
@@ -671,9 +673,40 @@ export function QueryAutoSuggest({
         <IntentDistributionChart suggestions={suggestions} />
       )}
 
-      {/* Suggestions & Gaps Tabs */}
+      {/* View Mode Toggle + Results */}
       {(suggestions.length > 0 || legacyGaps.length > 0) && !isAnalyzing && (
         <>
+          {/* View Toggle - only show when we have enhanced data */}
+          {hasEnhancedData && (
+            <div className="flex items-center gap-2 justify-end">
+              <span className="text-xs text-muted-foreground">View:</span>
+              <div className="flex rounded-md border border-border overflow-hidden">
+                <button
+                  onClick={() => setViewMode('dashboard')}
+                  className={cn(
+                    "px-3 py-1.5 text-xs transition-colors",
+                    viewMode === 'dashboard' 
+                      ? "bg-primary text-primary-foreground" 
+                      : "bg-background text-muted-foreground hover:bg-muted"
+                  )}
+                >
+                  Intelligence Dashboard
+                </button>
+                <button
+                  onClick={() => setViewMode('classic')}
+                  className={cn(
+                    "px-3 py-1.5 text-xs transition-colors border-l border-border",
+                    viewMode === 'classic' 
+                      ? "bg-primary text-primary-foreground" 
+                      : "bg-background text-muted-foreground hover:bg-muted"
+                  )}
+                >
+                  Classic View
+                </button>
+              </div>
+            </div>
+          )}
+
           {/* NEW: Query Intelligence Dashboard when enhanced data available */}
           {hasEnhancedData && viewMode === 'dashboard' && (
             <QueryIntelligenceDashboard
