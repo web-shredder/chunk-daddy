@@ -15,7 +15,8 @@ import {
   ArrowRight,
   AlertCircle,
   FileEdit,
-  BarChart3
+  BarChart3,
+  CheckCircle2
 } from 'lucide-react';
 import {
   Sheet,
@@ -103,6 +104,46 @@ function ScoreCompare({ label, before, after }: { label: string; before: number;
   );
 }
 
+function ScoreRow({ label, value, suffix = '' }: { label: string; value: number; suffix?: string }) {
+  return (
+    <div className="flex justify-between text-sm">
+      <span className="text-muted-foreground">{label}</span>
+      <span>{Math.round(value)}{suffix}</span>
+    </div>
+  );
+}
+
+function ScoreRowCompare({ 
+  label, 
+  before, 
+  after, 
+  suffix = '' 
+}: { 
+  label: string; 
+  before: number; 
+  after: number; 
+  suffix?: string;
+}) {
+  const diff = after - before;
+  const isImproved = diff > 0;
+  const isDeclined = diff < 0;
+  
+  return (
+    <div className="flex justify-between text-sm">
+      <span className="text-muted-foreground">{label}</span>
+      <span className="flex items-center gap-2">
+        <span className="font-medium">{Math.round(after)}{suffix}</span>
+        <span className={cn(
+          'text-xs',
+          isImproved ? 'text-success' : isDeclined ? 'text-destructive' : 'text-muted-foreground'
+        )}>
+          {isImproved ? '+' : ''}{Math.round(diff)}{suffix}
+        </span>
+      </span>
+    </div>
+  );
+}
+
 export function QueryWorkingPanel({
   isOpen,
   queryItem,
@@ -122,7 +163,9 @@ export function QueryWorkingPanel({
     generateAnalysis, 
     setUserAnalysis, 
     runOptimization, 
-    setUserContent 
+    setUserContent,
+    rescoreContent,
+    approveOptimization
   } = useQueryOptimization({
     queryItem: queryItem!,
     chunk,
@@ -134,11 +177,28 @@ export function QueryWorkingPanel({
     },
   });
 
-  // Stub for re-scoring (will be implemented in next prompt)
-  const handleRescore = useCallback(async () => {
-    console.log('Rescoring content...');
-    // Will be implemented in next prompt
-  }, []);
+  // Handle approve button click
+  const handleApprove = useCallback(() => {
+    const result = approveOptimization();
+    
+    // Update the query item in parent state
+    onUpdate({
+      status: 'optimized',
+      isApproved: true,
+      approvedText: result.approvedText,
+      currentScores: result.finalScores
+    });
+    
+    // Call the onApprove callback
+    if (result.approvedText) {
+      onApprove(result.approvedText);
+    }
+    
+    // Close panel after short delay to show success state
+    setTimeout(() => {
+      onClose();
+    }, 1500);
+  }, [approveOptimization, onUpdate, onApprove, onClose]);
 
   if (!queryItem) {
     return null;
@@ -456,8 +516,8 @@ export function QueryWorkingPanel({
                   <Button 
                     variant="outline" 
                     size="sm"
-                    onClick={handleRescore}
-                    disabled={optState.step === 'scoring'}
+                    onClick={rescoreContent}
+                    disabled={optState.step === 'scoring' || !optState.userEditedContent?.trim()}
                   >
                     {optState.step === 'scoring' ? (
                       <>
@@ -467,7 +527,7 @@ export function QueryWorkingPanel({
                     ) : (
                       <>
                         <BarChart3 className="w-4 h-4 mr-2" />
-                        Re-score
+                        {optState.lastScoredResults ? 'Re-score' : 'Score Changes'}
                       </>
                     )}
                   </Button>
@@ -587,33 +647,190 @@ export function QueryWorkingPanel({
           </Card>
 
           {/* Step 3: Review & Approve */}
-          <Card className={cn(!isStep2Complete && 'opacity-50')}>
-            <CardHeader>
+          <Card className={cn(
+            optState.step !== 'optimization_ready' && optState.step !== 'approved' && optState.step !== 'scoring'
+              ? 'opacity-50 pointer-events-none' 
+              : ''
+          )}>
+            <CardHeader className="pb-3">
               <CardTitle className="text-base flex items-center gap-2">
                 Step 3: Review & Approve
-                {isStep2Complete && (
-                  <Badge variant="outline" className="text-xs">Ready</Badge>
+                {optState.step === 'approved' && (
+                  <Badge className="bg-success text-success-foreground">Approved</Badge>
                 )}
               </CardTitle>
               <CardDescription>
-                {isStep2Complete 
-                  ? 'Review changes and approve to apply to your content'
-                  : 'Waiting for Step 2...'}
+                {optState.step === 'approved'
+                  ? 'This optimization has been approved'
+                  : optState.lastScoredResults
+                  ? 'Review the score changes and approve when ready'
+                  : 'Score your changes to see the improvement before approving'}
               </CardDescription>
             </CardHeader>
-            <CardContent className="space-y-4">
-              <p className="text-sm text-muted-foreground">
-                Review the optimized content and approve or reject the changes.
-              </p>
-              <div className="flex gap-3">
-                <Button variant="outline" disabled={!isStep2Complete} className="flex-1">
-                  Reject
-                </Button>
-                <Button disabled={!isStep2Complete} className="flex-1">
-                  Approve Changes
-                </Button>
-              </div>
+            
+            <CardContent>
+              {optState.step === 'approved' ? (
+                <div className="space-y-4">
+                  <div className="flex items-center gap-3 p-4 bg-success/10 border border-success/30 rounded-lg">
+                    <CheckCircle2 className="w-6 h-6 text-success flex-shrink-0" />
+                    <div>
+                      <p className="font-medium text-success">Optimization Approved</p>
+                      <p className="text-sm text-muted-foreground">
+                        This content is ready for export in the Downloads tab.
+                      </p>
+                    </div>
+                  </div>
+                  
+                  {/* Final score summary */}
+                  {optState.lastScoredResults && (
+                    <div className="grid grid-cols-2 gap-4">
+                      <div className="p-4 bg-muted rounded-lg">
+                        <p className="text-xs text-muted-foreground uppercase tracking-wide mb-1">Original Score</p>
+                        <p className="text-3xl font-bold">{queryItem.originalScores?.passageScore ?? 0}</p>
+                      </div>
+                      <div className="p-4 bg-success/10 border border-success/30 rounded-lg">
+                        <p className="text-xs text-success uppercase tracking-wide mb-1">Final Score</p>
+                        <p className="text-3xl font-bold text-success">
+                          {optState.lastScoredResults.passageScore}
+                          <span className="text-lg ml-2">
+                            (+{optState.lastScoredResults.passageScore - (queryItem.originalScores?.passageScore ?? 0)})
+                          </span>
+                        </p>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              ) : optState.lastScoredResults ? (
+                <div className="space-y-4">
+                  {/* Score comparison grid */}
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <p className="text-sm font-medium mb-3">Before Optimization</p>
+                      <div className="space-y-2">
+                        <ScoreRow label="Passage Score" value={queryItem.originalScores?.passageScore ?? 0} />
+                        <ScoreRow label="Semantic" value={(queryItem.originalScores?.semanticSimilarity ?? 0) * 100} />
+                        <ScoreRow label="Lexical" value={(queryItem.originalScores?.lexicalScore ?? 0) * 100} />
+                        <ScoreRow label="Rerank" value={queryItem.originalScores?.rerankScore ?? 0} />
+                        <ScoreRow label="Citation" value={queryItem.originalScores?.citationScore ?? 0} />
+                        <ScoreRow label="Entity Overlap" value={(queryItem.originalScores?.entityOverlap ?? 0) * 100} suffix="%" />
+                      </div>
+                    </div>
+                    <div>
+                      <p className="text-sm font-medium mb-3">After Optimization</p>
+                      <div className="space-y-2">
+                        <ScoreRowCompare 
+                          label="Passage Score" 
+                          before={queryItem.originalScores?.passageScore ?? 0}
+                          after={optState.lastScoredResults.passageScore} 
+                        />
+                        <ScoreRowCompare 
+                          label="Semantic" 
+                          before={(queryItem.originalScores?.semanticSimilarity ?? 0) * 100}
+                          after={optState.lastScoredResults.semanticSimilarity * 100} 
+                        />
+                        <ScoreRowCompare 
+                          label="Lexical" 
+                          before={(queryItem.originalScores?.lexicalScore ?? 0) * 100}
+                          after={optState.lastScoredResults.lexicalScore * 100} 
+                        />
+                        <ScoreRowCompare 
+                          label="Rerank" 
+                          before={queryItem.originalScores?.rerankScore ?? 0}
+                          after={optState.lastScoredResults.rerankScore ?? 0} 
+                        />
+                        <ScoreRowCompare 
+                          label="Citation" 
+                          before={queryItem.originalScores?.citationScore ?? 0}
+                          after={optState.lastScoredResults.citationScore ?? 0} 
+                        />
+                        <ScoreRowCompare 
+                          label="Entity Overlap" 
+                          before={(queryItem.originalScores?.entityOverlap ?? 0) * 100}
+                          after={(optState.lastScoredResults.entityOverlap ?? 0) * 100}
+                          suffix="%"
+                        />
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Overall improvement callout */}
+                  <div className={cn(
+                    'p-4 rounded-lg border',
+                    optState.lastScoredResults.passageScore > (queryItem.originalScores?.passageScore ?? 0)
+                      ? 'bg-success/10 border-success/30'
+                      : 'bg-warning/10 border-warning/30'
+                  )}>
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <p className="font-medium">
+                          {optState.lastScoredResults.passageScore > (queryItem.originalScores?.passageScore ?? 0)
+                            ? 'Score Improved'
+                            : 'Score Needs Work'}
+                        </p>
+                        <p className="text-sm text-muted-foreground">
+                          {queryItem.originalScores?.passageScore ?? 0} → {optState.lastScoredResults.passageScore}
+                        </p>
+                      </div>
+                      <div className={cn(
+                        'text-3xl font-bold',
+                        optState.lastScoredResults.passageScore > (queryItem.originalScores?.passageScore ?? 0)
+                          ? 'text-success'
+                          : 'text-warning'
+                      )}>
+                        {optState.lastScoredResults.passageScore - (queryItem.originalScores?.passageScore ?? 0) > 0 ? '+' : ''}
+                        {optState.lastScoredResults.passageScore - (queryItem.originalScores?.passageScore ?? 0)}
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Warning if score declined */}
+                  {optState.lastScoredResults.passageScore < (queryItem.originalScores?.passageScore ?? 0) && (
+                    <div className="flex items-start gap-3 p-3 bg-warning/10 border border-warning/30 rounded-lg">
+                      <AlertTriangle className="w-5 h-5 text-warning flex-shrink-0 mt-0.5" />
+                      <div className="text-sm">
+                        <p className="font-medium text-warning">Score declined</p>
+                        <p className="text-muted-foreground">
+                          Consider editing the content in Step 2 and re-scoring, or regenerate with different analysis instructions.
+                        </p>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <div className="text-center py-8 text-muted-foreground">
+                  <BarChart3 className="w-8 h-8 mx-auto mb-3 opacity-50" />
+                  <p className="text-sm">Score your optimized content to see the improvement</p>
+                  <Button 
+                    variant="outline" 
+                    size="sm" 
+                    className="mt-4"
+                    onClick={rescoreContent}
+                    disabled={!optState.userEditedContent?.trim()}
+                  >
+                    Score Changes
+                  </Button>
+                </div>
+              )}
             </CardContent>
+            
+            {optState.step === 'optimization_ready' && optState.lastScoredResults && (
+              <CardFooter className="border-t pt-4 flex justify-between">
+                <Button 
+                  variant="outline"
+                  onClick={() => setShowOriginal(false)}
+                >
+                  <ArrowLeft className="w-4 h-4 mr-2" />
+                  Edit Content
+                </Button>
+                <Button 
+                  onClick={handleApprove}
+                  className="bg-success hover:bg-success/90 text-success-foreground"
+                >
+                  <CheckCircle2 className="w-4 h-4 mr-2" />
+                  Approve & Close
+                </Button>
+              </CardFooter>
+            )}
           </Card>
         </div>
       </SheetContent>

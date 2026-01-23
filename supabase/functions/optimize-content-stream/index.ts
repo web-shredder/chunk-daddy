@@ -818,6 +818,220 @@ Rewrite the chunk following the analysis instructions. Output ONLY the rewritten
             break;
           }
 
+          case 'score_content': {
+            const { query, content, headingPath } = params;
+            
+            console.log(`Processing score_content for query: "${query?.slice(0, 50)}..."`);
+            
+            // Call generate-embeddings edge function
+            const SUPABASE_URL = Deno.env.get('SUPABASE_URL');
+            const SUPABASE_ANON_KEY = Deno.env.get('SUPABASE_ANON_KEY');
+            
+            const embeddingResponse = await fetch(
+              `${SUPABASE_URL}/functions/v1/generate-embeddings`,
+              {
+                method: 'POST',
+                headers: {
+                  'Authorization': `Bearer ${SUPABASE_ANON_KEY}`,
+                  'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({ texts: [query, content] }),
+              }
+            );
+
+            if (!embeddingResponse.ok) {
+              const errText = await embeddingResponse.text();
+              console.error('Embedding generation failed:', errText);
+              await sendEvent({
+                type: 'error',
+                message: `Failed to generate embeddings: ${errText}`,
+              });
+              break;
+            }
+
+            const embeddingData = await embeddingResponse.json();
+            const embeddings: number[][] = embeddingData.embeddings.map(
+              (e: { embedding: number[] }) => e.embedding
+            );
+            
+            const queryEmbedding = embeddings[0];
+            const contentEmbedding = embeddings[1];
+            
+            // Cosine similarity helper
+            const cosineSim = (a: number[], b: number[]): number => {
+              let dotProduct = 0;
+              let normA = 0;
+              let normB = 0;
+              for (let i = 0; i < a.length; i++) {
+                dotProduct += a[i] * b[i];
+                normA += a[i] * a[i];
+                normB += b[i] * b[i];
+              }
+              return dotProduct / (Math.sqrt(normA) * Math.sqrt(normB));
+            };
+            
+            // Calculate semantic similarity
+            const semanticSimilarity = cosineSim(queryEmbedding, contentEmbedding);
+            
+            // Calculate lexical score (BM25-style term overlap)
+            const queryTerms = query.toLowerCase()
+              .replace(/[^\w\s]/g, '')
+              .split(/\s+/)
+              .filter((t: string) => t.length > 2);
+            const contentLower = content.toLowerCase();
+            const headingText = (headingPath || []).join(' ').toLowerCase();
+            
+            let matchedTerms = 0;
+            let positionBonus = 0;
+            let headingBonus = 0;
+            
+            queryTerms.forEach((term: string) => {
+              if (contentLower.includes(term)) {
+                matchedTerms++;
+                const firstPos = contentLower.indexOf(term);
+                if (firstPos < 100) positionBonus += 0.1;
+                if (firstPos < 50) positionBonus += 0.1;
+              }
+              if (headingText.includes(term)) {
+                headingBonus += 0.05;
+              }
+            });
+            
+            const termCoverage = queryTerms.length > 0 ? matchedTerms / queryTerms.length : 0;
+            const lexicalScore = Math.min(1, termCoverage + positionBonus + headingBonus);
+            
+            // Extract entities from query
+            const extractEntitiesFromText = (text: string): string[] => {
+              const entities: Set<string> = new Set();
+              // Proper nouns (capitalized words not at sentence start)
+              const properNouns = text.match(/(?<=[a-z]\s)[A-Z][a-z]+/g) || [];
+              properNouns.forEach(n => entities.add(n));
+              // Acronyms
+              const acronyms = text.match(/\b[A-Z]{2,}\b/g) || [];
+              acronyms.forEach(a => entities.add(a));
+              // Numbers with context
+              const numbers = text.match(/\$[\d,]+|\d+%|\d+-\d+\s*(days?|weeks?|months?|years?|hours?)/gi) || [];
+              numbers.forEach(n => entities.add(n));
+              return Array.from(entities);
+            };
+            
+            const queryEntities = extractEntitiesFromText(query);
+            const contentEntities = extractEntitiesFromText(content);
+            
+            // Calculate entity overlap
+            let entityMatches = 0;
+            const contentLowerForEntity = content.toLowerCase();
+            queryEntities.forEach(entity => {
+              if (contentLowerForEntity.includes(entity.toLowerCase())) {
+                entityMatches++;
+              }
+            });
+            const entityOverlap = queryEntities.length > 0 
+              ? entityMatches / queryEntities.length 
+              : 0.7; // Default if no entities in query
+            
+            // Calculate rerank score components
+            const firstSentence = content.split(/[.!?]/)[0] || '';
+            const first150Chars = content.slice(0, 150).toLowerCase();
+            
+            // Direct answer detection
+            let directAnswerScore = 0;
+            const queryLower = query.toLowerCase();
+            if (/how\s+(long|much|many)/i.test(query)) {
+              // Look for numbers in first sentence
+              if (/\d+/.test(firstSentence)) directAnswerScore = 1;
+              else if (/\d+/.test(content.slice(0, 300))) directAnswerScore = 0.5;
+            } else if (/what\s+is/i.test(query)) {
+              // Look for definition pattern
+              if (/\bis\b.*\ba\b|\bare\b.*\b(a|the)\b/i.test(firstSentence)) directAnswerScore = 1;
+              else if (first150Chars.includes('is ') || first150Chars.includes('are ')) directAnswerScore = 0.7;
+            } else {
+              // General answer: query terms in first sentence
+              const queryMainTerms = queryTerms.slice(0, 3);
+              const termsInFirst = queryMainTerms.filter((t: string) => firstSentence.toLowerCase().includes(t)).length;
+              directAnswerScore = queryMainTerms.length > 0 ? termsInFirst / queryMainTerms.length : 0.5;
+            }
+            
+            // Query restatement detection
+            let queryRestatementScore = 0;
+            const queryWordsSet = new Set(queryTerms);
+            const firstSentenceWords = firstSentence.toLowerCase().replace(/[^\w\s]/g, '').split(/\s+/);
+            const matchedInFirst = firstSentenceWords.filter((w: string) => queryWordsSet.has(w)).length;
+            if (matchedInFirst >= 3) queryRestatementScore = 1;
+            else if (matchedInFirst >= 2) queryRestatementScore = 0.7;
+            else if (matchedInFirst >= 1) queryRestatementScore = 0.3;
+            
+            // Structural clarity
+            let structuralClarityScore = 0.5; // Base
+            if (/^#+\s|^\*\*[^*]+\*\*$/m.test(content)) structuralClarityScore += 0.2; // Has headings
+            if (/^\s*[-•*]\s|\d+\./m.test(content)) structuralClarityScore += 0.2; // Has lists
+            if (/:\s*\n/.test(content)) structuralClarityScore += 0.1; // Colon followed by newline (intro to list)
+            structuralClarityScore = Math.min(1, structuralClarityScore);
+            
+            // Entity prominence in first sentence
+            let entityProminenceScore = 0.5;
+            queryEntities.forEach(entity => {
+              if (firstSentence.toLowerCase().includes(entity.toLowerCase())) {
+                entityProminenceScore = Math.min(1, entityProminenceScore + 0.25);
+              }
+              if (headingText.includes(entity.toLowerCase())) {
+                entityProminenceScore = Math.min(1, entityProminenceScore + 0.25);
+              }
+            });
+            
+            // Composite rerank score: 35% entity, 30% answer, 20% structural, 15% restatement
+            const rerankScore = (
+              (entityProminenceScore * 0.35) +
+              (directAnswerScore * 0.30) +
+              (structuralClarityScore * 0.20) +
+              (queryRestatementScore * 0.15)
+            ) * 100;
+            
+            // Citation score (specificity signals)
+            let citationScore = 50;
+            const numbers = content.match(/\d+(\.\d+)?%?/g) || [];
+            citationScore += Math.min(20, numbers.length * 5);
+            if (/\$[\d,]+/.test(content)) citationScore += 10;
+            if (/\d+-\d+\s*(days?|weeks?|months?|years?)/.test(content)) citationScore += 10;
+            if (/[A-Z][a-z]+\s+[A-Z][a-z]+/.test(content)) citationScore += 5;
+            // Penalize vague language
+            const vaguePatterns = [/varies?\s+widely/i, /depends?\s+on/i, /many\s+factors?/i];
+            vaguePatterns.forEach(p => { if (p.test(content)) citationScore -= 5; });
+            citationScore = Math.max(0, Math.min(100, citationScore));
+            
+            // Hybrid retrieval score (70% semantic + 30% lexical)
+            const retrievalScore = (semanticSimilarity * 0.7) + (lexicalScore * 0.3);
+            
+            // Composite passage score
+            const passageScore = Math.round(
+              (retrievalScore * 100 * 0.40) +
+              (rerankScore * 0.35) +
+              (citationScore * 0.25)
+            );
+            
+            await sendEvent({
+              type: 'scoring_complete',
+              scores: {
+                passageScore,
+                semanticSimilarity,
+                lexicalScore,
+                rerankScore,
+                citationScore,
+                entityOverlap,
+                components: {
+                  retrievalScore: retrievalScore * 100,
+                  directAnswerScore: directAnswerScore * 100,
+                  queryRestatementScore: queryRestatementScore * 100,
+                  structuralClarityScore: structuralClarityScore * 100,
+                  entityProminenceScore: entityProminenceScore * 100
+                }
+              }
+            });
+            
+            console.log('Content scoring completed successfully');
+            break;
+          }
+
           case 'apply_architecture_stream': {
             const { content, tasks } = params;
             let currentContent = content;

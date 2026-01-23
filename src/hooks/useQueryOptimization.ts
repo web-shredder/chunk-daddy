@@ -5,7 +5,7 @@
 
 import { useState, useCallback, useEffect } from 'react';
 import { toast } from 'sonner';
-import type { QueryWorkItem, QueryOptimizationState } from '@/types/coverage';
+import type { QueryWorkItem, QueryOptimizationState, QueryScores } from '@/types/coverage';
 import type { LayoutAwareChunk } from '@/lib/layout-chunker';
 
 interface UseQueryOptimizationProps {
@@ -258,6 +258,116 @@ export function useQueryOptimization({
     updateState({ userEditedContent: text });
   }, [updateState]);
 
+  const rescoreContent = useCallback(async () => {
+    if (!state.userEditedContent?.trim()) {
+      toast.error('No content to score');
+      return;
+    }
+    
+    updateState({ step: 'scoring', error: undefined });
+
+    try {
+      const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+      const supabaseKey = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
+      
+      const response = await fetch(`${supabaseUrl}/functions/v1/optimize-content-stream`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${supabaseKey}`,
+        },
+        body: JSON.stringify({
+          type: 'score_content',
+          query: queryItem.query,
+          content: state.userEditedContent,
+          headingPath: chunk?.headingPath || []
+        })
+      });
+
+      if (!response.ok) {
+        if (response.status === 429) {
+          throw new Error('Rate limit exceeded. Please try again in a moment.');
+        }
+        if (response.status === 402) {
+          throw new Error('Usage limit reached. Please add credits to continue.');
+        }
+        throw new Error(`Request failed: ${response.status}`);
+      }
+
+      if (!response.body) {
+        throw new Error('No response body');
+      }
+
+      // Parse SSE response
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
+      let scores: QueryScores | null = null;
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        
+        buffer += decoder.decode(value, { stream: true });
+        
+        const lines = buffer.split('\n');
+        buffer = lines.pop() || '';
+        
+        for (const line of lines) {
+          if (line.startsWith('data: ')) {
+            const jsonStr = line.slice(6).trim();
+            if (jsonStr === '[DONE]') continue;
+            
+            try {
+              const event = JSON.parse(jsonStr);
+              
+              if (event.type === 'error') {
+                throw new Error(event.message);
+              }
+              
+              if (event.type === 'scoring_complete' && event.scores) {
+                scores = event.scores;
+              }
+            } catch (e) {
+              if (e instanceof SyntaxError) continue;
+              throw e;
+            }
+          }
+        }
+      }
+
+      if (!scores) {
+        throw new Error('No scores returned from API');
+      }
+
+      updateState({
+        step: 'optimization_ready',
+        lastScoredContent: state.userEditedContent,
+        lastScoredResults: scores
+      });
+      
+      toast.success('Content scored successfully');
+    } catch (error) {
+      console.error('Scoring error:', error);
+      const errorMessage = error instanceof Error ? error.message : 'Failed to score content';
+      updateState({
+        step: 'optimization_ready',
+        error: errorMessage
+      });
+      toast.error(errorMessage);
+    }
+  }, [queryItem, chunk, state.userEditedContent, updateState]);
+
+  const approveOptimization = useCallback(() => {
+    updateState({ step: 'approved' });
+    
+    // Return the approved data to parent
+    return {
+      approvedText: state.userEditedContent,
+      finalScores: state.lastScoredResults
+    };
+  }, [state.userEditedContent, state.lastScoredResults, updateState]);
+
   const resetState = useCallback(() => {
     setState(DEFAULT_STATE);
     onStateChange(DEFAULT_STATE);
@@ -269,6 +379,8 @@ export function useQueryOptimization({
     setUserAnalysis,
     runOptimization,
     setUserContent,
+    rescoreContent,
+    approveOptimization,
     resetState,
     updateState,
   };
