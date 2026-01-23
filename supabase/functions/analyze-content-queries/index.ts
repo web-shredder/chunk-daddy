@@ -12,6 +12,9 @@ serve(async (req) => {
     return new Response(null, { headers: corsHeaders });
   }
 
+  const startTime = Date.now();
+  const TIMEOUT_THRESHOLD_MS = 50000; // 50 seconds - leave 10s buffer
+
   try {
     const { content, existingQueries = [], topicOverride = null } = await req.json();
 
@@ -42,6 +45,10 @@ serve(async (req) => {
     const primaryQuery = await generatePrimaryQuery(content, contentIntelligence, topicFocus);
     console.log('Primary query:', primaryQuery.query);
     
+    // Check elapsed time before Step 4 (expensive step)
+    const elapsedAfterStep2 = Date.now() - startTime;
+    console.log(`Elapsed after Step 2: ${elapsedAfterStep2}ms`);
+    
     // Step 4: Generate query suggestions based on detected topic
     console.log('Step 3: Generating query suggestions...');
     const querySuggestionsResponse = await generateQuerySuggestions(
@@ -58,19 +65,37 @@ serve(async (req) => {
       querySuggestionsResponse.summary.low_intent
     );
     
-    // Step 5: Detect coverage gaps
-    console.log('Step 4: Detecting coverage gaps...');
-    const coverageGaps = await detectCoverageGaps(
-      content, 
-      contentIntelligence, 
-      topicFocus,
-      querySuggestionsResponse.suggestions
-    );
-    console.log('Detected gaps:', coverageGaps.critical_gaps?.length || 0, 'critical,', coverageGaps.legacy_gaps?.length || 0, 'legacy');
+    // Check if we have time for gap analysis
+    const elapsedAfterStep3 = Date.now() - startTime;
+    console.log(`Elapsed after Step 3: ${elapsedAfterStep3}ms`);
+    
+    let coverageGaps: CoverageGapsAnalysis;
+    let isPartial = false;
+    
+    if (elapsedAfterStep3 < TIMEOUT_THRESHOLD_MS) {
+      // Step 5: Detect coverage gaps (if we have time)
+      console.log('Step 4: Detecting coverage gaps...');
+      coverageGaps = await detectCoverageGaps(
+        content, 
+        contentIntelligence, 
+        topicFocus,
+        querySuggestionsResponse.suggestions
+      );
+      console.log('Detected gaps:', coverageGaps.critical_gaps?.length || 0, 'critical,', coverageGaps.legacy_gaps?.length || 0, 'legacy');
+    } else {
+      // Skip gap analysis to avoid timeout - return partial results
+      console.log('Step 4: SKIPPED (timeout threshold reached, elapsed:', elapsedAfterStep3, 'ms)');
+      isPartial = true;
+      coverageGaps = buildMinimalGapAnalysis(querySuggestionsResponse.suggestions);
+    }
+
+    const totalElapsed = Date.now() - startTime;
+    console.log(`Total elapsed: ${totalElapsed}ms, partial: ${isPartial}`);
 
     return new Response(
       JSON.stringify({
         success: true,
+        partial: isPartial,
         // What the system detected
         detectedTopic: contentIntelligence.detectedTopicFocus,
         activeTopic: topicFocus,
@@ -86,6 +111,7 @@ serve(async (req) => {
         gaps: coverageGaps,
         
         timestamp: new Date().toISOString(),
+        elapsed_ms: totalElapsed,
       }),
       { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );
@@ -433,7 +459,7 @@ ${content.slice(0, 6000)}
 
 Generate query suggestions with full intent preservation scoring:`;
 
-  const response = await callAI(systemPrompt, userPrompt, 'json_object', 12288);
+  const response = await callAI(systemPrompt, userPrompt, 'json_object', 6144);
   const parsed = parseAIResponse(response, { suggestions: [], summary: {} });
   
   // Ensure we have the right structure
@@ -741,6 +767,65 @@ Perform iterative deep research gap analysis for "${topicFocus.primaryEntity}" c
   };
   
   return analysis;
+}
+
+// Helper function to build minimal gap analysis when skipping Step 4 for timeout
+function buildMinimalGapAnalysis(suggestions: QuerySuggestion[]): CoverageGapsAnalysis {
+  const coverageStats = {
+    total: suggestions.length,
+    strong: suggestions.filter(s => s.matchStrength === 'strong').length,
+    partial: suggestions.filter(s => s.matchStrength === 'partial').length,
+    weak: suggestions.filter(s => s.matchStrength === 'weak').length,
+    none: suggestions.filter(s => !s.matchStrength).length,
+  };
+
+  // Build critical gaps from HIGH intent + weak coverage
+  const criticalGapsFromSuggestions: CriticalGap[] = suggestions
+    .filter(s => 
+      s.intentCategory === 'HIGH' &&
+      (s.matchStrength === 'weak' || !s.matchStrength) &&
+      s.routePrediction === 'WEB_SEARCH'
+    )
+    .slice(0, 5)
+    .map(s => ({
+      query: s.query,
+      intentScore: s.intentScore || 0.75,
+      intentCategory: 'HIGH' as const,
+      routePrediction: s.routePrediction || 'WEB_SEARCH',
+      currentCoverage: (s.matchStrength || 'none') as 'none' | 'weak' | 'partial',
+      missingElements: ['Full gap analysis skipped - run again for detailed recommendations'],
+      competitiveValue: 'high' as const,
+      estimatedEffort: 'moderate' as const,
+      recommendation: `This HIGH intent query has ${s.matchStrength || 'no'} coverage. Consider adding content to address: "${s.query}"`,
+    }));
+
+  return {
+    missing_queries: [],
+    weak_queries: [],
+    opportunities: [],
+    critical_gaps: criticalGapsFromSuggestions,
+    follow_up_queries: [],
+    competitive_gaps: [],
+    priority_actions: criticalGapsFromSuggestions.slice(0, 3).map((g, i) => ({
+      rank: i + 1,
+      action: `Address gap: "${g.query}"`,
+      targetQueries: [g.query],
+      impact: 'high' as const,
+      effort: 'moderate' as const,
+      expectedImprovement: 'Would improve coverage for HIGH intent query',
+    })),
+    gap_summary: {
+      total_suggestions: coverageStats.total,
+      strong_coverage: coverageStats.strong,
+      partial_coverage: coverageStats.partial,
+      weak_coverage: coverageStats.weak,
+      no_coverage: coverageStats.none,
+      critical_gaps: criticalGapsFromSuggestions.length,
+      opportunity_gaps: 0,
+      low_priority_gaps: 0,
+    },
+    legacy_gaps: [],
+  };
 }
 
 // ============================================================
