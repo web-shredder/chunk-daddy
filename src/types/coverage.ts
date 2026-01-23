@@ -17,6 +17,16 @@ export type QueryIntentType =
   | 'CLARIFICATION'
   | 'GAP';
 
+// Optimization step tracking
+export type OptimizationStep = 
+  | 'idle' 
+  | 'analyzing' 
+  | 'analysis_ready' 
+  | 'optimizing' 
+  | 'optimization_ready' 
+  | 'scoring' 
+  | 'approved';
+
 export interface QueryScores {
   passageScore: number;
   semanticSimilarity: number;
@@ -31,6 +41,23 @@ export interface AssignedChunk {
   heading: string;
   preview: string;
   headingPath?: string[];
+}
+
+export interface QueryOptimizationState {
+  step: OptimizationStep;
+  error?: string;
+  
+  // Generated content
+  generatedAnalysis?: string;
+  generatedContent?: string;
+  
+  // User edits (tracks if user modified the generated content)
+  userEditedAnalysis?: string;
+  userEditedContent?: string;
+  
+  // Rescoring results
+  lastScoredContent?: string;
+  lastScoredResults?: QueryScores;
 }
 
 export interface QueryWorkItem {
@@ -56,4 +83,5 @@ export interface QueryWorkItem {
 export interface CoverageState {
   queries: QueryWorkItem[];
   activeQueryId: string | null;
+  optimizationStates: Record<string, QueryOptimizationState>;
 }

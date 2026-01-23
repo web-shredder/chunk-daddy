@@ -618,6 +618,108 @@ serve(async (req) => {
     (async () => {
       try {
         switch (type) {
+          case 'generate_analysis_prompt': {
+            // Non-streaming analysis prompt generation
+            const { query, intentType, chunkText, headingPath, scores } = params;
+            
+            const systemPrompt = `You are an expert content optimization analyst specializing in AI search retrieval (RAG systems). Your task is to analyze a content chunk and provide specific, actionable recommendations for optimizing it to better answer a target query.
+
+You understand that AI search systems:
+- Retrieve content based on semantic similarity and lexical overlap
+- Use cross-encoder reranking to select the most relevant passages
+- Prefer content that directly restates or addresses the query
+- Value entity prominence and specific, concrete information
+- Cite content that provides clear, quotable answers`;
+
+            const userPrompt = `Analyze this chunk and provide optimization recommendations.
+
+QUERY: "${query}"
+INTENT TYPE: ${intentType}
+
+HEADING CONTEXT:
+${(headingPath || []).join(' > ') || 'Root level'}
+
+CURRENT CHUNK:
+"""
+${chunkText}
+"""
+
+CURRENT SCORES:
+- Passage Score: ${scores?.passageScore ?? 'N/A'}/100
+- Semantic Similarity: ${(scores?.semanticSimilarity ?? 0).toFixed(2)}
+- Lexical Score: ${(scores?.lexicalScore ?? 0).toFixed(2)}
+- Entity Overlap: ${Math.round((scores?.entityOverlap ?? 0) * 100)}%
+- Rerank Score: ${scores?.rerankScore ?? 'N/A'}/100
+- Citation Score: ${scores?.citationScore ?? 'N/A'}/100
+
+Provide a detailed optimization brief that includes:
+
+1. **Opening Sentence Recommendation**: Write the exact opening sentence this chunk should have to directly address the query.
+
+2. **Key Changes Needed**: List 3-5 specific changes to improve retrieval and ranking.
+
+3. **Entities to Add/Emphasize**: List specific terms, phrases, or concepts that should be prominently included.
+
+4. **Structure Improvements**: How should the content be reorganized for better scannability and direct answers?
+
+5. **Missing Information**: What specific facts, examples, or data points would strengthen this content?
+
+6. **Quotability Factor**: What 1-2 sentence "pull quote" should this chunk contain that an AI would want to cite?
+
+Format as a clear, actionable brief that a writer could use to rewrite this chunk.`;
+
+            console.log(`Generating analysis prompt for query: "${query.slice(0, 50)}..."`);
+
+            const response = await fetch(AI_GATEWAY_URL, {
+              method: 'POST',
+              headers: {
+                'Authorization': `Bearer ${LOVABLE_API_KEY}`,
+                'Content-Type': 'application/json',
+              },
+              body: JSON.stringify({
+                model: 'google/gemini-3-flash-preview',
+                messages: [
+                  { role: 'system', content: systemPrompt },
+                  { role: 'user', content: userPrompt }
+                ],
+                temperature: 0.7,
+                max_tokens: 1500,
+                stream: false,
+              }),
+            });
+
+            if (!response.ok) {
+              const errorText = await response.text();
+              console.error('AI gateway error:', response.status, errorText);
+              
+              if (response.status === 429) {
+                await sendEvent({ type: 'error', message: 'Rate limit exceeded. Please try again in a moment.' });
+              } else if (response.status === 402) {
+                await sendEvent({ type: 'error', message: 'Usage limit reached. Please add credits to continue.' });
+              } else {
+                await sendEvent({ type: 'error', message: `AI service error: ${response.status}` });
+              }
+              break;
+            }
+
+            const data = await response.json();
+            const analysis = data.choices?.[0]?.message?.content;
+
+            if (!analysis) {
+              await sendEvent({ type: 'error', message: 'No analysis generated' });
+              break;
+            }
+
+            // Send as non-streaming response via SSE
+            await sendEvent({
+              type: 'analysis_complete',
+              analysis,
+            });
+            
+            console.log('Analysis prompt generated successfully');
+            break;
+          }
+
           case 'apply_architecture_stream': {
             const { content, tasks } = params;
             let currentContent = content;
