@@ -523,6 +523,7 @@ export function QueryIntelligenceDashboard({
       ...extractedEntities.primary,
       ...extractedEntities.secondary,
       ...extractedEntities.branded,
+      ...extractedEntities.temporal,
       ...seoCombinations,
     ];
   }, [extractedEntities, seoCombinations]);
@@ -974,6 +975,16 @@ export function QueryIntelligenceDashboard({
                     label="Brand Terms" 
                     keywords={extractedEntities.branded}
                     variant="branded"
+                    onCopy={handleCopyKeywords}
+                  />
+                )}
+                
+                {/* Temporal Keywords */}
+                {extractedEntities.temporal.length > 0 && (
+                  <SEOKeywordGroup 
+                    label="Temporal Keywords" 
+                    keywords={extractedEntities.temporal}
+                    variant="temporal"
                     onCopy={handleCopyKeywords}
                   />
                 )}
@@ -1974,13 +1985,14 @@ function SEOKeywordGroup({
 }: { 
   label: string; 
   keywords: string[]; 
-  variant: 'primary' | 'secondary' | 'branded';
+  variant: 'primary' | 'secondary' | 'branded' | 'temporal';
   onCopy: (keywords: string[], label: string) => void;
 }) {
   const styles = {
     primary: 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/30',
     secondary: 'bg-blue-500/10 text-blue-600 dark:text-blue-400 border-blue-500/30',
     branded: 'bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/30',
+    temporal: 'bg-violet-500/10 text-violet-600 dark:text-violet-400 border-violet-500/30',
   };
   
   return (
