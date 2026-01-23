@@ -169,7 +169,7 @@ export function ContentTab({
       contentLength: content.length,
       options: chunkerOptions,
     }, {
-      navigatingTo: 'analyze',
+      navigatingTo: 'queries',
     });
     setShowSettingsDialog(false);
     onChunk();

@@ -24,6 +24,8 @@ import {
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+type WorkflowTabId = 'content' | 'queries' | 'coverage' | 'downloads' | 'progress';
+
 const Index = () => {
   const navigate = useNavigate();
   const { isValid } = useApiKey();
@@ -46,7 +48,7 @@ const Index = () => {
     deleteProject,
   } = useProjects();
 
-  const [activeTab, setActiveTab] = useState<string>('content');
+  const [activeTab, setActiveTab] = useState<WorkflowTabId>('content');
   const [content, setContent] = useState("");
   const [keywords, setKeywords] = useState<string[]>([]);
   // Track intent types for queries (from fanout)
@@ -168,7 +170,7 @@ const Index = () => {
   const [showNewProjectDialog, setShowNewProjectDialog] = useState(false);
   const [pendingProjectName, setPendingProjectName] = useState('');
   
-  // Track if we should auto-navigate to results after analysis
+  // Track if we should auto-navigate to coverage after analysis
   const shouldNavigateToResults = useRef(false);
 
   useEffect(() => {
@@ -177,10 +179,10 @@ const Index = () => {
     }
   }, [user, authLoading, navigate]);
 
-  // Auto-navigate to results when analysis completes
+  // Auto-navigate to coverage when analysis completes
   useEffect(() => {
     if (result && !isAnalyzing && shouldNavigateToResults.current) {
-      setActiveTab('results');
+      setActiveTab('coverage');
       shouldNavigateToResults.current = false;
     }
   }, [result, isAnalyzing]);
@@ -359,7 +361,8 @@ const Index = () => {
     const chunks = createLayoutAwareChunks(content, chunkerOptions);
     setParsedElements(elements);
     setLayoutChunks(chunks);
-    setActiveTab('analyze');
+    // After chunking, proceed to query generation/analysis
+    setActiveTab('queries');
   };
 
   const handleAnalyze = async () => {
@@ -419,8 +422,8 @@ const Index = () => {
     setOptimizedContent(finalContent);
     // Save to project with optimization data
     markUnsaved(content, keywords, chunkerOptions, result, finalContent, optResult, architectureAnalysis, queryIntelligence, coverageState);
-    // Navigate to report tab
-    setActiveTab('report');
+    // Navigate to progress tab
+    setActiveTab('progress');
   }, [content, keywords, chunkerOptions, result, architectureAnalysis, queryIntelligence, coverageState, markUnsaved]);
   
   // Handler for coverage state changes - sync to parent and trigger save
@@ -475,8 +478,8 @@ const Index = () => {
     setVerificationSummary(null);
     setArchitectureContext(null);
     
-    // Auto-switch to outputs tab
-    setActiveTab('outputs');
+    // Auto-switch to downloads tab
+    setActiveTab('downloads');
     
     const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
     const supabaseKey = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
@@ -1108,7 +1111,7 @@ const Index = () => {
         steps={WORKFLOW_STEPS}
         currentStepId={activeTab}
         completedStepIds={completedStepIds}
-        onStepClick={setActiveTab}
+        onStepClick={(stepId) => setActiveTab(stepId as WorkflowTabId)}
         isAnalyzing={isAnalyzing}
         isSaving={isSaving}
         hasUnsavedChanges={hasUnsavedChanges}
