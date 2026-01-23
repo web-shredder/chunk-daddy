@@ -180,6 +180,13 @@ export function QueryCard({ query, onClick }: QueryCardProps) {
                 {intentConfig.label}
               </Badge>
               
+              {/* New Section badge for filled gaps */}
+              {query.status === 'optimized' && query.isGap === false && !query.assignedChunk && (
+                <Badge variant="outline" className="text-xs border-success/50 text-success bg-success/10">
+                  New Section
+                </Badge>
+              )}
+              
               {/* Assigned chunk info */}
               {query.assignedChunk && (
                 <span className="text-xs text-muted-foreground truncate">

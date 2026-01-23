@@ -228,3 +228,12 @@ export function extractMissingConcepts(query: string): string[] {
   // Return unique terms
   return [...new Set(words)];
 }
+
+/**
+ * Extract heading from generated markdown content
+ */
+export function extractHeadingFromContent(content: string): string | undefined {
+  // Look for markdown heading (## or #)
+  const match = content.match(/^##?\s+(.+)$/m);
+  return match ? match[1].trim() : undefined;
+}

@@ -1749,6 +1749,201 @@ Return valid JSON with this structure:
             break;
           }
 
+          case 'generate_gap_brief': {
+            const { query, intentType, existingHeadings = [], contentContext = '' } = params;
+            
+            console.log(`Generating gap brief for query: "${query?.slice(0, 50)}..."`);
+            
+            const systemPrompt = `You are an expert content strategist specializing in AI search optimization. Your task is to create a detailed content brief for a NEW section that needs to be added to an existing document.
+
+This new section must:
+- Directly address the target query
+- Fit naturally within the existing document structure
+- Be optimized for retrieval by RAG systems (semantic relevance, entity prominence, direct answers)
+- Provide unique value not covered by existing content
+
+You understand that AI search systems:
+- Retrieve content based on semantic similarity and lexical overlap
+- Use cross-encoder reranking to select the most relevant passages
+- Prefer content that directly restates or addresses the query
+- Value entity prominence and specific, concrete information
+- Cite content that provides clear, quotable answers`;
+
+            const userPrompt = `Create a content brief for a new section to address this query.
+
+TARGET QUERY: "${query}"
+INTENT TYPE: ${intentType || 'INFORMATIONAL'}
+
+EXISTING DOCUMENT STRUCTURE:
+${existingHeadings.length > 0 ? existingHeadings.map((h: string, i: number) => `${i + 1}. ${h}`).join('\n') : 'No headings provided'}
+
+CONTENT CONTEXT:
+${contentContext || 'No additional context provided.'}
+
+Create a detailed brief that includes:
+
+## Recommended Section Title
+Suggest a clear, descriptive heading for this new section.
+
+## Placement
+Where in the document should this section be added? (After which existing section?)
+
+## Estimated Length
+Recommended word count (typically 300-600 words for a focused section).
+
+## Key Points to Cover
+List 4-6 specific points this section must address to answer the query comprehensively.
+
+## Required Entities & Terms
+List specific keywords, phrases, and concepts that must appear prominently.
+
+## Opening Sentence
+Write the exact opening sentence that directly addresses the query.
+
+## Quotable Statement
+Write a 1-2 sentence "pull quote" that an AI would want to cite as a direct answer.
+
+## Data & Examples Needed
+What specific facts, statistics, examples, or case studies should be included?
+
+Format this as an actionable brief that a writer could use to create this section.`;
+
+            const response = await fetch(AI_GATEWAY_URL, {
+              method: 'POST',
+              headers: {
+                'Authorization': `Bearer ${LOVABLE_API_KEY}`,
+                'Content-Type': 'application/json',
+              },
+              body: JSON.stringify({
+                model: 'google/gemini-3-flash-preview',
+                messages: [
+                  { role: 'system', content: systemPrompt },
+                  { role: 'user', content: userPrompt }
+                ],
+                temperature: 0.7,
+                max_tokens: 1500,
+                stream: false,
+              }),
+            });
+
+            if (!response.ok) {
+              const errorText = await response.text();
+              console.error('AI gateway error:', response.status, errorText);
+              
+              if (response.status === 429) {
+                await sendEvent({ type: 'error', message: 'Rate limit exceeded. Please try again in a moment.' });
+              } else if (response.status === 402) {
+                await sendEvent({ type: 'error', message: 'Usage limit reached. Please add credits to continue.' });
+              } else {
+                await sendEvent({ type: 'error', message: `AI service error: ${response.status}` });
+              }
+              break;
+            }
+
+            const data = await response.json();
+            const brief = data.choices?.[0]?.message?.content;
+
+            if (!brief) {
+              await sendEvent({ type: 'error', message: 'No brief generated' });
+              break;
+            }
+
+            await sendEvent({
+              type: 'brief_complete',
+              brief,
+            });
+            
+            console.log('Gap brief generated successfully');
+            break;
+          }
+
+          case 'generate_gap_content': {
+            const { query, intentType, brief, existingHeadings = [], contentContext = '' } = params;
+            
+            console.log(`Generating gap content for query: "${query?.slice(0, 50)}..."`);
+            
+            const systemPrompt = `You are an expert content writer specializing in AI search optimization. Your task is to write a complete new section based on a content brief.
+
+Your writing must:
+- Open with a sentence that directly addresses or restates the query
+- Include all key entities and terms prominently (especially in the first 100 words)
+- Provide specific, concrete information with examples where appropriate
+- Be structured for easy scanning (but don't overuse bullet points)
+- Sound natural and authoritative, not keyword-stuffed
+- Be factually grounded - don't invent statistics or make unsupported claims
+
+IMPORTANT: Write in a professional, informative tone that matches typical business/industry content. Do not use promotional language or make unsubstantiated superlatives.`;
+
+            const userPrompt = `Write a new content section based on this brief.
+
+TARGET QUERY: "${query}"
+INTENT TYPE: ${intentType || 'INFORMATIONAL'}
+
+CONTENT BRIEF:
+"""
+${brief}
+"""
+
+EXISTING DOCUMENT CONTEXT:
+- Document headings: ${existingHeadings.length > 0 ? existingHeadings.join(', ') : 'Not specified'}
+- Content focus: ${contentContext || 'Not specified'}
+
+Write the complete section content now. Include:
+1. A heading (use ## markdown format)
+2. The full body content following the brief's specifications
+3. Maintain the recommended word count from the brief
+
+Output ONLY the section content (heading + body), no meta-commentary.`;
+
+            const response = await fetch(AI_GATEWAY_URL, {
+              method: 'POST',
+              headers: {
+                'Authorization': `Bearer ${LOVABLE_API_KEY}`,
+                'Content-Type': 'application/json',
+              },
+              body: JSON.stringify({
+                model: 'google/gemini-3-flash-preview',
+                messages: [
+                  { role: 'system', content: systemPrompt },
+                  { role: 'user', content: userPrompt }
+                ],
+                temperature: 0.7,
+                max_tokens: 2500,
+                stream: false,
+              }),
+            });
+
+            if (!response.ok) {
+              const errorText = await response.text();
+              console.error('AI gateway error:', response.status, errorText);
+              
+              if (response.status === 429) {
+                await sendEvent({ type: 'error', message: 'Rate limit exceeded. Please try again in a moment.' });
+              } else if (response.status === 402) {
+                await sendEvent({ type: 'error', message: 'Usage limit reached. Please add credits to continue.' });
+              } else {
+                await sendEvent({ type: 'error', message: `AI service error: ${response.status}` });
+              }
+              break;
+            }
+
+            const data = await response.json();
+            const content = data.choices?.[0]?.message?.content;
+
+            if (!content) {
+              await sendEvent({ type: 'error', message: 'No content generated' });
+              break;
+            }
+
+            await sendEvent({
+              type: 'content_complete',
+              content,
+            });
+            
+            console.log('Gap content generated successfully');
+            break;
+          }
+
           default:
             await sendEvent({ type: 'error', message: `Unknown type: ${type}` });
         }
