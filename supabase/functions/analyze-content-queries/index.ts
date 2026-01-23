@@ -679,7 +679,7 @@ async function callAI(
         { role: 'system', content: systemPrompt },
         { role: 'user', content: userContent },
       ],
-      max_tokens: maxTokens,
+      max_completion_tokens: maxTokens,
       temperature: 0.7,
       response_format: responseFormat === 'json_object' ? { type: 'json_object' } : undefined,
     }),
