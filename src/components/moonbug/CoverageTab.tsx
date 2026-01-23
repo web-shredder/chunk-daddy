@@ -3,7 +3,7 @@
  * Displays queries organized by optimization status with interactive cards
  */
 
-import { useMemo, useState, useCallback, useEffect } from 'react';
+import { useMemo, useState, useCallback, useEffect, useRef } from 'react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { ScrollArea } from '@/components/ui/scroll-area';
@@ -77,12 +77,17 @@ export function CoverageTab({
   // Use external state if provided, otherwise use local
   const coverageState = externalCoverageState || localCoverageState;
   
-  // Wrapper to update both local and external state
+  // Ref to track latest state - prevents stale closure issues
+  const coverageStateRef = useRef(coverageState);
+  coverageStateRef.current = coverageState;
+  
+  // Wrapper to update both local and external state (uses ref to avoid stale closures)
   const setCoverageState = useCallback((updater: CoverageState | ((prev: CoverageState) => CoverageState)) => {
-    const newState = typeof updater === 'function' ? updater(coverageState) : updater;
+    const currentState = coverageStateRef.current;
+    const newState = typeof updater === 'function' ? updater(currentState) : updater;
     setLocalCoverageState(newState);
     onCoverageStateChange(newState);
-  }, [coverageState, onCoverageStateChange]);
+  }, [onCoverageStateChange]);
   
   // Track if work items have been initialized
   const [workItemsInitialized, setWorkItemsInitialized] = useState(false);
