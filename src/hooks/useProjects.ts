@@ -6,6 +6,7 @@ import type { ChunkDaddyProject, ProjectSummary, QueryIntelligenceState } from '
 import type { ChunkerOptions } from '@/lib/layout-chunker';
 import type { AnalysisResult } from '@/hooks/useAnalysis';
 import type { FullOptimizationResult, ArchitectureAnalysis } from '@/lib/optimizer-types';
+import type { CoverageState } from '@/types/coverage';
 
 interface ProjectState {
   currentProject: ChunkDaddyProject | null;
@@ -43,6 +44,7 @@ export function useProjects(options: UseProjectsOptions = {}) {
     optimizationResult: FullOptimizationResult | null;
     architectureAnalysis: ArchitectureAnalysis | null;
     queryIntelligence: QueryIntelligenceState | null;
+    coverageState: CoverageState | null;
   } | null>(null);
 
   // Fetch user's projects
@@ -92,7 +94,8 @@ export function useProjects(options: UseProjectsOptions = {}) {
     optimizedContent?: string | null,
     optimizationResult?: FullOptimizationResult | null,
     architectureAnalysis?: ArchitectureAnalysis | null,
-    queryIntelligence?: QueryIntelligenceState | null
+    queryIntelligence?: QueryIntelligenceState | null,
+    coverageState?: CoverageState | null
   ) => {
     if (!user) {
       toast.error('Please log in to save projects');
@@ -113,6 +116,7 @@ export function useProjects(options: UseProjectsOptions = {}) {
         optimization_result: optimizationResult as unknown as any,
         architecture_analysis: architectureAnalysis as unknown as any,
         query_intelligence: queryIntelligence as unknown as any,
+        coverage_state: coverageState as unknown as any,
       };
 
       let savedProject: ChunkDaddyProject;
@@ -179,7 +183,8 @@ export function useProjects(options: UseProjectsOptions = {}) {
       data.optimizedContent,
       data.optimizationResult,
       data.architectureAnalysis,
-      data.queryIntelligence
+      data.queryIntelligence,
+      data.coverageState
     );
   }, [state.currentProject, state.hasUnsavedChanges, saveProject]);
 
@@ -285,7 +290,8 @@ export function useProjects(options: UseProjectsOptions = {}) {
     optimizedContent?: string | null,
     optimizationResult?: FullOptimizationResult | null,
     architectureAnalysis?: ArchitectureAnalysis | null,
-    queryIntelligence?: QueryIntelligenceState | null
+    queryIntelligence?: QueryIntelligenceState | null,
+    coverageState?: CoverageState | null
   ) => {
     pendingData.current = { 
       content, 
@@ -295,7 +301,8 @@ export function useProjects(options: UseProjectsOptions = {}) {
       optimizedContent: optimizedContent || null,
       optimizationResult: optimizationResult || null,
       architectureAnalysis: architectureAnalysis || null,
-      queryIntelligence: queryIntelligence || null
+      queryIntelligence: queryIntelligence || null,
+      coverageState: coverageState || null
     };
     setState(prev => ({ ...prev, hasUnsavedChanges: true }));
   }, []);

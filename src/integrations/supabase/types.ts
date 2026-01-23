@@ -18,6 +18,7 @@ export type Database = {
         Row: {
           architecture_analysis: Json | null
           content: string
+          coverage_state: Json | null
           created_at: string
           id: string
           optimization_result: Json | null
@@ -33,6 +34,7 @@ export type Database = {
         Insert: {
           architecture_analysis?: Json | null
           content: string
+          coverage_state?: Json | null
           created_at?: string
           id?: string
           optimization_result?: Json | null
@@ -48,6 +50,7 @@ export type Database = {
         Update: {
           architecture_analysis?: Json | null
           content?: string
+          coverage_state?: Json | null
           created_at?: string
           id?: string
           optimization_result?: Json | null

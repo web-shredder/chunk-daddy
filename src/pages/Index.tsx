@@ -79,6 +79,9 @@ const Index = () => {
     filtered: any[];
   } | null>(null);
   
+  // Coverage state (persisted across tab switches) - NEW
+  const [coverageState, setCoverageState] = useState<import('@/types/coverage').CoverageState | null>(null);
+  
   // Optimization review state (lifted from OptimizeTab)
   const [optimizeViewState, setOptimizeViewState] = useState<'assignment' | 'optimizing' | 'review'>('assignment');
   const [acceptedChunks, setAcceptedChunks] = useState<Set<number>>(new Set());
@@ -246,6 +249,13 @@ const Index = () => {
           setQueryIntelligence(null);
         }
         
+        // Restore Coverage state if it exists
+        if (currentProject.coverage_state) {
+          setCoverageState(currentProject.coverage_state);
+        } else {
+          setCoverageState(null);
+        }
+        
         // Restore analysis results if they exist
         if (currentProject.results) {
           // Re-parse and re-chunk to get layout chunks
@@ -274,8 +284,8 @@ const Index = () => {
 
   const handleContentChange = useCallback((newContent: string) => {
     setContent(newContent);
-    markUnsaved(newContent, keywords, chunkerOptions, result, optimizedContent, optimizationResult, architectureAnalysis, queryIntelligence);
-  }, [keywords, chunkerOptions, result, optimizedContent, optimizationResult, architectureAnalysis, queryIntelligence, markUnsaved]);
+    markUnsaved(newContent, keywords, chunkerOptions, result, optimizedContent, optimizationResult, architectureAnalysis, queryIntelligence, coverageState);
+  }, [keywords, chunkerOptions, result, optimizedContent, optimizationResult, architectureAnalysis, queryIntelligence, coverageState, markUnsaved]);
 
   const handleKeywordsChange = useCallback((newKeywords: string[], intentTypes?: Record<string, FanoutIntentType>) => {
     setKeywords(newKeywords);
@@ -283,13 +293,13 @@ const Index = () => {
     if (intentTypes) {
       setQueryIntentTypes(prev => ({ ...prev, ...intentTypes }));
     }
-    markUnsaved(content, newKeywords, chunkerOptions, result, optimizedContent, optimizationResult, architectureAnalysis, queryIntelligence);
-  }, [content, chunkerOptions, result, optimizedContent, optimizationResult, architectureAnalysis, queryIntelligence, markUnsaved]);
+    markUnsaved(content, newKeywords, chunkerOptions, result, optimizedContent, optimizationResult, architectureAnalysis, queryIntelligence, coverageState);
+  }, [content, chunkerOptions, result, optimizedContent, optimizationResult, architectureAnalysis, queryIntelligence, coverageState, markUnsaved]);
 
   const handleSettingsChange = useCallback((newOptions: ChunkerOptions) => {
     setChunkerOptions(newOptions);
-    markUnsaved(content, keywords, newOptions, result, optimizedContent, optimizationResult, architectureAnalysis, queryIntelligence);
-  }, [content, keywords, result, optimizedContent, optimizationResult, architectureAnalysis, queryIntelligence, markUnsaved]);
+    markUnsaved(content, keywords, newOptions, result, optimizedContent, optimizationResult, architectureAnalysis, queryIntelligence, coverageState);
+  }, [content, keywords, result, optimizedContent, optimizationResult, architectureAnalysis, queryIntelligence, coverageState, markUnsaved]);
 
   const handleLoadProject = async (projectId: string) => {
     await loadProject(projectId);
@@ -316,6 +326,7 @@ const Index = () => {
     setOptimizationResult(null);
     setArchitectureAnalysis(null);
     setQueryIntelligence(null);
+    setCoverageState(null);  // Reset coverage state on new project
     // Reset optimization review state
     setOptimizeViewState('assignment');
     setAcceptedChunks(new Set());
@@ -338,7 +349,8 @@ const Index = () => {
       optimizedContent,
       optimizationResult,
       architectureAnalysis,
-      queryIntelligence
+      queryIntelligence,
+      coverageState
     );
   };
 
@@ -397,19 +409,25 @@ const Index = () => {
   const handleApplyOptimization = useCallback((newOptimizedContent: string) => {
     setOptimizedContent(newOptimizedContent);
     setContent(newOptimizedContent);
-    markUnsaved(newOptimizedContent, keywords, chunkerOptions, result, newOptimizedContent, optimizationResult, architectureAnalysis);
+    markUnsaved(newOptimizedContent, keywords, chunkerOptions, result, newOptimizedContent, optimizationResult, architectureAnalysis, queryIntelligence, coverageState);
     // Switch to content tab to show the new content
     setActiveTab('content');
-  }, [keywords, chunkerOptions, result, optimizationResult, architectureAnalysis, markUnsaved]);
+  }, [keywords, chunkerOptions, result, optimizationResult, architectureAnalysis, queryIntelligence, coverageState, markUnsaved]);
   
   const handleOptimizationComplete = useCallback((optResult: FullOptimizationResult, finalContent: string) => {
     setOptimizationResult(optResult);
     setOptimizedContent(finalContent);
     // Save to project with optimization data
-    markUnsaved(content, keywords, chunkerOptions, result, finalContent, optResult, architectureAnalysis);
+    markUnsaved(content, keywords, chunkerOptions, result, finalContent, optResult, architectureAnalysis, queryIntelligence, coverageState);
     // Navigate to report tab
     setActiveTab('report');
-  }, [content, keywords, chunkerOptions, result, architectureAnalysis, markUnsaved]);
+  }, [content, keywords, chunkerOptions, result, architectureAnalysis, queryIntelligence, coverageState, markUnsaved]);
+  
+  // Handler for coverage state changes - sync to parent and trigger save
+  const handleCoverageStateChange = useCallback((newCoverageState: import('@/types/coverage').CoverageState) => {
+    setCoverageState(newCoverageState);
+    markUnsaved(content, keywords, chunkerOptions, result, optimizedContent, optimizationResult, architectureAnalysis, queryIntelligence, newCoverageState);
+  }, [content, keywords, chunkerOptions, result, optimizedContent, optimizationResult, architectureAnalysis, queryIntelligence, markUnsaved]);
 
   // Streaming optimization handler - connects to optimize-content-stream SSE edge function
   // Debug logging is handled via the debugLogRef which gets set by StreamingDebugLogger component
@@ -1158,6 +1176,8 @@ const Index = () => {
           elements={parsedElements}
           result={result}
           onNavigateToDownloads={() => setActiveTab('downloads')}
+          coverageState={coverageState}
+          onCoverageStateChange={handleCoverageStateChange}
         />
       )}
 
