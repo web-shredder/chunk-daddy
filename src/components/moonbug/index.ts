@@ -19,6 +19,15 @@ export { OptimizationPlanPanel } from './OptimizationPlanPanel';
 export { QuerySidebar } from './QuerySidebar';
 export { QueryAutoSuggest } from './QueryAutoSuggest';
 export { AnalysisStreamingPanel } from './AnalysisStreamingPanel';
+export { QueryCategorizationSummary } from './QueryCategorizationSummary';
+export { 
+  OptimizationOpportunitiesView,
+  ContentGapsView,
+  IntentDriftView,
+  OutOfScopeView,
+  CategoryDetailView,
+} from './CategoryDetailViews';
+export { ContentBriefDisplay } from './ContentBriefDisplay';
 export type {
   AnalysisStep,
   EmbeddingInfo,
