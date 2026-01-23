@@ -239,6 +239,13 @@ const Index = () => {
           setArchitectureAnalysis(null);
         }
         
+        // Restore Query Intelligence state if it exists
+        if (currentProject.query_intelligence) {
+          setQueryIntelligence(currentProject.query_intelligence);
+        } else {
+          setQueryIntelligence(null);
+        }
+        
         // Restore analysis results if they exist
         if (currentProject.results) {
           // Re-parse and re-chunk to get layout chunks
@@ -267,8 +274,8 @@ const Index = () => {
 
   const handleContentChange = useCallback((newContent: string) => {
     setContent(newContent);
-    markUnsaved(newContent, keywords, chunkerOptions, result, optimizedContent, optimizationResult, architectureAnalysis);
-  }, [keywords, chunkerOptions, result, optimizedContent, optimizationResult, architectureAnalysis, markUnsaved]);
+    markUnsaved(newContent, keywords, chunkerOptions, result, optimizedContent, optimizationResult, architectureAnalysis, queryIntelligence);
+  }, [keywords, chunkerOptions, result, optimizedContent, optimizationResult, architectureAnalysis, queryIntelligence, markUnsaved]);
 
   const handleKeywordsChange = useCallback((newKeywords: string[], intentTypes?: Record<string, FanoutIntentType>) => {
     setKeywords(newKeywords);
@@ -276,13 +283,13 @@ const Index = () => {
     if (intentTypes) {
       setQueryIntentTypes(prev => ({ ...prev, ...intentTypes }));
     }
-    markUnsaved(content, newKeywords, chunkerOptions, result, optimizedContent, optimizationResult, architectureAnalysis);
-  }, [content, chunkerOptions, result, optimizedContent, optimizationResult, architectureAnalysis, markUnsaved]);
+    markUnsaved(content, newKeywords, chunkerOptions, result, optimizedContent, optimizationResult, architectureAnalysis, queryIntelligence);
+  }, [content, chunkerOptions, result, optimizedContent, optimizationResult, architectureAnalysis, queryIntelligence, markUnsaved]);
 
   const handleSettingsChange = useCallback((newOptions: ChunkerOptions) => {
     setChunkerOptions(newOptions);
-    markUnsaved(content, keywords, newOptions, result, optimizedContent, optimizationResult, architectureAnalysis);
-  }, [content, keywords, result, optimizedContent, optimizationResult, architectureAnalysis, markUnsaved]);
+    markUnsaved(content, keywords, newOptions, result, optimizedContent, optimizationResult, architectureAnalysis, queryIntelligence);
+  }, [content, keywords, result, optimizedContent, optimizationResult, architectureAnalysis, queryIntelligence, markUnsaved]);
 
   const handleLoadProject = async (projectId: string) => {
     await loadProject(projectId);
@@ -308,6 +315,7 @@ const Index = () => {
     setOptimizedContent("");
     setOptimizationResult(null);
     setArchitectureAnalysis(null);
+    setQueryIntelligence(null);
     // Reset optimization review state
     setOptimizeViewState('assignment');
     setAcceptedChunks(new Set());
@@ -329,7 +337,8 @@ const Index = () => {
       currentProject?.id,
       optimizedContent,
       optimizationResult,
-      architectureAnalysis
+      architectureAnalysis,
+      queryIntelligence
     );
   };
 

@@ -143,10 +143,16 @@ interface IntelligenceState {
     routeDistribution?: Record<string, number>;
   } | null;
   gaps?: {
-    critical?: Array<{
+    criticalGaps?: Array<{
       query: string;
       score?: number;
       entityOverlap?: number;
+    }>;
+    priorityActions?: Array<{
+      action: string;
+      impact: string;
+      effort: string;
+      addressesQueries?: string[];
     }>;
   };
   entities?: {
@@ -223,13 +229,14 @@ export function gatherReportData(
     };
   }) || [];
   
-  // Build gaps from critical gaps
-  const gapsList = gaps?.critical?.map(g => ({
+  // Build gaps from critical gaps (handle both criticalGaps and critical property names)
+  const criticalGapsArray = gaps?.criticalGaps || (gaps as any)?.critical || [];
+  const gapsList = criticalGapsArray.map((g: any) => ({
     query: g.query,
     priority: 'moderate' as const,
     currentScore: g.score || 0,
     entityOverlap: Math.round((g.entityOverlap || 0) * 100),
-  })) || [];
+  }));
   
   // Extract entities data
   const extractedEntities = {
@@ -298,12 +305,13 @@ export function gatherReportData(
     intentDriftFiltered,
     gaps: gapsList,
     
-    priorityActions: intel?.priorityActions?.map(a => ({
+    // Priority actions can be on intel object OR directly in gaps
+    priorityActions: (intel?.priorityActions || gaps?.priorityActions || []).map((a: any) => ({
       action: a.action,
       impact: (a.impact?.toLowerCase() || 'medium') as 'high' | 'medium' | 'low',
       effort: (a.effort?.toLowerCase() || 'moderate') as 'low' | 'moderate' | 'high',
       addressesQueries: a.addressesQueries || [],
-    })) || [],
+    })),
     
     generatedAt: new Date(),
     version: '1.3',

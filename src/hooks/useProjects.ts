@@ -2,7 +2,7 @@ import { useState, useCallback, useEffect, useRef } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from './useAuth';
 import { toast } from 'sonner';
-import type { ChunkDaddyProject, ProjectSummary } from '@/lib/project-types';
+import type { ChunkDaddyProject, ProjectSummary, QueryIntelligenceState } from '@/lib/project-types';
 import type { ChunkerOptions } from '@/lib/layout-chunker';
 import type { AnalysisResult } from '@/hooks/useAnalysis';
 import type { FullOptimizationResult, ArchitectureAnalysis } from '@/lib/optimizer-types';
@@ -42,6 +42,7 @@ export function useProjects(options: UseProjectsOptions = {}) {
     optimizedContent: string | null;
     optimizationResult: FullOptimizationResult | null;
     architectureAnalysis: ArchitectureAnalysis | null;
+    queryIntelligence: QueryIntelligenceState | null;
   } | null>(null);
 
   // Fetch user's projects
@@ -90,7 +91,8 @@ export function useProjects(options: UseProjectsOptions = {}) {
     existingId?: string,
     optimizedContent?: string | null,
     optimizationResult?: FullOptimizationResult | null,
-    architectureAnalysis?: ArchitectureAnalysis | null
+    architectureAnalysis?: ArchitectureAnalysis | null,
+    queryIntelligence?: QueryIntelligenceState | null
   ) => {
     if (!user) {
       toast.error('Please log in to save projects');
@@ -110,6 +112,7 @@ export function useProjects(options: UseProjectsOptions = {}) {
         optimized_content: optimizedContent || null,
         optimization_result: optimizationResult as unknown as any,
         architecture_analysis: architectureAnalysis as unknown as any,
+        query_intelligence: queryIntelligence as unknown as any,
       };
 
       let savedProject: ChunkDaddyProject;
@@ -175,7 +178,8 @@ export function useProjects(options: UseProjectsOptions = {}) {
       project?.id,
       data.optimizedContent,
       data.optimizationResult,
-      data.architectureAnalysis
+      data.architectureAnalysis,
+      data.queryIntelligence
     );
   }, [state.currentProject, state.hasUnsavedChanges, saveProject]);
 
@@ -280,7 +284,8 @@ export function useProjects(options: UseProjectsOptions = {}) {
     results: AnalysisResult | null,
     optimizedContent?: string | null,
     optimizationResult?: FullOptimizationResult | null,
-    architectureAnalysis?: ArchitectureAnalysis | null
+    architectureAnalysis?: ArchitectureAnalysis | null,
+    queryIntelligence?: QueryIntelligenceState | null
   ) => {
     pendingData.current = { 
       content, 
@@ -289,7 +294,8 @@ export function useProjects(options: UseProjectsOptions = {}) {
       results, 
       optimizedContent: optimizedContent || null,
       optimizationResult: optimizationResult || null,
-      architectureAnalysis: architectureAnalysis || null
+      architectureAnalysis: architectureAnalysis || null,
+      queryIntelligence: queryIntelligence || null
     };
     setState(prev => ({ ...prev, hasUnsavedChanges: true }));
   }, []);
