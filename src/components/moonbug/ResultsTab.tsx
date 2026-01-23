@@ -15,6 +15,7 @@ import { formatScore, getScoreColorClass, calculatePassageScore, getPassageScore
 import { ChunkCard } from './ChunkCard';
 import { ChunkDetailsPanel } from './ChunkDetailsPanel';
 import { ExportGapsDialog } from './ExportGapsDialog';
+import { ExportCategoriesDialog } from './ExportCategoriesDialog';
 import { ScoreTripleLegend } from './ScoreTriple';
 import { QueryCategorizationSummary } from './QueryCategorizationSummary';
 import { 
@@ -720,6 +721,21 @@ export function ResultsTab({
                 <span className="hidden sm:inline">4-Bucket</span>
               </button>
             </div>
+            
+            {/* Export button for categories view */}
+            {viewMode === 'categories' && result?.categoryBreakdown && result?.categorizationSummary && (
+              <ExportCategoriesDialog
+                breakdown={result.categoryBreakdown}
+                summary={result.categorizationSummary}
+                primaryQuery={keywords[0] || 'Primary Query'}
+                trigger={
+                  <button className="flex items-center gap-1 py-1.5 px-2 rounded-md text-xs text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors">
+                    <Download className="h-3.5 w-3.5" />
+                    <span className="hidden sm:inline">Export</span>
+                  </button>
+                }
+              />
+            )}
 
             {/* Score filters (only show in list view) */}
             {viewMode === 'list' && (
