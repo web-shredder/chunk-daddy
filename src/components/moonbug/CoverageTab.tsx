@@ -60,6 +60,7 @@ export function CoverageTab({
   const [coverageState, setCoverageState] = useState<CoverageState>({
     queries: [],
     activeQueryId: null,
+    optimizationStates: {},
   });
   
   // Transform queries to work items when data is available
@@ -107,6 +108,17 @@ export function CoverageTab({
     setCoverageState(prev => ({ ...prev, activeQueryId: null }));
   }, []);
   
+  // Handle optimization state changes
+  const handleOptimizationStateChange = useCallback((queryId: string, optState: import('@/types/coverage').QueryOptimizationState) => {
+    setCoverageState(prev => ({
+      ...prev,
+      optimizationStates: {
+        ...prev.optimizationStates,
+        [queryId]: optState
+      }
+    }));
+  }, []);
+  
   // Get active query and its assigned chunk
   const activeQuery = useMemo(() => {
     if (!coverageState.activeQueryId) return undefined;
@@ -117,6 +129,11 @@ export function CoverageTab({
     if (!activeQuery?.assignedChunk) return undefined;
     return chunks[activeQuery.assignedChunk.index];
   }, [activeQuery, chunks]);
+  
+  // Get initial optimization state for active query
+  const activeOptState = activeQuery 
+    ? coverageState.optimizationStates[activeQuery.id] 
+    : undefined;
   
   // Empty state
   if (!hasResults) {
@@ -286,15 +303,15 @@ export function CoverageTab({
         isOpen={!!activeQuery}
         queryItem={activeQuery}
         chunk={activeChunk}
+        initialOptState={activeOptState}
         onClose={handleClosePanel}
         onUpdate={(updates) => {
-          // Update logic will be implemented in future prompts
           console.log('Update query:', updates);
         }}
         onApprove={(text) => {
-          // Approve logic will be implemented in future prompts
           console.log('Approve text:', text);
         }}
+        onOptimizationStateChange={handleOptimizationStateChange}
       />
     </div>
   );

@@ -4,7 +4,17 @@
  */
 
 import { useState } from 'react';
-import { ArrowLeft, AlertTriangle, ChevronDown, ChevronUp } from 'lucide-react';
+import { 
+  ArrowLeft, 
+  AlertTriangle, 
+  ChevronDown, 
+  ChevronUp, 
+  Loader2, 
+  RefreshCw,
+  FileText,
+  ArrowRight,
+  AlertCircle
+} from 'lucide-react';
 import {
   Sheet,
   SheetContent,
@@ -14,21 +24,25 @@ import {
 } from '@/components/ui/sheet';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { Textarea } from '@/components/ui/textarea';
+import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { cn } from '@/lib/utils';
 import { getTierFromScore, TIER_COLORS, getTierLabel } from '@/lib/tier-colors';
-import type { QueryWorkItem, QueryIntentType } from '@/types/coverage';
+import { useQueryOptimization } from '@/hooks/useQueryOptimization';
+import type { QueryWorkItem, QueryIntentType, QueryOptimizationState } from '@/types/coverage';
 import type { LayoutAwareChunk } from '@/lib/layout-chunker';
 
 interface QueryWorkingPanelProps {
   isOpen: boolean;
   queryItem?: QueryWorkItem;
   chunk?: LayoutAwareChunk;
+  initialOptState?: QueryOptimizationState;
   onClose: () => void;
   onUpdate: (updates: Partial<QueryWorkItem>) => void;
   onApprove: (approvedText: string) => void;
+  onOptimizationStateChange: (queryId: string, state: QueryOptimizationState) => void;
 }
 
 // Intent type color mapping using design system
@@ -68,11 +82,25 @@ export function QueryWorkingPanel({
   isOpen,
   queryItem,
   chunk,
+  initialOptState,
   onClose,
   onUpdate,
   onApprove,
+  onOptimizationStateChange,
 }: QueryWorkingPanelProps) {
   const [isScoresExpanded, setIsScoresExpanded] = useState(false);
+  
+  // Use the optimization hook
+  const { state: optState, generateAnalysis, setUserAnalysis } = useQueryOptimization({
+    queryItem: queryItem!,
+    chunk,
+    initialState: initialOptState,
+    onStateChange: (newState) => {
+      if (queryItem) {
+        onOptimizationStateChange(queryItem.id, newState);
+      }
+    },
+  });
 
   if (!queryItem) {
     return null;
@@ -83,6 +111,14 @@ export function QueryWorkingPanel({
   const chunkTokenCount = chunk ? Math.ceil(chunk.text.length / 4) : 0;
   const chunkHeading = chunk?.headingPath?.slice(-1)[0] || 'Untitled Section';
   const chunkHeadingPath = chunk?.headingPath ?? [];
+  
+  const isAnalyzing = optState.step === 'analyzing';
+  const hasAnalysis = !!optState.generatedAnalysis;
+  const isStep1Complete = optState.step === 'analysis_ready' || 
+                          optState.step === 'optimizing' || 
+                          optState.step === 'optimization_ready' ||
+                          optState.step === 'scoring' ||
+                          optState.step === 'approved';
 
   return (
     <Sheet open={isOpen} onOpenChange={(open) => !open && onClose()}>
@@ -260,9 +296,32 @@ export function QueryWorkingPanel({
           <Card>
             <CardHeader>
               <CardTitle className="text-base flex items-center justify-between">
-                <span>Step 1: Analysis Prompt</span>
-                <Button size="sm" disabled>
-                  Generate Analysis
+                <span className="flex items-center gap-2">
+                  Step 1: Analysis Prompt
+                  {isStep1Complete && (
+                    <Badge variant="outline" className="text-xs bg-success/10 text-success border-success/30">
+                      Complete
+                    </Badge>
+                  )}
+                </span>
+                <Button 
+                  size="sm" 
+                  onClick={generateAnalysis}
+                  disabled={isAnalyzing || queryItem.status === 'gap'}
+                >
+                  {isAnalyzing ? (
+                    <>
+                      <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                      Analyzing...
+                    </>
+                  ) : hasAnalysis ? (
+                    <>
+                      <RefreshCw className="w-4 h-4 mr-2" />
+                      Regenerate
+                    </>
+                  ) : (
+                    'Generate Analysis'
+                  )}
                 </Button>
               </CardTitle>
               <CardDescription>
@@ -270,27 +329,79 @@ export function QueryWorkingPanel({
               </CardDescription>
             </CardHeader>
             <CardContent>
-              <Textarea 
-                className="min-h-[120px]"
-                placeholder="Analysis will appear here after generation..."
-                disabled
-                value={queryItem.analysisPrompt ?? ''}
-              />
+              {optState.error && (
+                <Alert variant="destructive" className="mb-4">
+                  <AlertCircle className="h-4 w-4" />
+                  <AlertDescription>{optState.error}</AlertDescription>
+                </Alert>
+              )}
+              
+              {isAnalyzing ? (
+                <div className="text-center py-8 text-muted-foreground">
+                  <Loader2 className="w-8 h-8 mx-auto mb-3 animate-spin" />
+                  <p className="text-sm">Generating analysis...</p>
+                </div>
+              ) : hasAnalysis ? (
+                <div className="space-y-3">
+                  <Textarea 
+                    className="min-h-[200px] font-mono text-sm"
+                    value={optState.userEditedAnalysis ?? ''}
+                    onChange={(e) => setUserAnalysis(e.target.value)}
+                    placeholder="Edit the analysis as needed..."
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    Edit this analysis to add your own context, data, or specific requirements before optimization.
+                  </p>
+                </div>
+              ) : (
+                <div className="text-center py-8 text-muted-foreground">
+                  <FileText className="w-8 h-8 mx-auto mb-3 opacity-50" />
+                  <p className="text-sm">
+                    {queryItem.status === 'gap' 
+                      ? 'Analysis not available for content gaps'
+                      : 'Click "Generate Analysis" to get optimization recommendations'}
+                  </p>
+                </div>
+              )}
             </CardContent>
+            
+            {/* Proceed button - only show when analysis is ready */}
+            {isStep1Complete && optState.userEditedAnalysis?.trim() && (
+              <CardFooter className="border-t pt-4">
+                <Button 
+                  className="ml-auto"
+                  disabled
+                >
+                  Run Optimization
+                  <ArrowRight className="w-4 h-4 ml-2" />
+                </Button>
+              </CardFooter>
+            )}
           </Card>
 
           {/* Step 2: Optimized Content */}
-          <Card className="opacity-50">
+          <Card className={cn(
+            !isStep1Complete && 'opacity-50'
+          )}>
             <CardHeader>
-              <CardTitle className="text-base">Step 2: Optimized Content</CardTitle>
-              <CardDescription>Waiting for Step 1...</CardDescription>
+              <CardTitle className="text-base flex items-center gap-2">
+                Step 2: Optimized Content
+                {isStep1Complete && (
+                  <Badge variant="outline" className="text-xs">Ready</Badge>
+                )}
+              </CardTitle>
+              <CardDescription>
+                {isStep1Complete 
+                  ? 'Click "Run Optimization" above to generate optimized content'
+                  : 'Complete Step 1 first'}
+              </CardDescription>
             </CardHeader>
             <CardContent>
               <Textarea 
                 className="min-h-[120px]"
                 placeholder="Optimized content will appear here..."
                 disabled
-                value={queryItem.optimizedText ?? ''}
+                value={optState.generatedContent ?? queryItem.optimizedText ?? ''}
               />
             </CardContent>
           </Card>
