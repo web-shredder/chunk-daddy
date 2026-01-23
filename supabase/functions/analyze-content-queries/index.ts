@@ -394,21 +394,29 @@ CORE ENTITIES: ${coreEntities}
 5. ENTAILMENT (2): Logically implied sub-questions
 6. CLARIFICATION (2): Either/or disambiguation queries
 
-=== OUTPUT FORMAT ===
+=== OUTPUT FORMAT (ALL FIELDS REQUIRED) ===
 {
   "variants": [
     {
       "query": "5-12 word natural query",
       "variantType": "EQUIVALENT|FOLLOW_UP|GENERALIZATION|SPECIFICATION|ENTAILMENT|CLARIFICATION",
-      "sharedEntities": ["entities preserved"],
+      "sharedEntities": ["entities preserved from primary query"],
       "entityOverlap": 0.0-1.0,
       "semanticEstimate": 0.0-1.0,
       "userJourneyPosition": "early|middle|late",
       "matchStrength": "strong|partial|weak",
-      "matchReason": "one sentence about content coverage"
+      "matchReason": "One sentence explaining WHY this variant matches or doesn't match the content",
+      "relevantSection": "Which content section/heading this relates to, or null if general",
+      "confidence": 0.0-1.0
     }
   ]
-}`;
+}
+
+FIELD DEFINITIONS:
+- matchStrength: "strong" if content fully answers this query, "partial" if partially, "weak" if barely
+- matchReason: Explain content coverage, e.g. "Content defines X but lacks pricing details"
+- relevantSection: The heading/section name this query targets, or null for general queries
+- confidence: Your confidence (0.0-1.0) that this is a good search variant`;
 
   const userPrompt = `TOPIC: ${topicFocus.primaryEntity}
 PURPOSE: ${topicFocus.contentPurpose}
@@ -494,6 +502,10 @@ function generateFallbackVariants(entities: ExtractedEntities, topic: string): Q
     entityOverlap: 1.0,
     semanticEstimate: 0.9,
     userJourneyPosition: 'early',
+    matchStrength: 'strong',
+    matchReason: 'Core definitional query - content should fully explain this',
+    relevantSection: null,
+    confidence: 0.85,
     isFallback: true
   });
   
@@ -506,6 +518,10 @@ function generateFallbackVariants(entities: ExtractedEntities, topic: string): Q
       entityOverlap: 1.0,
       semanticEstimate: 0.75,
       userJourneyPosition: 'middle',
+      matchStrength: 'partial',
+      matchReason: `Narrowed to ${sec} context - may need specific section`,
+      relevantSection: null,
+      confidence: 0.7,
       isFallback: true
     });
   });
@@ -518,6 +534,10 @@ function generateFallbackVariants(entities: ExtractedEntities, topic: string): Q
     entityOverlap: 1.0,
     semanticEstimate: 0.7,
     userJourneyPosition: 'late',
+    matchStrength: 'weak',
+    matchReason: 'Pricing query - content may not cover costs',
+    relevantSection: 'Pricing',
+    confidence: 0.6,
     isFallback: true
   });
   
@@ -528,6 +548,10 @@ function generateFallbackVariants(entities: ExtractedEntities, topic: string): Q
     entityOverlap: 1.0,
     semanticEstimate: 0.75,
     userJourneyPosition: 'middle',
+    matchStrength: 'partial',
+    matchReason: 'Evaluation query - depends on content structure',
+    relevantSection: null,
+    confidence: 0.7,
     isFallback: true
   });
   
@@ -539,6 +563,10 @@ function generateFallbackVariants(entities: ExtractedEntities, topic: string): Q
     entityOverlap: 1.0,
     semanticEstimate: 0.8,
     userJourneyPosition: 'early',
+    matchStrength: 'strong',
+    matchReason: 'Broad overview - content likely provides comprehensive coverage',
+    relevantSection: null,
+    confidence: 0.8,
     isFallback: true
   });
   
@@ -597,16 +625,32 @@ function processVariantsWithScoring(
     // Detect drift
     const driftReason = detectDrift(variant, entities.primary, entityOverlap, semanticSimilarity);
     
-    // Update variant with calculated values - preserve coverage fields from AI
+    // Calculate matchStrength if missing: based on entityOverlap
+    const calculatedMatchStrength = entityOverlap > 0.7 ? 'strong' : entityOverlap > 0.4 ? 'partial' : 'weak';
+    
+    // Calculate matchReason if missing: generate from entity analysis
+    const calculatedMatchReason = variant.matchReason || generateMatchReason(
+      variant.sharedEntities || [], 
+      entities.primary, 
+      entityOverlap,
+      variant.variantType as GoogleVariantType
+    );
+    
+    // Calculate confidence if missing: use intentScore
+    const calculatedConfidence = variant.confidence ?? intentScore;
+    
+    // Update variant with calculated values - populate ALL required fields
     const scoredVariant: QueryVariant = {
       ...variant,
       entityOverlap,
       intentScore,
       intentCategory,
       driftReason,
-      // Preserve coverage analysis from AI
-      matchStrength: variant.matchStrength || 'weak',
-      matchReason: variant.matchReason || null,
+      // Coverage analysis - use AI values or calculate defaults
+      matchStrength: variant.matchStrength || calculatedMatchStrength,
+      matchReason: calculatedMatchReason,
+      relevantSection: variant.relevantSection ?? null,
+      confidence: calculatedConfidence,
     };
     
     if (intentCategory === 'LOW' || driftReason) {
@@ -1021,6 +1065,8 @@ interface QueryVariant {
   // Coverage analysis (from AI or calculated)
   matchStrength?: 'strong' | 'partial' | 'weak';
   matchReason?: string | null;
+  relevantSection?: string | null;
+  confidence?: number;
   
   // Calculated server-side
   intentScore?: number;
@@ -1028,6 +1074,30 @@ interface QueryVariant {
   driftReason?: string | null;
   routePrediction?: RouteInfo;
   isFallback?: boolean;
+}
+
+// Generate a matchReason when AI doesn't provide one
+function generateMatchReason(
+  sharedEntities: string[],
+  primaryEntities: string[],
+  entityOverlap: number,
+  variantType: GoogleVariantType
+): string {
+  const sharedCount = sharedEntities.length;
+  const totalPrimary = primaryEntities.length;
+  
+  if (entityOverlap >= 0.9) {
+    return `Preserves all ${totalPrimary} primary entities - strong intent match`;
+  } else if (entityOverlap >= 0.6) {
+    return `Shares ${sharedCount} of ${totalPrimary} primary entities (${(entityOverlap * 100).toFixed(0)}% overlap)`;
+  } else if (entityOverlap >= 0.3) {
+    const missing = primaryEntities.filter(e => 
+      !sharedEntities.some(se => se.toLowerCase().includes(e.toLowerCase()))
+    );
+    return `Partial match - missing: ${missing.slice(0, 2).join(', ')}`;
+  } else {
+    return `Weak entity overlap (${(entityOverlap * 100).toFixed(0)}%) - ${variantType} variant explores tangential angle`;
+  }
 }
 
 interface FilteredVariant {
