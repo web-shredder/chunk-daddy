@@ -4,10 +4,14 @@ import {
   LayoutGrid,
   ArrowRight,
   ChevronDown,
+  ChevronUp,
+  ChevronRight,
   CheckCircle2,
   AlertTriangle,
   Clock,
   Zap,
+  PlusCircle,
+  MapPin,
 } from 'lucide-react';
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -503,149 +507,353 @@ interface ChunkProgressViewProps {
   chunks: LayoutAwareChunk[];
 }
 
+interface ChunkStats {
+  chunk: LayoutAwareChunk;
+  index: number;
+  assignedQueries: QueryWorkItem[];
+  optimizedQueries: QueryWorkItem[];
+  hasOptimization: boolean;
+  approvedText?: string;
+  scoreImprovement: number;
+}
+
 function ChunkProgressView({ queries, chunks }: ChunkProgressViewProps) {
-  // Group queries by their assigned chunk
+  // Group queries by assigned chunk
   const chunkQueryMap = useMemo(() => {
     const map = new Map<number, QueryWorkItem[]>();
     
     queries.forEach(query => {
       if (query.assignedChunk) {
         const existing = map.get(query.assignedChunk.index) || [];
-        existing.push(query);
-        map.set(query.assignedChunk.index, existing);
+        map.set(query.assignedChunk.index, [...existing, query]);
       }
     });
     
     return map;
   }, [queries]);
   
-  // Get unassigned queries (gaps)
-  const unassignedQueries = queries.filter(q => !q.assignedChunk && q.isGap);
+  // Get new sections (gap content)
+  const newSections = queries.filter(q => q.isGap && q.isApproved);
+  
+  // Calculate chunk stats
+  const chunkStats = useMemo(() => chunks.map((chunk, index) => {
+    const assignedQueries = chunkQueryMap.get(index) || [];
+    const optimizedQueries = assignedQueries.filter(q => q.isApproved);
+    const hasOptimization = optimizedQueries.length > 0;
+    
+    // Get the approved text (from the primary query for this chunk)
+    const primaryQuery = optimizedQueries.find(q => q.intentType === 'PRIMARY') || optimizedQueries[0];
+    
+    // Calculate average improvement across all optimized queries
+    const improvements = optimizedQueries
+      .filter(q => q.currentScores && q.originalScores)
+      .map(q => q.currentScores!.passageScore - q.originalScores!.passageScore);
+    const avgImprovement = improvements.length > 0
+      ? Math.round(improvements.reduce((a, b) => a + b, 0) / improvements.length)
+      : 0;
+    
+    return {
+      chunk,
+      index,
+      assignedQueries,
+      optimizedQueries,
+      hasOptimization,
+      approvedText: primaryQuery?.approvedText,
+      scoreImprovement: avgImprovement
+    };
+  }), [chunks, chunkQueryMap]);
+  
+  const optimizedChunks = chunkStats.filter(c => c.hasOptimization);
+  const unchangedChunks = chunkStats.filter(c => !c.hasOptimization && c.assignedQueries.length > 0);
+  const unassignedChunks = chunkStats.filter(c => c.assignedQueries.length === 0);
   
   return (
-    <div className="space-y-4">
-      <h3 className="text-lg font-semibold text-foreground">
-        Chunk Progress ({chunks.length} chunks, {chunkQueryMap.size} with queries)
-      </h3>
-      
-      <div className="space-y-3">
-        {chunks.map((chunk, index) => {
-          const assignedQueries = chunkQueryMap.get(index) || [];
-          const optimizedCount = assignedQueries.filter(q => q.status === 'optimized').length;
-          
-          return (
-            <Card key={index} className={cn(
-              "transition-colors",
-              optimizedCount === assignedQueries.length && assignedQueries.length > 0 && 
-                'border-[hsl(var(--tier-excellent))]/30 bg-[hsl(var(--tier-excellent))]/5'
-            )}>
-              <CardContent className="p-4">
-                <div className="flex items-start justify-between gap-4">
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2 mb-1">
-                      <Badge variant="outline" className="text-xs">
-                        Chunk {index + 1}
-                      </Badge>
-                      {assignedQueries.length > 0 && (
-                        <Badge 
-                          variant="secondary"
-                          className={cn(
-                            optimizedCount === assignedQueries.length && 'bg-[hsl(var(--tier-excellent))]'
-                          )}
-                        >
-                          {optimizedCount}/{assignedQueries.length} optimized
-                        </Badge>
-                      )}
-                    </div>
-                    
-                    <p className="font-medium text-foreground">
-                      {chunk.headingPath?.slice(-1)[0] || 'Untitled Section'}
-                    </p>
-                    
-                    {chunk.headingPath && chunk.headingPath.length > 1 && (
-                      <p className="text-xs text-muted-foreground mt-1">
-                        {chunk.headingPath.join(' > ')}
-                      </p>
-                    )}
-                  </div>
-                  
-                  <div className="text-right shrink-0">
-                    <div className="text-sm text-muted-foreground">
-                      {assignedQueries.length} {assignedQueries.length === 1 ? 'query' : 'queries'}
-                    </div>
-                  </div>
-                </div>
-                
-                {/* Query list for this chunk */}
-                {assignedQueries.length > 0 && (
-                  <div className="mt-3 pt-3 border-t space-y-2">
-                    {assignedQueries.map(query => (
-                      <div 
-                        key={query.id} 
-                        className="flex items-center justify-between gap-2 text-sm"
-                      >
-                        <div className="flex items-center gap-2 min-w-0">
-                          {query.status === 'optimized' ? (
-                            <CheckCircle2 className="h-3 w-3 text-[hsl(var(--tier-excellent))] shrink-0" />
-                          ) : query.status === 'in_progress' ? (
-                            <Clock className="h-3 w-3 text-[hsl(var(--tier-moderate))] shrink-0" />
-                          ) : (
-                            <Zap className="h-3 w-3 text-muted-foreground shrink-0" />
-                          )}
-                          <span className="truncate text-foreground">"{query.query}"</span>
-                        </div>
-                        {query.originalScores && (
-                          <span className="text-muted-foreground shrink-0">
-                            {query.originalScores.passageScore}
-                            {query.currentScores && (
-                              <span className="text-[hsl(var(--tier-excellent))]">
-                                {' '}→ {query.currentScores.passageScore}
-                              </span>
-                            )}
-                          </span>
-                        )}
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </CardContent>
-            </Card>
-          );
-        })}
+    <div className="space-y-6">
+      <div className="flex items-center justify-between">
+        <h3 className="text-lg font-semibold text-foreground">
+          Chunk Progress ({chunks.length} original + {newSections.length} new)
+        </h3>
+        <div className="flex items-center gap-4 text-sm">
+          <span className="flex items-center gap-1">
+            <div className="w-2 h-2 rounded-full bg-[hsl(var(--tier-excellent))]" />
+            {optimizedChunks.length} optimized
+          </span>
+          <span className="flex items-center gap-1">
+            <div className="w-2 h-2 rounded-full bg-[hsl(var(--tier-moderate))]" />
+            {unchangedChunks.length} unchanged
+          </span>
+          <span className="flex items-center gap-1">
+            <div className="w-2 h-2 rounded-full bg-muted-foreground" />
+            {unassignedChunks.length} unassigned
+          </span>
+        </div>
       </div>
       
-      {/* Unassigned Gaps */}
-      {unassignedQueries.length > 0 && (
-        <div className="space-y-3 mt-6">
-          <h4 className="text-base font-medium text-foreground flex items-center gap-2">
-            <AlertTriangle className="h-4 w-4 text-[hsl(var(--tier-weak))]" />
-            Content Gaps ({unassignedQueries.length})
+      {/* Optimized Chunks */}
+      {optimizedChunks.length > 0 && (
+        <div className="space-y-3">
+          <h4 className="text-sm font-medium text-[hsl(var(--tier-excellent))] flex items-center gap-2">
+            <CheckCircle2 className="w-4 h-4" />
+            Optimized Chunks
           </h4>
-          
-          <Card className="border-[hsl(var(--tier-weak))]/30">
-            <CardContent className="p-4 space-y-2">
-              {unassignedQueries.map(query => (
-                <div 
-                  key={query.id} 
-                  className="flex items-center justify-between gap-2 text-sm"
-                >
-                  <div className="flex items-center gap-2 min-w-0">
-                    {query.isApproved ? (
-                      <CheckCircle2 className="h-3 w-3 text-[hsl(var(--tier-excellent))] shrink-0" />
-                    ) : (
-                      <AlertTriangle className="h-3 w-3 text-[hsl(var(--tier-weak))] shrink-0" />
-                    )}
-                    <span className="truncate text-foreground">"{query.query}"</span>
-                  </div>
-                  <Badge variant={query.isApproved ? 'default' : 'secondary'} className="text-xs">
-                    {query.isApproved ? 'Filled' : 'Needs Content'}
-                  </Badge>
-                </div>
-              ))}
-            </CardContent>
-          </Card>
+          {optimizedChunks.map(stats => (
+            <ChunkProgressCard key={stats.index} stats={stats} />
+          ))}
         </div>
       )}
+      
+      {/* New Sections */}
+      {newSections.length > 0 && (
+        <div className="space-y-3">
+          <h4 className="text-sm font-medium text-primary flex items-center gap-2">
+            <PlusCircle className="w-4 h-4" />
+            New Sections (Gap Content)
+          </h4>
+          {newSections.map(query => (
+            <NewSectionCard key={query.id} query={query} />
+          ))}
+        </div>
+      )}
+      
+      {/* Unchanged Chunks */}
+      {unchangedChunks.length > 0 && (
+        <Collapsible>
+          <CollapsibleTrigger asChild>
+            <Button variant="ghost" className="w-full justify-start">
+              <ChevronRight className="w-4 h-4 mr-2" />
+              <span className="text-sm font-medium text-muted-foreground">
+                Unchanged Chunks ({unchangedChunks.length})
+              </span>
+            </Button>
+          </CollapsibleTrigger>
+          <CollapsibleContent>
+            <div className="space-y-3 mt-3">
+              {unchangedChunks.map(stats => (
+                <ChunkProgressCard key={stats.index} stats={stats} minimal />
+              ))}
+            </div>
+          </CollapsibleContent>
+        </Collapsible>
+      )}
+      
+      {/* Unassigned Chunks */}
+      {unassignedChunks.length > 0 && (
+        <Collapsible>
+          <CollapsibleTrigger asChild>
+            <Button variant="ghost" className="w-full justify-start">
+              <ChevronRight className="w-4 h-4 mr-2" />
+              <span className="text-sm font-medium text-muted-foreground">
+                Unassigned Chunks ({unassignedChunks.length})
+              </span>
+            </Button>
+          </CollapsibleTrigger>
+          <CollapsibleContent>
+            <div className="space-y-3 mt-3">
+              {unassignedChunks.map(stats => (
+                <Card key={stats.index} className="opacity-60">
+                  <CardContent className="p-4">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <p className="font-medium text-foreground">
+                          Chunk {stats.index + 1}: {stats.chunk.headingPath?.slice(-1)[0] || 'Untitled'}
+                        </p>
+                        <p className="text-sm text-muted-foreground">
+                          No queries assigned to this chunk
+                        </p>
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+              ))}
+            </div>
+          </CollapsibleContent>
+        </Collapsible>
+      )}
     </div>
+  );
+}
+
+// ============ ChunkProgressCard Component ============
+
+function ChunkProgressCard({ stats, minimal = false }: { stats: ChunkStats; minimal?: boolean }) {
+  const [showContent, setShowContent] = useState(false);
+  
+  return (
+    <Card className={cn(
+      "transition-colors",
+      stats.hasOptimization && 'border-[hsl(var(--tier-excellent))]/30 bg-[hsl(var(--tier-excellent))]/5'
+    )}>
+      <CardContent className="p-4">
+        <div className="flex items-start justify-between gap-4">
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center gap-2 mb-1">
+              {stats.hasOptimization ? (
+                <Badge className="bg-[hsl(var(--tier-excellent))]">Optimized</Badge>
+              ) : (
+                <Badge variant="secondary">Unchanged</Badge>
+              )}
+            </div>
+            
+            <p className="font-medium text-foreground">
+              Chunk {stats.index + 1}: {stats.chunk.headingPath?.slice(-1)[0] || 'Untitled'}
+            </p>
+            
+            {/* Heading cascade */}
+            {stats.chunk.headingPath && stats.chunk.headingPath.length > 1 && (
+              <p className="text-xs text-muted-foreground mt-1">
+                {stats.chunk.headingPath.slice(0, -1).join(' > ')}
+              </p>
+            )}
+            
+            {/* Queries served */}
+            <div className="mt-2">
+              <p className="text-xs text-muted-foreground mb-1">
+                Queries served: {stats.assignedQueries.length}
+              </p>
+              <div className="flex flex-wrap gap-1">
+                {stats.assignedQueries.slice(0, 3).map(q => (
+                  <Badge key={q.id} variant="outline" className="text-xs">
+                    {q.query.slice(0, 25)}{q.query.length > 25 ? '...' : ''}
+                  </Badge>
+                ))}
+                {stats.assignedQueries.length > 3 && (
+                  <Badge variant="outline" className="text-xs">
+                    +{stats.assignedQueries.length - 3} more
+                  </Badge>
+                )}
+              </div>
+            </div>
+          </div>
+          
+          {/* Score improvement */}
+          {stats.hasOptimization && (
+            <div className="text-right shrink-0">
+              <div className={cn(
+                "text-xl font-bold",
+                stats.scoreImprovement >= 0 ? 'text-[hsl(var(--tier-excellent))]' : 'text-[hsl(var(--tier-poor))]'
+              )}>
+                {stats.scoreImprovement >= 0 ? '+' : ''}{stats.scoreImprovement}
+              </div>
+              <div className="text-xs text-muted-foreground">avg improvement</div>
+            </div>
+          )}
+        </div>
+        
+        {/* Content toggle */}
+        {!minimal && (
+          <div className="mt-4 pt-4 border-t">
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => setShowContent(!showContent)}
+              className="w-full"
+            >
+              {showContent ? (
+                <>
+                  <ChevronUp className="w-4 h-4 mr-2" />
+                  Hide Content
+                </>
+              ) : (
+                <>
+                  <ChevronDown className="w-4 h-4 mr-2" />
+                  {stats.hasOptimization ? 'View Changes' : 'View Original'}
+                </>
+              )}
+            </Button>
+            
+            {showContent && (
+              <div className="mt-4 space-y-4">
+                {stats.hasOptimization && stats.approvedText ? (
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <p className="text-xs font-medium text-muted-foreground mb-2">Original</p>
+                      <div className="p-3 bg-muted rounded text-sm max-h-48 overflow-y-auto break-words">
+                        {stats.chunk.text}
+                      </div>
+                    </div>
+                    <div>
+                      <p className="text-xs font-medium text-[hsl(var(--tier-excellent))] mb-2">Optimized</p>
+                      <div className="p-3 bg-[hsl(var(--tier-excellent))]/10 rounded text-sm max-h-48 overflow-y-auto border border-[hsl(var(--tier-excellent))]/30 break-words">
+                        {stats.approvedText}
+                      </div>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="p-3 bg-muted rounded text-sm max-h-48 overflow-y-auto break-words">
+                    {stats.chunk.text}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+// ============ NewSectionCard Component ============
+
+function NewSectionCard({ query }: { query: QueryWorkItem }) {
+  const [showContent, setShowContent] = useState(false);
+  
+  return (
+    <Card className="border-primary/30 bg-primary/5">
+      <CardContent className="p-4">
+        <div className="flex items-start justify-between gap-4">
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center gap-2 mb-1">
+              <Badge className="bg-primary">New Section</Badge>
+              <Badge variant="outline" className="text-xs">{query.intentType}</Badge>
+            </div>
+            
+            <p className="font-medium text-foreground break-words">"{query.query}"</p>
+            
+            {query.suggestedPlacement && (
+              <p className="text-sm text-muted-foreground mt-1 flex items-center gap-1">
+                <MapPin className="w-3 h-3 shrink-0" />
+                Placement: After "{query.suggestedPlacement}"
+              </p>
+            )}
+          </div>
+          
+          {query.currentScores && (
+            <div className="text-right shrink-0">
+              <div className="text-xl font-bold text-primary">
+                {query.currentScores.passageScore}
+              </div>
+              <div className="text-xs text-muted-foreground">score</div>
+            </div>
+          )}
+        </div>
+        
+        <div className="mt-4 pt-4 border-t">
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => setShowContent(!showContent)}
+            className="w-full"
+          >
+            {showContent ? (
+              <>
+                <ChevronUp className="w-4 h-4 mr-2" />
+                Hide Content
+              </>
+            ) : (
+              <>
+                <ChevronDown className="w-4 h-4 mr-2" />
+                View Generated Content
+              </>
+            )}
+          </Button>
+          
+          {showContent && query.approvedText && (
+            <div className="mt-4 p-3 bg-primary/10 rounded text-sm max-h-48 overflow-y-auto border border-primary/30 break-words">
+              {query.approvedText}
+            </div>
+          )}
+        </div>
+      </CardContent>
+    </Card>
   );
 }

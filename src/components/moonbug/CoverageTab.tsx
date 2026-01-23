@@ -14,15 +14,18 @@ import {
   AlertTriangle,
   Sparkles,
   ArrowRight,
+  Zap,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { QueryCard } from './QueryCard';
 import { QueryWorkingPanel } from './QueryWorkingPanel';
+import { BatchOptimizationDialog } from './BatchOptimizationDialog';
 import { transformToWorkItems, getCoverageSummary } from '@/utils/coverageHelpers';
+import { useBatchOptimization } from '@/hooks/useBatchOptimization';
 import type { LayoutAwareChunk, DocumentElement } from '@/lib/layout-chunker';
 import type { ChunkScore, AnalysisResult } from '@/hooks/useAnalysis';
 import type { FanoutIntentType } from '@/lib/optimizer-types';
-import type { QueryWorkItem, CoverageState } from '@/types/coverage';
+import type { QueryWorkItem, CoverageState, QueryOptimizationState, QueryStatus } from '@/types/coverage';
 
 interface CoverageTabProps {
   hasResults: boolean;
@@ -67,6 +70,9 @@ export function CoverageTab({
     activeQueryId: null,
     optimizationStates: {},
   });
+  
+  // Batch optimization dialog state
+  const [batchDialogOpen, setBatchDialogOpen] = useState(false);
   
   // Use external state if provided, otherwise use local
   const coverageState = externalCoverageState || localCoverageState;
@@ -227,6 +233,15 @@ export function CoverageTab({
     ? coverageState.optimizationStates[activeQuery.id] 
     : undefined;
   
+  // Batch optimization hook
+  const { state: batchState, runBatchOptimization, abort: abortBatch } = useBatchOptimization({
+    queries: workItems,
+    chunks,
+    onQueryStateChange: handleOptimizationStateChange,
+    onQueryStatusChange: handleStatusChange,
+    onQueryUpdate: handleQueryUpdate
+  });
+
   // Empty state
   if (!hasResults) {
     return (
@@ -260,8 +275,12 @@ export function CoverageTab({
             </Badge>
           )}
         </div>
-        <Button disabled className="gap-2">
-          <Sparkles className="h-4 w-4" />
+        <Button 
+          onClick={() => setBatchDialogOpen(true)} 
+          disabled={summary.total - summary.optimized === 0}
+          className="gap-2"
+        >
+          <Zap className="h-4 w-4" />
           Optimize All
         </Button>
       </div>
@@ -405,6 +424,16 @@ export function CoverageTab({
           console.log('Approve text:', text);
         }}
         onOptimizationStateChange={handleOptimizationStateChange}
+      />
+      
+      {/* Batch Optimization Dialog */}
+      <BatchOptimizationDialog
+        queries={workItems}
+        isOpen={batchDialogOpen}
+        onOpenChange={setBatchDialogOpen}
+        onStart={runBatchOptimization}
+        batchState={batchState}
+        onAbort={abortBatch}
       />
     </div>
   );
