@@ -215,7 +215,10 @@ export function QueryCard({ query, onClick }: QueryCardProps) {
                       {Math.round(originalScore)}
                     </span>
                     <ArrowRight className="h-3 w-3 text-muted-foreground" />
-                    <span className={cn('text-sm font-medium tabular-nums', scoreColors?.text)}>
+                    <span className={cn(
+                      'text-sm font-medium tabular-nums',
+                      currentScore > originalScore ? 'text-success' : currentScore < originalScore ? 'text-destructive' : scoreColors?.text
+                    )}>
                       {Math.round(currentScore)}
                     </span>
                     {scoreDiff !== undefined && scoreDiff !== 0 && (
