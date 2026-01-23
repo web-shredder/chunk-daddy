@@ -46,13 +46,7 @@ const Index = () => {
     deleteProject,
   } = useProjects();
 
-  const [activeTab, setActiveTabInternal] = useState<string>('content');
-  
-  // Debug wrapper for tab changes
-  const setActiveTab = (tab: string) => {
-    console.log('[Index] Tab change requested:', tab, 'from:', activeTab);
-    setActiveTabInternal(tab);
-  };
+  const [activeTab, setActiveTab] = useState<string>('content');
   const [content, setContent] = useState("");
   const [keywords, setKeywords] = useState<string[]>([]);
   // Track intent types for queries (from fanout)
