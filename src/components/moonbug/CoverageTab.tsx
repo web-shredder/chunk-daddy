@@ -3,7 +3,7 @@
  * Displays queries organized by optimization status with interactive cards
  */
 
-import { useMemo, useState, useCallback } from 'react';
+import { useMemo, useState, useCallback, useEffect } from 'react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { ScrollArea } from '@/components/ui/scroll-area';
@@ -56,15 +56,18 @@ export function CoverageTab({
   onNavigateToDownloads
 }: CoverageTabProps) {
   
-  // Coverage state management
+  // Coverage state management - now tracks query status locally
   const [coverageState, setCoverageState] = useState<CoverageState>({
     queries: [],
     activeQueryId: null,
     optimizationStates: {},
   });
   
-  // Transform queries to work items when data is available
-  const workItems = useMemo((): QueryWorkItem[] => {
+  // Track if work items have been initialized
+  const [workItemsInitialized, setWorkItemsInitialized] = useState(false);
+  
+  // Transform queries to work items when data is available (only on first load)
+  const baseWorkItems = useMemo((): QueryWorkItem[] => {
     if (!hasResults || keywords.length === 0) {
       return keywords.map(query => ({
         id: crypto.randomUUID(),
@@ -84,7 +87,30 @@ export function CoverageTab({
     return transformToWorkItems(queryInputs, chunkScores, chunks, queryIntentTypes);
   }, [hasResults, keywords, chunkScores, chunks, queryIntentTypes]);
   
-  // Group queries by status
+  // Merge base work items with coverage state (preserves status updates)
+  const workItems = useMemo((): QueryWorkItem[] => {
+    if (!workItemsInitialized) {
+      return baseWorkItems;
+    }
+    
+    // Merge coverage state with base work items
+    return coverageState.queries.length > 0 
+      ? coverageState.queries 
+      : baseWorkItems;
+  }, [baseWorkItems, coverageState.queries, workItemsInitialized]);
+  
+  // Initialize coverage state when base work items change
+  useEffect(() => {
+    if (baseWorkItems.length > 0 && coverageState.queries.length === 0) {
+      setCoverageState(prev => ({
+        ...prev,
+        queries: baseWorkItems,
+      }));
+      setWorkItemsInitialized(true);
+    }
+  }, [baseWorkItems.length]); // Only depend on length to avoid infinite loop
+  
+  // Group queries by status - uses the managed workItems
   const groupedQueries = useMemo(() => {
     const optimized = workItems.filter(q => q.status === 'optimized');
     const inProgress = workItems.filter(q => q.status === 'in_progress');
@@ -116,6 +142,28 @@ export function CoverageTab({
         ...prev.optimizationStates,
         [queryId]: optState
       }
+    }));
+  }, []);
+  
+  // Handle status changes (in_progress, optimized, etc.)
+  const handleStatusChange = useCallback((queryId: string, newStatus: import('@/types/coverage').QueryStatus) => {
+    console.log('Status change:', queryId, '->', newStatus);
+    setCoverageState(prev => ({
+      ...prev,
+      queries: prev.queries.map(q => 
+        q.id === queryId ? { ...q, status: newStatus } : q
+      )
+    }));
+  }, []);
+  
+  // Handle query updates (scores, approved text, etc.)
+  const handleQueryUpdate = useCallback((queryId: string, updates: Partial<QueryWorkItem>) => {
+    console.log('Query update:', queryId, updates);
+    setCoverageState(prev => ({
+      ...prev,
+      queries: prev.queries.map(q => 
+        q.id === queryId ? { ...q, ...updates } : q
+      )
     }));
   }, []);
   
@@ -317,9 +365,8 @@ export function CoverageTab({
         contentSummary={contentSummary}
         initialOptState={activeOptState}
         onClose={handleClosePanel}
-        onUpdate={(updates) => {
-          console.log('Update query:', updates);
-        }}
+        onUpdate={(updates) => handleQueryUpdate(activeQuery?.id || '', updates)}
+        onStatusChange={(status) => handleStatusChange(activeQuery?.id || '', status)}
         onApprove={(text) => {
           console.log('Approve text:', text);
         }}

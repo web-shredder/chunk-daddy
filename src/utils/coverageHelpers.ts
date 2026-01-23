@@ -6,6 +6,7 @@
 import type { QueryWorkItem, QueryStatus, QueryIntentType, QueryScores, AssignedChunk } from '@/types/coverage';
 import type { ChunkScore } from '@/hooks/useAnalysis';
 import type { LayoutAwareChunk } from '@/lib/layout-chunker';
+import { assignQueriesToChunks, getBestScoreForQuery, analyzeHeadingStructure } from './chunkAssignment';
 
 // Threshold for considering a query to have a good match
 const GOOD_MATCH_THRESHOLD = 45;
@@ -18,6 +19,7 @@ interface QueryInput {
 
 /**
  * Transform queries and scoring results into QueryWorkItems for the Coverage tab
+ * Uses 1:1 chunk assignment - each chunk can only be assigned to one query
  */
 export function transformToWorkItems(
   queries: QueryInput[],
@@ -25,60 +27,64 @@ export function transformToWorkItems(
   chunks: LayoutAwareChunk[],
   queryIntentTypes?: Record<string, string>
 ): QueryWorkItem[] {
-  return queries.map((queryInput): QueryWorkItem => {
+  // Get 1:1 assignments using greedy algorithm
+  const queryItems = queries.map(q => ({ query: typeof q === 'string' ? q : q.query }));
+  const assignments = assignQueriesToChunks(queryItems, chunkScores, chunks, GOOD_MATCH_THRESHOLD);
+  
+  // Derive all headings for gap placement analysis
+  const allHeadings = chunks
+    .map(c => c.headingPath?.[c.headingPath.length - 1])
+    .filter((h): h is string => !!h);
+  
+  return queries.map((queryInput, index): QueryWorkItem => {
     const queryText = typeof queryInput === 'string' ? queryInput : queryInput.query;
     const intentType = getIntentType(queryInput, queryIntentTypes?.[queryText]);
     
-    // Find the best scoring chunk for this query
-    let bestScore = 0;
-    let bestChunkIndex: number | undefined;
-    let bestScores: QueryScores | undefined;
+    const assignedChunkIndex = assignments.get(index);
+    const isGap = assignedChunkIndex === null || assignedChunkIndex === undefined;
     
-    chunkScores.forEach((cs, idx) => {
-      const keywordScore = cs.keywordScores.find(
-        k => k.keyword.toLowerCase() === queryText.toLowerCase()
-      );
-      
-      if (keywordScore) {
-        const passageScore = keywordScore.scores.passageScore ?? (keywordScore.scores.cosine * 100);
-        if (passageScore > bestScore) {
-          bestScore = passageScore;
-          bestChunkIndex = idx;
-          bestScores = {
-            passageScore,
-            semanticSimilarity: keywordScore.scores.cosine * 100,
-            lexicalScore: 0, // Not available in SimilarityScores
-            rerankScore: undefined,
-            citationScore: undefined,
-            entityOverlap: undefined,
-          };
-        }
-      }
-    });
-    
-    const hasGoodMatch = bestScore >= GOOD_MATCH_THRESHOLD;
-    const status: QueryStatus = hasGoodMatch ? 'ready' : 'gap';
+    // Get scores for this assignment
+    const scores = getBestScoreForQuery(queryText, assignedChunkIndex ?? null, chunkScores);
     
     // Build assigned chunk info if we have a match
     let assignedChunk: AssignedChunk | undefined;
-    if (hasGoodMatch && bestChunkIndex !== undefined && chunks[bestChunkIndex]) {
-      const chunk = chunks[bestChunkIndex];
+    if (!isGap && assignedChunkIndex !== undefined && chunks[assignedChunkIndex]) {
+      const chunk = chunks[assignedChunkIndex];
       assignedChunk = {
-        index: bestChunkIndex,
-        heading: chunk.headingPath?.[chunk.headingPath.length - 1] || `Chunk ${bestChunkIndex + 1}`,
+        index: assignedChunkIndex,
+        heading: chunk.headingPath?.[chunk.headingPath.length - 1] || `Chunk ${assignedChunkIndex + 1}`,
         preview: truncateText(chunk.text, 100),
         headingPath: chunk.headingPath,
       };
+    }
+    
+    // For gaps, analyze placement suggestion
+    let suggestedPlacement: string | undefined;
+    let suggestedHeading: string | undefined;
+    if (isGap && allHeadings.length > 0) {
+      const placement = analyzeHeadingStructure(allHeadings, queryText);
+      suggestedPlacement = placement.suggestedAfter;
+      suggestedHeading = placement.suggestedLevel;
     }
     
     return {
       id: crypto.randomUUID(),
       query: queryText,
       intentType,
-      status,
+      status: isGap ? 'gap' : 'ready',
+      isGap,
       assignedChunk,
-      originalScores: bestScores,
+      originalScores: scores ? {
+        passageScore: scores.passageScore,
+        semanticSimilarity: scores.semanticSimilarity / 100, // Normalize back to 0-1
+        lexicalScore: scores.lexicalScore,
+        rerankScore: scores.rerankScore,
+        citationScore: scores.citationScore,
+        entityOverlap: scores.entityOverlap,
+      } : undefined,
       isApproved: false,
+      suggestedPlacement,
+      suggestedHeading,
     };
   });
 }
