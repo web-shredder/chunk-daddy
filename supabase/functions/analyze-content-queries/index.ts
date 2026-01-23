@@ -76,11 +76,12 @@ serve(async (req) => {
       existingQueries
     );
     
-    // STEP 5: Calculate intent scores & filter drift (iPullRank methodology)
-    console.log('Step 5: Scoring & filtering drift...');
+    // STEP 5: Calculate intent scores & filter drift (0-100 scale)
+    console.log('Step 5: Scoring & filtering drift (0-100 scale)...');
     const { kept, filtered, suggestionsByType } = processVariantsWithScoring(
       variantsResult.variants,
-      entities
+      entities,
+      primaryQuery.query
     );
     
     console.log(`Generated: ${variantsResult.variants.length}, Kept: ${kept.length}, Filtered: ${filtered.length}`);
@@ -168,6 +169,88 @@ serve(async (req) => {
     );
   }
 });
+
+// ============================================================
+// INTENT ANALYSIS & DRIFT SCORING (0-100 Scale)
+// Per Query Fanout System spec thresholds:
+// 0-20: No drift | 21-40: Slight drift | 41-70: Moderate drift | 71-100: High drift
+// ============================================================
+
+interface IntentAnalysis {
+  category: 'informational' | 'navigational' | 'transactional' | 'commercial_investigation';
+  stage: 'awareness' | 'consideration' | 'decision';
+  queryType: 'definition' | 'how_to' | 'comparison' | 'pricing' | 'review' | 'selection_guide' | 'troubleshooting' | 'tutorial';
+}
+
+function classifyQueryIntent(query: string): IntentAnalysis {
+  const queryLower = query.toLowerCase();
+  
+  // Intent Category
+  let category: IntentAnalysis['category'] = 'informational';
+  if (/\b(buy|purchase|order|download|sign up|subscribe|get started|try|demo)\b/.test(queryLower)) {
+    category = 'transactional';
+  } else if (/\b(best|top|review|comparison|vs|versus|how to choose|which|alternatives|options)\b/.test(queryLower)) {
+    category = 'commercial_investigation';
+  } else if (/\b(login|website|official|contact|support|account|dashboard)\b/.test(queryLower)) {
+    category = 'navigational';
+  }
+  
+  // Intent Stage
+  let stage: IntentAnalysis['stage'] = 'consideration';
+  if (/\b(what is|what are|define|meaning|explain|introduction|basics|overview|guide|learn|understand)\b/.test(queryLower)) {
+    stage = 'awareness';
+  } else if (/\b(implement|setup|configure|pricing|cost|buy|start|begin|integrate|deploy|install)\b/.test(queryLower)) {
+    stage = 'decision';
+  }
+  
+  // Query Type
+  let queryType: IntentAnalysis['queryType'] = 'how_to';
+  if (/\b(what is|what are|define|meaning|definition)\b/.test(queryLower)) {
+    queryType = 'definition';
+  } else if (/\b(vs|versus|comparison|compare|difference|better|or)\b/.test(queryLower)) {
+    queryType = 'comparison';
+  } else if (/\b(price|cost|pricing|fee|expensive|cheap|free|plan|subscription)\b/.test(queryLower)) {
+    queryType = 'pricing';
+  } else if (/\b(review|rating|recommend|opinion|experience)\b/.test(queryLower)) {
+    queryType = 'review';
+  } else if (/\b(choose|select|pick|best|top|alternatives)\b/.test(queryLower)) {
+    queryType = 'selection_guide';
+  } else if (/\b(fix|error|problem|issue|troubleshoot|not working|broken|debug)\b/.test(queryLower)) {
+    queryType = 'troubleshooting';
+  } else if (/\b(tutorial|guide|step by step|learn|example|walkthrough)\b/.test(queryLower)) {
+    queryType = 'tutorial';
+  }
+  
+  return { category, stage, queryType };
+}
+
+function calculateIntentDriftScore(primaryIntent: IntentAnalysis, variantIntent: IntentAnalysis): number {
+  let driftScore = 0;
+  
+  // Category mismatch (heaviest weight - 50 points)
+  if (primaryIntent.category !== variantIntent.category) {
+    driftScore += 50;
+  }
+  
+  // Stage mismatch (strong weight - 30 points)
+  if (primaryIntent.stage !== variantIntent.stage) {
+    driftScore += 30;
+  }
+  
+  // Query type mismatch (moderate weight - 20 points)
+  if (primaryIntent.queryType !== variantIntent.queryType) {
+    driftScore += 20;
+  }
+  
+  return Math.min(100, driftScore);
+}
+
+function getDriftLevel(driftScore: number): 'none' | 'slight' | 'moderate' | 'high' {
+  if (driftScore <= 20) return 'none';
+  if (driftScore <= 40) return 'slight';
+  if (driftScore <= 70) return 'moderate';
+  return 'high';
+}
 
 // ============================================================
 // STEP 1: ENTITY EXTRACTION (iPullRank Foundation)
@@ -575,6 +658,7 @@ function generateFallbackVariants(entities: ExtractedEntities, topic: string): Q
 
 // ============================================================
 // STEP 5: INTENT SCORE CALCULATION & DRIFT FILTERING
+// Uses 0-100 drift scale: 0-20=none, 21-40=slight, 41-70=moderate, 71-100=high
 // Formula: intentScore = (semantic × 0.7) + (entityOverlap × 0.3)
 // ============================================================
 
@@ -586,7 +670,8 @@ interface ProcessedResult {
 
 function processVariantsWithScoring(
   variants: QueryVariant[],
-  entities: ExtractedEntities
+  entities: ExtractedEntities,
+  primaryQueryText: string
 ): ProcessedResult {
   const kept: QueryVariant[] = [];
   const filtered: FilteredVariant[] = [];
@@ -599,6 +684,10 @@ function processVariantsWithScoring(
     SPECIFICATION: [],
     CLARIFICATION: []
   };
+
+  // Classify primary query intent ONCE
+  const primaryIntent = classifyQueryIntent(primaryQueryText);
+  console.log(`Primary intent: ${primaryIntent.category}/${primaryIntent.stage}/${primaryIntent.queryType}`);
 
   for (const variant of variants) {
     // Calculate actual entity overlap (verify AI's claim)
@@ -619,11 +708,41 @@ function processVariantsWithScoring(
     const variantType = variant.variantType as GoogleVariantType;
     intentScore = applyVariantTypeAdjustments(intentScore, variantType, entityOverlap, semanticSimilarity);
     
-    // Classify
+    // Classify using old method
     const intentCategory = classifyIntent(intentScore);
     
-    // Detect drift
-    const driftReason = detectDrift(variant, entities.primary, entityOverlap, semanticSimilarity);
+    // ============================================================
+    // NEW: 0-100 Drift Score Calculation
+    // ============================================================
+    const variantIntent = classifyQueryIntent(variant.query);
+    const driftScore = calculateIntentDriftScore(primaryIntent, variantIntent);
+    const driftLevel = getDriftLevel(driftScore);
+    
+    // Build intent analysis object
+    const intentAnalysis = {
+      category: variantIntent.category,
+      stage: variantIntent.stage,
+      queryType: variantIntent.queryType,
+      driftScore,
+      driftLevel,
+      matchesPrimary: {
+        category: primaryIntent.category === variantIntent.category,
+        stage: primaryIntent.stage === variantIntent.stage,
+        type: primaryIntent.queryType === variantIntent.queryType,
+      },
+      driftReasoning: driftScore > 40 
+        ? `Primary is ${primaryIntent.stage} stage (${primaryIntent.queryType}), variant is ${variantIntent.stage} stage (${variantIntent.queryType})`
+        : null
+    };
+    
+    // Detect entity-based drift (legacy, combined with new system)
+    const entityDriftReason = detectDrift(variant, entities.primary, entityOverlap, semanticSimilarity);
+    
+    // Combine drift reasons: use entity-based if present, otherwise use intent-based for high drift
+    const combinedDriftReason = entityDriftReason || 
+      (driftLevel === 'high' || driftLevel === 'moderate' 
+        ? `Intent drift (${driftScore}/100): ${intentAnalysis.driftReasoning}`
+        : null);
     
     // Calculate matchStrength if missing: based on entityOverlap
     const calculatedMatchStrength = entityOverlap > 0.7 ? 'strong' : entityOverlap > 0.4 ? 'partial' : 'weak';
@@ -645,7 +764,9 @@ function processVariantsWithScoring(
       entityOverlap,
       intentScore,
       intentCategory,
-      driftReason,
+      driftReason: combinedDriftReason,
+      // NEW: Intent analysis with 0-100 drift score
+      intentAnalysis,
       // Coverage analysis - use AI values or calculate defaults
       matchStrength: variant.matchStrength || calculatedMatchStrength,
       matchReason: calculatedMatchReason,
@@ -653,12 +774,15 @@ function processVariantsWithScoring(
       confidence: calculatedConfidence,
     };
     
-    if (intentCategory === 'LOW' || driftReason) {
+    // Filter based on LOW intent OR high drift (>70)
+    if (intentCategory === 'LOW' || entityDriftReason || driftScore > 70) {
       filtered.push({
         query: variant.query,
         variantType: variantType,
         intentScore,
-        driftReason: driftReason || `Intent score ${(intentScore * 100).toFixed(0)}% below threshold`
+        driftScore,
+        driftLevel,
+        driftReason: combinedDriftReason || `Intent score ${(intentScore * 100).toFixed(0)}% below threshold`
       });
     } else {
       kept.push(scoredVariant);
@@ -1054,6 +1178,21 @@ interface PrimaryQueryResult {
   reasoning: string;
 }
 
+// Intent analysis structure for 0-100 drift scoring
+interface VariantIntentAnalysis {
+  category: 'informational' | 'navigational' | 'transactional' | 'commercial_investigation';
+  stage: 'awareness' | 'consideration' | 'decision';
+  queryType: 'definition' | 'how_to' | 'comparison' | 'pricing' | 'review' | 'selection_guide' | 'troubleshooting' | 'tutorial';
+  driftScore: number;
+  driftLevel: 'none' | 'slight' | 'moderate' | 'high';
+  matchesPrimary: {
+    category: boolean;
+    stage: boolean;
+    type: boolean;
+  };
+  driftReasoning: string | null;
+}
+
 interface QueryVariant {
   query: string;
   variantType: GoogleVariantType | string;
@@ -1074,6 +1213,9 @@ interface QueryVariant {
   driftReason?: string | null;
   routePrediction?: RouteInfo;
   isFallback?: boolean;
+  
+  // NEW: 0-100 intent drift analysis
+  intentAnalysis?: VariantIntentAnalysis;
 }
 
 // Generate a matchReason when AI doesn't provide one
@@ -1105,6 +1247,9 @@ interface FilteredVariant {
   variantType: GoogleVariantType | string;
   intentScore: number;
   driftReason: string;
+  // NEW: 0-100 drift score
+  driftScore?: number;
+  driftLevel?: 'none' | 'slight' | 'moderate' | 'high';
 }
 
 interface QuerySuggestionsSummary {
