@@ -9,7 +9,7 @@ import type { QueryWorkItem, QueryOptimizationState, QueryScores } from '@/types
 import type { LayoutAwareChunk } from '@/lib/layout-chunker';
 
 interface UseQueryOptimizationProps {
-  queryItem: QueryWorkItem;
+  queryItem?: QueryWorkItem;  // Made optional to handle undefined gracefully
   chunk?: LayoutAwareChunk;
   existingHeadings?: string[];      // All headings from the document
   contentContext?: string;          // Brief summary of what the content covers
@@ -47,6 +47,10 @@ export function useQueryOptimization({
   }, [onStateChange]);
 
   const generateAnalysis = useCallback(async () => {
+    if (!queryItem) {
+      toast.error('No query selected');
+      return;
+    }
     if (!chunk) {
       toast.error('No chunk assigned to analyze');
       return;
@@ -155,6 +159,10 @@ export function useQueryOptimization({
    * Generate a content brief for gap queries (no existing content)
    */
   const generateBrief = useCallback(async () => {
+    if (!queryItem) {
+      toast.error('No query selected');
+      return;
+    }
     updateState({ step: 'analyzing', error: undefined });
 
     try {
@@ -255,6 +263,10 @@ export function useQueryOptimization({
   }, [updateState]);
 
   const runOptimization = useCallback(async () => {
+    if (!queryItem) {
+      toast.error('No query selected');
+      return;
+    }
     if (!chunk || !state.userEditedAnalysis?.trim()) {
       toast.error('Please generate and review analysis first');
       return;
@@ -361,6 +373,10 @@ export function useQueryOptimization({
    * Generate new content for gap queries based on the brief
    */
   const generateGapContent = useCallback(async () => {
+    if (!queryItem) {
+      toast.error('No query selected');
+      return;
+    }
     if (!state.userEditedAnalysis?.trim()) {
       toast.error('Please generate and review the content brief first');
       return;
@@ -467,6 +483,10 @@ export function useQueryOptimization({
   }, [updateState]);
 
   const rescoreContent = useCallback(async () => {
+    if (!queryItem) {
+      toast.error('No query selected');
+      return;
+    }
     if (!state.userEditedContent?.trim()) {
       toast.error('No content to score');
       return;

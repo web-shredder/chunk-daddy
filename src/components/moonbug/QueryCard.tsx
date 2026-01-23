@@ -145,11 +145,6 @@ export function QueryCard({ query, onClick }: QueryCardProps) {
   // Get tier colors for score display
   const scoreColors = originalScore ? getTierColors(originalScore) : null;
   
-  const handleClick = () => {
-    console.log('[QueryCard] Click handler fired for query:', query.id, query.query);
-    onClick();
-  };
-  
   return (
     <Card 
       className={cn(
@@ -158,7 +153,7 @@ export function QueryCard({ query, onClick }: QueryCardProps) {
         'border',
         statusConfig.cardClass
       )}
-      onClick={handleClick}
+      onClick={onClick}
     >
       <CardContent className="p-4">
         <div className="flex items-start justify-between gap-4">

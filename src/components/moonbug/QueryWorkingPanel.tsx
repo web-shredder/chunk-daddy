@@ -214,7 +214,7 @@ export function QueryWorkingPanel({
     rescoreContent,
     approveOptimization
   } = useQueryOptimization({
-    queryItem: queryItem!,
+    queryItem,  // Now accepts undefined safely
     chunk,
     existingHeadings,
     contentContext: contentSummary,

@@ -41,13 +41,6 @@ export function WorkflowStepper({
   lastSaved,
   onSave
 }: WorkflowStepperProps) {
-  console.log('[WorkflowStepper] Rendering with:', { currentStepId, steps: steps.map(s => s.id) });
-  
-  const handleStepClick = (stepId: string) => {
-    console.log('[WorkflowStepper] Step clicked:', stepId);
-    onStepClick(stepId);
-  };
-  
   const isMobile = useIsMobile();
   const currentIndex = steps.findIndex(s => s.id === currentStepId);
 
@@ -59,7 +52,7 @@ export function WorkflowStepper({
     return <div className="bg-background border-b border-border px-3 py-3 shrink-0">
         <div className="flex items-center justify-between gap-2">
           {/* Previous button */}
-          <Button variant="ghost" size="sm" className="h-8 px-2" onClick={() => prevStep && handleStepClick(prevStep.id)} disabled={!prevStep}>
+          <Button variant="ghost" size="sm" className="h-8 px-2" onClick={() => prevStep && onStepClick(prevStep.id)} disabled={!prevStep}>
             <ChevronLeft className="h-4 w-4" />
           </Button>
           
@@ -70,7 +63,7 @@ export function WorkflowStepper({
               {steps.map(step => {
               const isCompleted = completedStepIds.includes(step.id);
               const isCurrent = step.id === currentStepId;
-              return <button key={step.id} onClick={() => handleStepClick(step.id)} className={cn("w-2 h-2 rounded-full transition-all", isCompleted && !isCurrent && "bg-primary", isCurrent && "w-2.5 h-2.5 bg-primary ring-2 ring-primary/30 ring-offset-1 ring-offset-background", !isCompleted && !isCurrent && "bg-muted border border-muted-foreground/30")} />;
+              return <button key={step.id} onClick={() => onStepClick(step.id)} className={cn("w-2 h-2 rounded-full transition-all", isCompleted && !isCurrent && "bg-primary", isCurrent && "w-2.5 h-2.5 bg-primary ring-2 ring-primary/30 ring-offset-1 ring-offset-background", !isCompleted && !isCurrent && "bg-muted border border-muted-foreground/30")} />;
             })}
             </div>
             
@@ -84,7 +77,7 @@ export function WorkflowStepper({
           </div>
           
           {/* Next button */}
-          <Button variant="ghost" size="sm" className="h-8 px-2" onClick={() => nextStep && handleStepClick(nextStep.id)} disabled={!nextStep}>
+          <Button variant="ghost" size="sm" className="h-8 px-2" onClick={() => nextStep && onStepClick(nextStep.id)} disabled={!nextStep}>
             <ChevronRight className="h-4 w-4" />
           </Button>
         </div>
@@ -103,7 +96,7 @@ export function WorkflowStepper({
           const isLast = index === steps.length - 1;
           return <div key={step.id} className={cn("flex items-start", !isLast && "flex-1")}>
                 {/* Step circle + label container */}
-                <button onClick={() => handleStepClick(step.id)} className="flex flex-col items-center gap-2 group cursor-pointer">
+                <button onClick={() => onStepClick(step.id)} className="flex flex-col items-center gap-2 group cursor-pointer">
                   {/* Circle */}
                   <div className={cn("w-6 h-6 rounded-full flex items-center justify-center text-xs font-medium transition-all", isCompleted && !isCurrent && "bg-primary text-primary-foreground", isCurrent && "bg-primary text-primary-foreground ring-[3px] ring-primary/30 ring-offset-2 ring-offset-background", isFuture && "bg-transparent border-2 border-muted text-muted-foreground", "group-hover:scale-110")}>
                     {index + 1}
