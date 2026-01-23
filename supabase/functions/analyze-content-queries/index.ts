@@ -66,7 +66,7 @@ serve(async (req) => {
       topicFocus,
       querySuggestionsResponse.suggestions
     );
-    console.log('Detected gaps:', coverageGaps.length);
+    console.log('Detected gaps:', coverageGaps.critical_gaps?.length || 0, 'critical,', coverageGaps.legacy_gaps?.length || 0, 'legacy');
 
     return new Response(
       JSON.stringify({
@@ -456,7 +456,8 @@ Generate query suggestions with full intent preservation scoring:`;
 }
 
 // ============================================================
-// STEP 4: DETECT COVERAGE GAPS
+// STEP 4: DETECT COVERAGE GAPS WITH ITERATIVE DEEP RESEARCH
+// Based on Perplexity's Deep Research methodology
 // ============================================================
 
 async function detectCoverageGaps(
@@ -464,9 +465,9 @@ async function detectCoverageGaps(
   intelligence: ContentIntelligence,
   topicFocus: TopicFocus,
   suggestions: QuerySuggestion[]
-): Promise<CoverageGap[]> {
+): Promise<CoverageGapsAnalysis> {
   
-  // Analyze current coverage
+  // Pre-compute intent coverage stats
   const intentCoverage = {
     definition: suggestions.filter(s => s.intentType === 'definition' && s.matchStrength === 'strong').length,
     process: suggestions.filter(s => s.intentType === 'process' && s.matchStrength === 'strong').length,
@@ -476,69 +477,181 @@ async function detectCoverageGaps(
     specification: suggestions.filter(s => s.intentType === 'specification' && s.matchStrength === 'strong').length,
   };
 
-  const systemPrompt = `You are a content strategist identifying GAPS in content coverage.
+  // Pre-compute coverage statistics for summary
+  const coverageStats = {
+    total: suggestions.length,
+    strong: suggestions.filter(s => s.matchStrength === 'strong').length,
+    partial: suggestions.filter(s => s.matchStrength === 'partial').length,
+    weak: suggestions.filter(s => s.matchStrength === 'weak').length,
+    none: suggestions.filter(s => !s.matchStrength).length,
+  };
+
+  // Identify HIGH/MEDIUM intent queries with gaps (focus for deep analysis)
+  const criticalCandidates = suggestions.filter(s => 
+    (s.intentCategory === 'HIGH' || s.intentCategory === 'MEDIUM') &&
+    (s.matchStrength === 'weak' || s.matchStrength === 'partial' || !s.matchStrength)
+  );
+
+  // Identify WEB_SEARCH queries (higher competitive value)
+  const webSearchGaps = criticalCandidates.filter(s => s.routePrediction === 'WEB_SEARCH');
+
+  const systemPrompt = `You are a content strategist using Perplexity-style ITERATIVE DEEP RESEARCH methodology.
 
 The content is about "${topicFocus.primaryEntity}" (${topicFocus.contentPurpose}).
 
-Your job: Find queries that SHOULD be answered by content about ${topicFocus.primaryEntity} but AREN'T.
+You have received query suggestions with INTENT PRESERVATION SCORES from the previous analysis step.
+Your job: Perform deep gap analysis focusing on HIGH-VALUE gaps and generate actionable follow-up queries.
 
-GAP DETECTION STRATEGIES:
+=== TASK 1: CRITICAL GAP ANALYSIS ===
 
-1. MISSING INTENT TYPES
-   - If content explains ${topicFocus.primaryEntity} but never compares it → comparison gap
-   - If content teaches process but never troubleshoots → problem gap
-   - If content is generic but audience needs specifics → specification gap
+For each query where:
+- intentCategory = HIGH or MEDIUM
+- matchStrength = weak, partial, or none
+- routePrediction = WEB_SEARCH (higher priority)
 
-2. INCOMPLETE ENTITIES
-   - Competitors mentioned but not compared
-   - Tools referenced but not explained
-   - Concepts used but not defined
+Analyze:
 
-3. SEARCHER JOURNEY GAPS
-   - What would someone search BEFORE reading this?
-   - What would someone search AFTER reading this?
-   - What related decisions does this leave unanswered?
+1. CURRENT COVERAGE STATUS:
+   - "none": Content doesn't address this at all
+   - "weak": Content mentions tangentially but lacks depth
+   - "partial": Content addresses some aspects but missing key elements
 
-4. AUDIENCE SEGMENT GAPS
-   - Is it only for one expertise level?
-   - Does it ignore important industries/company sizes?
-   - Does it assume knowledge it shouldn't?
+2. MISSING ELEMENTS: What specific facts, sections, or details are needed?
+   Be specific: "Missing: specific timeframe (e.g., '60-90 days'), phase breakdown, cost implications"
 
-5. OBJECTION/CONCERN GAPS
-   - Common fears about ${topicFocus.primaryEntity} not addressed
-   - Risks not discussed
-   - Costs not covered
+3. COMPETITIVE VALUE:
+   - "critical": Competitors definitely cover this (you're at a disadvantage)
+   - "high": Likely covered by competitors (important gap)
+   - "medium": Some competitors cover this (nice to have)
+   - "low": Niche topic, low competitive pressure
 
-For each gap, generate the SPECIFIC QUERY that represents what's missing.
+4. ESTIMATED EFFORT:
+   - "quick_fix": Add 1-2 sentences or a bullet list (5-10 min)
+   - "moderate": Add new paragraph or subsection (20-30 min)
+   - "major_rewrite": Requires new section or significant restructuring (60+ min)
 
-OUTPUT FORMAT (JSON):
+5. RECOMMENDATION: Specific, actionable instruction.
+   Example: "Add subsection 'Implementation Timeline' with phase breakdown: Week 1-2 (kickoff), Week 3-6 (training). Include specific timeframes. 250-300 words."
+
+=== TASK 2: FOLLOW-UP QUERY GENERATION (Perplexity Deep Research) ===
+
+For each CRITICAL gap (HIGH intent + no/weak coverage + WEB_SEARCH):
+Generate 2-3 follow-up queries that would help fill this gap.
+
+FOLLOW-UP QUERY TYPES:
+- CLARIFICATION: More specific version ("RPO costs" → "average RPO cost per hire 2026")
+- SPECIFICATION: Adding context ("RPO implementation" → "RPO implementation timeline for startups")
+- DECOMPOSITION: Breaking into sub-queries ("RPO pricing models" → "per-hire RPO pricing", "retained RPO pricing")
+- ALTERNATIVE: Different angle ("RPO vendor selection" → "questions to ask RPO vendor before signing")
+
+For each follow-up query, specify:
+- Which gap it targets
+- What content would answer it
+- Priority (critical/high/medium/low)
+
+=== TASK 3: COMPETITIVE GAP ANALYSIS ===
+
+Identify gaps where competitors likely have an advantage:
+
+COMMON COMPETITIVE GAPS:
+- pricing: Specific price ranges, cost breakdowns, pricing model comparisons
+- comparison: Direct competitor comparisons, feature matrices, pros/cons
+- case_study: Real examples, customer stories, success metrics
+- specific_detail: Numbers, dates, timeframes, technical specs
+- process: Step-by-step guides, implementation checklists
+- timeline: Duration estimates, milestone schedules
+
+For each gap, explain:
+- What competitors likely provide
+- Why users search for this
+- How difficult to close this gap
+- Recommendation
+
+=== TASK 4: PRIORITY ACTION LIST ===
+
+Rank top 5-10 actions by:
+- Impact (how many HIGH intent queries improved?)
+- Effort (quick vs major work)
+- Competitive urgency (are competitors winning here?)
+
+For each action:
+- Rank (1, 2, 3...)
+- Clear action description
+- Target queries it helps
+- Impact and effort estimate
+- Expected improvement: "Would improve 3 HIGH intent queries from weak to strong"
+
+=== OUTPUT FORMAT (JSON) ===
+
 {
-  "gaps": [
+  "critical_gaps": [
+    {
+      "query": "the specific query that reveals this gap",
+      "intentScore": 0.78,
+      "intentCategory": "HIGH",
+      "routePrediction": "WEB_SEARCH",
+      "currentCoverage": "weak",
+      "missingElements": ["Specific element 1", "Specific element 2"],
+      "competitiveValue": "critical",
+      "estimatedEffort": "moderate",
+      "recommendation": "Specific actionable recommendation"
+    }
+  ],
+  "follow_up_queries": [
+    {
+      "query": "the follow-up query",
+      "targetGap": "which critical gap this addresses",
+      "queryType": "SPECIFICATION",
+      "expectedCoverage": "What content would answer this",
+      "priority": "high"
+    }
+  ],
+  "competitive_gaps": [
+    {
+      "query": "the query revealing competitive gap",
+      "gapType": "pricing",
+      "competitorAdvantage": "What competitors likely provide",
+      "difficulty": "moderate",
+      "recommendation": "How to address this gap"
+    }
+  ],
+  "priority_actions": [
+    {
+      "rank": 1,
+      "action": "Clear action description",
+      "targetQueries": ["query1", "query2"],
+      "impact": "critical",
+      "effort": "moderate",
+      "expectedImprovement": "Would improve X queries from Y to Z coverage"
+    }
+  ],
+  "legacy_gaps": [
     {
       "gapType": "missing_intent|incomplete_entity|journey_gap|audience_gap|objection_gap",
-      "query": "The specific search query this gap represents (8-20 words)",
+      "query": "The specific search query this gap represents",
       "intentType": "definition|process|comparison|evaluation|problem|specification",
       "severity": "critical|important|nice-to-have",
-      "reason": "Why this gap matters for ${topicFocus.primaryEntity} content",
-      "evidence": "What in the content (or missing from it) reveals this gap",
-      "suggestedFix": "How to address this gap (specific content recommendation)",
-      "relatedEntities": ["Entities this gap relates to"],
+      "reason": "Why this gap matters",
+      "evidence": "What reveals this gap",
+      "suggestedFix": "How to address this gap",
+      "relatedEntities": ["entity1", "entity2"],
       "estimatedEffort": "small|medium|large"
     }
   ]
-}
+}`;
 
-Focus on HIGH-VALUE gaps - queries with real search volume that would significantly improve content comprehensiveness.`;
+  // Build context from suggestions
+  const criticalCandidatesText = criticalCandidates.slice(0, 20).map(s => 
+    `- "${s.query}" | Intent: ${s.intentCategory} (${s.intentScore?.toFixed(2) || 'N/A'}) | Route: ${s.routePrediction} | Coverage: ${s.matchStrength} | Reason: ${s.matchReason}`
+  ).join('\n') || '(none)';
+
+  const webSearchGapsText = webSearchGaps.slice(0, 10).map(s =>
+    `- "${s.query}" | Score: ${s.intentScore?.toFixed(2) || 'N/A'} | Coverage: ${s.matchStrength}`
+  ).join('\n') || '(none)';
 
   const unexplainedEntities = intelligence.coreEntities
     ?.filter(e => !e.isExplained && e.role !== 'example')
     .map(e => `- ${e.name} (${e.type}, mentioned ${e.mentionCount}x)`)
-    .join('\n') || '(none)';
-
-  const weakMatches = suggestions
-    .filter(s => s.matchStrength !== 'strong')
-    .slice(0, 15)
-    .map(s => `- "${s.query}" (${s.matchStrength}): ${s.matchReason}`)
     .join('\n') || '(none)';
 
   const implicitKnowledge = intelligence.implicitKnowledge?.map(k => `- ${k}`).join('\n') || '(none)';
@@ -547,7 +660,14 @@ Focus on HIGH-VALUE gaps - queries with real search volume that would significan
 CONTENT PURPOSE: ${topicFocus.contentPurpose}
 TARGET AUDIENCE: ${intelligence.primaryAudience?.role || 'Unknown'} (${intelligence.primaryAudience?.expertiseLevel || 'Unknown'})
 
-CURRENT INTENT COVERAGE (strong matches only):
+=== COVERAGE STATISTICS ===
+Total suggestions: ${coverageStats.total}
+- Strong coverage: ${coverageStats.strong}
+- Partial coverage: ${coverageStats.partial}
+- Weak coverage: ${coverageStats.weak}
+- No coverage: ${coverageStats.none}
+
+=== INTENT COVERAGE (strong matches only) ===
 - Definition queries: ${intentCoverage.definition} ${intentCoverage.definition === 0 ? '⚠️ MISSING' : ''}
 - Process queries: ${intentCoverage.process} ${intentCoverage.process === 0 ? '⚠️ MISSING' : ''}
 - Comparison queries: ${intentCoverage.comparison} ${intentCoverage.comparison === 0 ? '⚠️ MISSING' : ''}
@@ -555,21 +675,72 @@ CURRENT INTENT COVERAGE (strong matches only):
 - Problem queries: ${intentCoverage.problem} ${intentCoverage.problem === 0 ? '⚠️ MISSING' : ''}
 - Specification queries: ${intentCoverage.specification} ${intentCoverage.specification === 0 ? '⚠️ MISSING' : ''}
 
-ENTITIES MENTIONED BUT NOT EXPLAINED:
+=== CRITICAL GAP CANDIDATES (HIGH/MEDIUM intent + weak/no coverage) ===
+${criticalCandidatesText}
+
+=== WEB SEARCH GAPS (highest competitive priority) ===
+${webSearchGapsText}
+
+=== ENTITIES MENTIONED BUT NOT EXPLAINED ===
 ${unexplainedEntities}
 
-WEAK/PARTIAL MATCHES (potential gaps):
-${weakMatches}
-
-IMPLICIT KNOWLEDGE ASSUMPTIONS:
+=== IMPLICIT KNOWLEDGE ASSUMPTIONS ===
 ${implicitKnowledge}
 
-Identify coverage gaps for "${topicFocus.primaryEntity}" content:`;
+=== FULL SUGGESTIONS DATA FOR CONTEXT ===
+${JSON.stringify(suggestions.slice(0, 30), null, 2)}
 
-  const response = await callAI(systemPrompt, userPrompt, 'json_object', 6144);
-  const parsed = parseAIResponse(response, { gaps: [] });
+Perform iterative deep research gap analysis for "${topicFocus.primaryEntity}" content:`;
+
+  const response = await callAI(systemPrompt, userPrompt, 'json_object', 10240);
+  const parsed = parseAIResponse(response, { 
+    critical_gaps: [], 
+    follow_up_queries: [], 
+    competitive_gaps: [],
+    priority_actions: [],
+    legacy_gaps: []
+  });
   
-  return parsed.gaps || parsed.items || [];
+  // Build the comprehensive analysis response
+  const analysis: CoverageGapsAnalysis = {
+    // Legacy fields for backward compatibility
+    missing_queries: (parsed.legacy_gaps || [])
+      .filter((g: LegacyGap) => g.severity === 'critical')
+      .map((g: LegacyGap) => g.query),
+    weak_queries: (parsed.legacy_gaps || [])
+      .filter((g: LegacyGap) => g.severity === 'important')
+      .map((g: LegacyGap) => g.query),
+    opportunities: (parsed.legacy_gaps || [])
+      .filter((g: LegacyGap) => g.severity === 'nice-to-have')
+      .map((g: LegacyGap) => g.query),
+    
+    // New enhanced fields
+    critical_gaps: parsed.critical_gaps || [],
+    follow_up_queries: parsed.follow_up_queries || [],
+    competitive_gaps: parsed.competitive_gaps || [],
+    priority_actions: parsed.priority_actions || [],
+    
+    // Gap summary statistics
+    gap_summary: {
+      total_suggestions: coverageStats.total,
+      strong_coverage: coverageStats.strong,
+      partial_coverage: coverageStats.partial,
+      weak_coverage: coverageStats.weak,
+      no_coverage: coverageStats.none,
+      critical_gaps: (parsed.critical_gaps || []).filter((g: CriticalGap) => g.intentCategory === 'HIGH').length,
+      opportunity_gaps: (parsed.critical_gaps || []).filter((g: CriticalGap) => 
+        g.intentCategory === 'HIGH' && g.currentCoverage === 'weak'
+      ).length,
+      low_priority_gaps: (parsed.critical_gaps || []).filter((g: CriticalGap) => 
+        g.intentCategory === 'MEDIUM' || g.intentCategory === 'LOW'
+      ).length,
+    },
+    
+    // Include legacy gaps for full compatibility
+    legacy_gaps: parsed.legacy_gaps || parsed.gaps || [],
+  };
+  
+  return analysis;
 }
 
 // ============================================================
@@ -676,7 +847,59 @@ interface QuerySuggestionsResponse {
   };
 }
 
-interface CoverageGap {
+// ============================================================
+// COVERAGE GAP ANALYSIS TYPES (Perplexity Deep Research)
+// ============================================================
+
+interface CriticalGap {
+  query: string;                          // The query we can't answer
+  intentScore: number;                    // From Step 3
+  intentCategory: 'HIGH' | 'MEDIUM' | 'LOW';
+  routePrediction: 'WEB_SEARCH' | 'PARAMETRIC' | 'HYBRID';
+  currentCoverage: 'none' | 'weak' | 'partial';
+  missingElements: string[];              // Specific facts/sections needed
+  competitiveValue: 'critical' | 'high' | 'medium' | 'low';
+  estimatedEffort: 'quick_fix' | 'moderate' | 'major_rewrite';
+  recommendation: string;                 // What to do about it
+}
+
+interface FollowUpQuery {
+  query: string;                          // The follow-up query
+  targetGap: string;                      // Which gap this addresses
+  queryType: 'CLARIFICATION' | 'SPECIFICATION' | 'DECOMPOSITION' | 'ALTERNATIVE';
+  expectedCoverage: string;               // What content would answer this
+  priority: 'critical' | 'high' | 'medium' | 'low';
+}
+
+interface GapSummary {
+  total_suggestions: number;              // From Step 3
+  strong_coverage: number;                // matchStrength = strong
+  partial_coverage: number;               // matchStrength = partial
+  weak_coverage: number;                  // matchStrength = weak
+  no_coverage: number;                    // matchStrength not present or none
+  critical_gaps: number;                  // HIGH intent + no coverage
+  opportunity_gaps: number;               // HIGH intent + weak coverage
+  low_priority_gaps: number;              // MEDIUM/LOW intent + no coverage
+}
+
+interface CompetitiveGap {
+  query: string;
+  gapType: 'pricing' | 'comparison' | 'case_study' | 'specific_detail' | 'process' | 'timeline';
+  competitorAdvantage: string;            // What competitors likely provide
+  difficulty: 'easy' | 'moderate' | 'hard';
+  recommendation: string;
+}
+
+interface PriorityAction {
+  rank: number;                           // 1, 2, 3...
+  action: string;                         // "Add pricing section"
+  targetQueries: string[];                // Which queries this helps
+  impact: 'critical' | 'high' | 'medium' | 'low';
+  effort: 'quick' | 'moderate' | 'major';
+  expectedImprovement: string;            // "Would improve 5 HIGH intent queries from weak to strong"
+}
+
+interface LegacyGap {
   gapType: string;
   query: string;
   intentType: string;
@@ -687,6 +910,26 @@ interface CoverageGap {
   relatedEntities: string[];
   estimatedEffort: string;
 }
+
+interface CoverageGapsAnalysis {
+  // Legacy fields for backward compatibility
+  missing_queries: string[];
+  weak_queries: string[];
+  opportunities: string[];
+  
+  // New enhanced fields (Perplexity Deep Research)
+  critical_gaps: CriticalGap[];           // High-priority gaps requiring attention
+  follow_up_queries: FollowUpQuery[];     // Generated queries targeting gaps
+  gap_summary: GapSummary;                // Statistics about coverage
+  competitive_gaps: CompetitiveGap[];     // What competitors likely cover
+  priority_actions: PriorityAction[];     // Ranked list of what to fix first
+  
+  // Legacy gaps for full compatibility
+  legacy_gaps: LegacyGap[];
+}
+
+// Legacy type alias for backward compatibility
+type CoverageGap = LegacyGap;
 
 // ============================================================
 // ROBUST JSON PARSING
