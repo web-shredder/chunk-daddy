@@ -1102,7 +1102,7 @@ const Index = () => {
           chunkerOptions={chunkerOptions}
           onOptionsChange={handleSettingsChange}
           onAnalyze={handleAnalyze}
-          isAnalyzing={isAnalyzing || streamingAnalysis.steps.some(s => s.status === 'running')}
+          isAnalyzing={isAnalyzing || streamingAnalysis.isAnalyzing}
           progress={progress}
           onGoToContent={() => setActiveTab('content')}
           content={content}

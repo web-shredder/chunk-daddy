@@ -609,7 +609,7 @@ export function AnalyzeTab({
             </Accordion>
 
             {/* Analysis Progress - Streaming Panel or Simple Progress */}
-            {isAnalyzing && streamingState && (
+            {(isAnalyzing || streamingState?.summary || (streamingState?.scoredChunks?.length ?? 0) > 0) && streamingState && (
               <AnalysisStreamingPanel
                 isAnalyzing={isAnalyzing}
                 steps={streamingState.steps}

@@ -107,6 +107,9 @@ export function useStreamingAnalysis() {
     const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
     const supabaseKey = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
 
+    console.log('[Streaming] Starting analysis...', { chunksCount: chunks.length, queriesCount: queries.length });
+    console.log('[Streaming] Supabase URL:', supabaseUrl);
+
     try {
       // Prepare chunk data for the edge function
       const chunkInputs = chunks.map((c, i) => ({
@@ -119,7 +122,10 @@ export function useStreamingAnalysis() {
         charCount: c.metadata.charCount,
       }));
 
-      const response = await fetch(`${supabaseUrl}/functions/v1/analyze-chunks-stream`, {
+      const fetchUrl = `${supabaseUrl}/functions/v1/analyze-chunks-stream`;
+      console.log('[Streaming] Fetching:', fetchUrl);
+
+      const response = await fetch(fetchUrl, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -132,6 +138,8 @@ export function useStreamingAnalysis() {
           originalContent: content,
         }),
       });
+
+      console.log('[Streaming] Response status:', response.status, response.statusText);
 
       if (!response.ok) {
         const errorText = await response.text();
