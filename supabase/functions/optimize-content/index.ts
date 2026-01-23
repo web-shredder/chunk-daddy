@@ -30,6 +30,9 @@ interface OptimizationRequest {
   headings?: string[];
   chunkScores?: any;
   chunkSummaries?: { index: number; heading?: string; preview: string }[];
+  // Deduplication options
+  primaryEntities?: string[];
+  threshold?: number;
 }
 
 // Dynamic token limits by operation type - prevents truncation while optimizing costs
@@ -105,7 +108,7 @@ serve(async (req) => {
       );
     }
 
-    const { type, content, queries, query, currentScores, analysis, validatedChanges, chunkScoreData, queryAssignments, chunks, primaryQuery, contentContext, maxDepth, branchFactor, similarityThreshold, headings, chunkScores, chunkSummaries }: OptimizationRequest = await req.json();
+    const { type, content, queries, query, currentScores, analysis, validatedChanges, chunkScoreData, queryAssignments, chunks, primaryQuery, contentContext, maxDepth, branchFactor, similarityThreshold, headings, chunkScores, chunkSummaries, primaryEntities, threshold }: OptimizationRequest = await req.json();
 
     console.log(`Processing ${type} request for content length: ${content?.length}, queries: ${queries?.length}`);
 
@@ -961,10 +964,10 @@ Respond with JSON.`;
       });
     
   } else if (type === 'deduplicate_fanout') {
-    // Semantic deduplication of queries
-    // Note: 'queries' is already parsed from req.json() at line 106
+    // Semantic deduplication of queries with entity-aware preference
     const queryList = queries || [];
-    const threshold = 0.85;
+    const dedupeThreshold = threshold ?? 0.85;
+    const entities = primaryEntities || [];
       
       if (!queryList || queryList.length === 0) {
         return new Response(
@@ -973,7 +976,17 @@ Respond with JSON.`;
         );
       }
     
-    console.log(`Deduplicating ${queryList.length} queries with threshold ${threshold}`);
+    console.log(`Deduplicating ${queryList.length} queries with threshold ${dedupeThreshold}, ${entities.length} primary entities`);
+    
+    // Entity preservation scoring function
+    function calculateEntityPreservation(query: string, primaryEntities: string[]): number {
+      if (primaryEntities.length === 0) return 1;
+      const queryLower = query.toLowerCase();
+      const matchedCount = primaryEntities.filter(entity => 
+        queryLower.includes(entity.toLowerCase())
+      ).length;
+      return matchedCount / primaryEntities.length;
+    }
       
       // Generate embeddings for all queries
       const embeddingResponse = await fetch('https://api.openai.com/v1/embeddings', {
@@ -998,31 +1011,78 @@ Respond with JSON.`;
       const embeddings = embeddingData.data.map((d: any) => d.embedding);
       
       // Compute pairwise similarity and find duplicates
-      const duplicatePairs: Array<{i: number, j: number, similarity: number}> = [];
+      const duplicatePairs: Array<{i: number, j: number, similarity: number, keptIndex?: number, reason?: string}> = [];
       
       for (let i = 0; i < queryList.length; i++) {
         for (let j = i + 1; j < queryList.length; j++) {
           const similarity = cosineSimilarity(embeddings[i], embeddings[j]);
-          if (similarity > threshold) {
+          if (similarity > dedupeThreshold) {
             duplicatePairs.push({ i, j, similarity });
           }
         }
       }
       
-      // Determine which queries to remove (keep the one with lower index = more general/higher level)
+      // Entity-aware duplicate resolution
       const toRemove = new Set<number>();
+      const pairsWithResolution: Array<{i: number, j: number, similarity: number, keptIndex: number, reason: string}> = [];
+      
       for (const pair of duplicatePairs) {
-        toRemove.add(pair.j);
+        // Skip if one is already removed
+        if (toRemove.has(pair.i) || toRemove.has(pair.j)) {
+          continue;
+        }
+        
+        const entityScore_i = calculateEntityPreservation(queryList[pair.i], entities);
+        const entityScore_j = calculateEntityPreservation(queryList[pair.j], entities);
+        
+        let keptIndex: number;
+        let reason: string;
+        
+        if (entityScore_j > entityScore_i + 0.1) {
+          // j preserves significantly more entities, keep j
+          toRemove.add(pair.i);
+          keptIndex = pair.j;
+          reason = `Higher entity preservation (${Math.round(entityScore_j * 100)}% vs ${Math.round(entityScore_i * 100)}%)`;
+        } else if (entityScore_i > entityScore_j + 0.1) {
+          // i preserves significantly more entities, keep i
+          toRemove.add(pair.j);
+          keptIndex = pair.i;
+          reason = `Higher entity preservation (${Math.round(entityScore_i * 100)}% vs ${Math.round(entityScore_j * 100)}%)`;
+        } else {
+          // Similar entity preservation, prefer shorter query (less specific = less drift)
+          const words_i = queryList[pair.i].split(/\s+/).length;
+          const words_j = queryList[pair.j].split(/\s+/).length;
+          
+          if (words_j < words_i - 1) {
+            toRemove.add(pair.i);
+            keptIndex = pair.j;
+            reason = `Shorter query (${words_j} vs ${words_i} words) with similar entity preservation`;
+          } else {
+            toRemove.add(pair.j);
+            keptIndex = pair.i;
+            reason = `Lower index with similar entity preservation (${Math.round(entityScore_i * 100)}%)`;
+          }
+        }
+        
+        pairsWithResolution.push({
+          ...pair,
+          keptIndex,
+          reason
+        });
       }
       
       const uniqueIndices = queryList.map((_: any, i: number) => i).filter((i: number) => !toRemove.has(i));
       
-      console.log(`Deduplication complete: ${toRemove.size} duplicates found, ${uniqueIndices.length} unique queries`);
+      console.log(`Deduplication complete: ${toRemove.size} duplicates removed, ${uniqueIndices.length} unique queries`);
+      if (entities.length > 0) {
+        console.log(`Entity-aware resolution used primary entities: ${entities.join(', ')}`);
+      }
       
       return new Response(JSON.stringify({ 
         uniqueIndices,
         removedCount: toRemove.size,
-        duplicatePairs,
+        duplicatePairs: pairsWithResolution,
+        entityAware: entities.length > 0,
       }), {
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       });

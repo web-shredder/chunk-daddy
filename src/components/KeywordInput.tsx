@@ -203,12 +203,13 @@ export function KeywordInput({
       const allNodes = flattenTree(treeData.tree.root);
       const allQueries = allNodes.map((n: FanoutNode) => n.query);
 
-      // Deduplicate
+      // Deduplicate with entity-aware preference (primaryEntities optional)
       const { data: dedupData, error: dedupError } = await supabase.functions.invoke('optimize-content', {
         body: {
           type: 'deduplicate_fanout',
           queries: allQueries,
-          similarityThreshold: 0.85,
+          threshold: 0.85,
+          // Note: primaryEntities not available here, but the edge function handles this gracefully
         },
       });
 
