@@ -1,5 +1,5 @@
 import { useState, useMemo, useEffect, useCallback } from 'react';
-import { BarChart3, ChevronLeft, ChevronRight, ChevronDown, Copy, Download, Search, AlertCircle, FileJson, FileText, TreeDeciduous, List, Table, Target, Star, ArrowRight, CheckCircle2, ArrowUpDown, Info, AlertTriangle } from 'lucide-react';
+import { BarChart3, ChevronLeft, ChevronRight, ChevronDown, Copy, Download, Search, AlertCircle, FileJson, FileText, TreeDeciduous, List, Table, Target, Star, ArrowRight, CheckCircle2, ArrowUpDown, Info, AlertTriangle, Grid3X3 } from 'lucide-react';
 import { DismissableTip } from '@/components/DismissableTip';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
@@ -16,9 +16,24 @@ import { ChunkCard } from './ChunkCard';
 import { ChunkDetailsPanel } from './ChunkDetailsPanel';
 import { ExportGapsDialog } from './ExportGapsDialog';
 import { ScoreTripleLegend } from './ScoreTriple';
+import { QueryCategorizationSummary } from './QueryCategorizationSummary';
+import { 
+  OptimizationOpportunitiesView,
+  ContentGapsView,
+  IntentDriftView,
+  OutOfScopeView,
+} from './CategoryDetailViews';
+import { ContentBriefDisplay } from './ContentBriefDisplay';
+import { 
+  categorizeAllVariants,
+  CategoryBreakdown,
+  CategorizationSummary,
+  CategorizedVariant,
+} from '@/lib/query-categorization';
 import { downloadCSV } from '@/lib/csv-export';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { useDebug } from '@/contexts/DebugContext';
+import { supabase } from '@/integrations/supabase/client';
 import { 
   computeQueryAssignments, 
   reassignQuery,
@@ -228,10 +243,13 @@ export function ResultsTab({
 }: ResultsTabProps) {
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedIndex, setSelectedIndex] = useState(0);
-  const [viewMode, setViewMode] = useState<'list' | 'structure' | 'assignments'>('list');
+  const [viewMode, setViewMode] = useState<'list' | 'structure' | 'assignments' | 'categories'>('list');
   const [detailPanelOpen, setDetailPanelOpen] = useState(false);
   const [scoreFilter, setScoreFilter] = useState<'all' | 'problems' | 'good' | 'low-retrieval' | 'low-rerank' | 'low-citation' | 'flagged' | 'middle'>('problems');
   const [sortBy, setSortBy] = useState<'score' | 'index' | 'heading' | 'retrieval' | 'rerank' | 'citation' | 'gap'>('score');
+  const [activeCategory, setActiveCategory] = useState<'optimization' | 'gaps' | 'drift' | 'outOfScope' | null>(null);
+  const [selectedBrief, setSelectedBrief] = useState<{ query: string; brief: any } | null>(null);
+  const [isGeneratingBrief, setIsGeneratingBrief] = useState(false);
   const isMobile = useIsMobile();
   const { logEvent } = useDebug();
 
@@ -694,6 +712,13 @@ export function ResultsTab({
                 <Target className="h-3.5 w-3.5" />
                 <span className="hidden sm:inline">Queries</span>
               </button>
+              <button 
+                onClick={() => setViewMode('categories')} 
+                className={cn("flex-1 flex items-center justify-center gap-1 py-1.5 px-2 rounded-md text-xs transition-colors", viewMode === 'categories' ? "bg-accent/20 text-accent" : "text-muted-foreground hover:text-foreground hover:bg-muted/50")}
+              >
+                <Grid3X3 className="h-3.5 w-3.5" />
+                <span className="hidden sm:inline">4-Bucket</span>
+              </button>
             </div>
 
             {/* Score filters (only show in list view) */}
@@ -1011,7 +1036,122 @@ export function ResultsTab({
                   </div>
                 )}
               </div>
+            ) : viewMode === 'categories' ? (
+              <div className="p-2 space-y-4">
+                {/* 4-Bucket Categorization View */}
+                {result?.categoryBreakdown && result?.categorizationSummary ? (
+                  <>
+                    <QueryCategorizationSummary
+                      primaryQuery={keywords[0] || 'Primary Query'}
+                      breakdown={result.categoryBreakdown}
+                      summary={result.categorizationSummary}
+                      onCategoryClick={(category) => setActiveCategory(category === activeCategory ? null : category)}
+                      activeCategory={activeCategory || undefined}
+                    />
+                    
+                    {activeCategory === 'optimization' && (
+                      <OptimizationOpportunitiesView
+                        variants={result.categoryBreakdown.optimizationOpportunities}
+                        onAssignAll={() => {
+                          toast.success('All optimization variants assigned');
+                        }}
+                        onAssign={(variant) => {
+                          if (variant.actionable.assignedChunk) {
+                            handleReassignQuery(variant.actionable.assignedChunk.index, variant.query);
+                            toast.success(`Assigned "${variant.query}" to chunk ${variant.actionable.assignedChunk.index + 1}`);
+                          }
+                        }}
+                        onViewChunk={(idx) => {
+                          setSelectedIndex(idx);
+                          setDetailPanelOpen(true);
+                        }}
+                      />
+                    )}
+                    
+                    {activeCategory === 'gaps' && (
+                      <ContentGapsView
+                        variants={result.categoryBreakdown.contentGaps}
+                        onGenerateBrief={async (variant) => {
+                          setIsGeneratingBrief(true);
+                          try {
+                            const { data, error } = await supabase.functions.invoke('optimize-content', {
+                              body: {
+                                type: 'generate_gap_brief',
+                                gapQuery: variant.query,
+                                primaryQuery: keywords[0],
+                                contentContext: content.slice(0, 3000),
+                                existingHeadings: chunks.map(c => c.headingPath[c.headingPath.length - 1] || 'Untitled'),
+                                primaryEntities: variant.entityAnalysis?.sharedEntities || [],
+                              }
+                            });
+                            if (error) throw error;
+                            setSelectedBrief({ query: variant.query, brief: data.brief });
+                          } catch (err) {
+                            console.error('Failed to generate brief:', err);
+                            toast.error('Failed to generate brief');
+                          }
+                          setIsGeneratingBrief(false);
+                        }}
+                        onGenerateAllBriefs={() => {
+                          toast.info('Generating briefs for all gaps...');
+                        }}
+                        onForceAssign={(variant) => {
+                          toast.success(`Force assigned "${variant.query}"`);
+                        }}
+                      />
+                    )}
+                    
+                    {activeCategory === 'drift' && (
+                      <IntentDriftView
+                        variants={result.categoryBreakdown.intentDrift}
+                        onDelete={(variant) => {
+                          toast.success(`Deleted drift variant: "${variant.query}"`);
+                        }}
+                        onKeep={(variant) => {
+                          toast.info(`Keeping "${variant.query}" for reference`);
+                        }}
+                        onDeleteAll={() => {
+                          toast.success('Deleted all drift variants');
+                        }}
+                      />
+                    )}
+                    
+                    {activeCategory === 'outOfScope' && (
+                      <OutOfScopeView
+                        variants={result.categoryBreakdown.outOfScope}
+                        onDelete={(variant) => {
+                          toast.success(`Deleted out-of-scope variant`);
+                        }}
+                        onDeleteAll={() => {
+                          toast.success('Deleted all out-of-scope variants');
+                        }}
+                      />
+                    )}
+                  </>
+                ) : (
+                  <div className="text-center py-12">
+                    <Grid3X3 className="mx-auto h-12 w-12 text-muted-foreground/30 mb-4" />
+                    <h3 className="text-lg font-semibold mb-2">No Categorization Data</h3>
+                    <p className="text-muted-foreground mb-4 text-sm">
+                      Run analysis with Query Intelligence to see 4-bucket categorization
+                    </p>
+                  </div>
+                )}
+              </div>
             ) : null}
+            
+            {/* Brief display modal overlay */}
+            {selectedBrief && (
+              <div className="fixed inset-0 z-50 bg-background/80 backdrop-blur-sm flex items-center justify-center p-4">
+                <div className="w-full max-w-2xl max-h-[90vh] overflow-auto">
+                  <ContentBriefDisplay
+                    gapQuery={selectedBrief.query}
+                    brief={selectedBrief.brief}
+                    onClose={() => setSelectedBrief(null)}
+                  />
+                </div>
+              </div>
+            )}
           </ScrollArea>
 
           {/* Analyze Structure CTA */}
