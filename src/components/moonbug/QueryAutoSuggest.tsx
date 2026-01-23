@@ -720,6 +720,7 @@ export function QueryAutoSuggest({
               gapSummary={gapSummary}
               existingQueries={existingQueries}
               onAddQueries={onAddQueries}
+              contentIntelligence={intelligence}
             />
           )}
 
