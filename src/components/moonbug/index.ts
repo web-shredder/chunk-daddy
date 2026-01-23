@@ -5,6 +5,7 @@ export { WorkflowStepper, type WorkflowStep } from './WorkflowStepper';
 export { ContentTab } from './ContentTab';
 export { AnalyzeTab } from './AnalyzeTab';
 export { CoverageTab } from './CoverageTab';
+export { QueryCard } from './QueryCard';
 // Deprecated: Commented out for Phase 1 - will be removed in cleanup
 // export { ArchitectureTab } from './ArchitectureTab';
 // export { OptimizeTab } from './OptimizeTab';
