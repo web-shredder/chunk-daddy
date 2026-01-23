@@ -34,6 +34,9 @@ import { cn } from '@/lib/utils';
 import { getTierFromScore, TIER_COLORS, getTierLabel } from '@/lib/tier-colors';
 import { useQueryOptimization } from '@/hooks/useQueryOptimization';
 import { WorkingPanelEditor, MarkdownPreview } from '@/components/moonbug/WorkingPanelEditor';
+import { ScoreTooltip } from '@/components/moonbug/ScoreTooltip';
+import { ScoreInfoDialog } from '@/components/moonbug/ScoreInfoDialog';
+import { SCORE_DEFINITIONS, ScoreKey } from '@/constants/scoreDefinitions';
 import type { QueryWorkItem, QueryIntentType, QueryOptimizationState } from '@/types/coverage';
 import type { LayoutAwareChunk } from '@/lib/layout-chunker';
 
@@ -61,21 +64,28 @@ const INTENT_TYPE_STYLES: Record<QueryIntentType, string> = {
   GAP: 'bg-red-100 text-red-700 border-red-200 dark:bg-red-900/30 dark:text-red-300 dark:border-red-800',
 };
 
-function ScoreBox({ label, value }: { label: string; value: number }) {
+function ScoreBox({ label, value, scoreKey }: { label: string; value: number; scoreKey: ScoreKey }) {
   const tier = getTierFromScore(value);
   const tierColors = TIER_COLORS[tier];
   const tierLabel = getTierLabel(value);
+  const definition = SCORE_DEFINITIONS[scoreKey];
   
   return (
-    <div className="text-center p-3 bg-muted rounded-lg">
+    <div className="relative text-center p-3 bg-muted rounded-lg group">
       <div className={cn('text-2xl font-bold', tierColors.text)}>
         {Math.round(value)}
       </div>
       <div className="text-xs text-muted-foreground uppercase tracking-wide mt-1">
-        {label}
+        <ScoreTooltip scoreKey={scoreKey} showIcon={false}>
+          {label}
+        </ScoreTooltip>
       </div>
       <div className={cn('text-xs font-medium mt-0.5', tierColors.text)}>
         {tierLabel}
+      </div>
+      {/* Info button in corner */}
+      <div className="absolute top-1 right-1 opacity-0 group-hover:opacity-100 transition-opacity">
+        <ScoreInfoDialog scoreKey={scoreKey} />
       </div>
     </div>
   );
@@ -104,11 +114,26 @@ function ScoreCompare({ label, before, after }: { label: string; before: number;
   );
 }
 
-function ScoreRow({ label, value, suffix = '' }: { label: string; value: number; suffix?: string }) {
+function ScoreRow({ 
+  label, 
+  value, 
+  suffix = '',
+  scoreKey 
+}: { 
+  label: string; 
+  value: number; 
+  suffix?: string;
+  scoreKey: ScoreKey;
+}) {
   return (
-    <div className="flex justify-between text-sm">
-      <span className="text-muted-foreground">{label}</span>
-      <span>{Math.round(value)}{suffix}</span>
+    <div className="flex justify-between text-sm items-center">
+      <ScoreTooltip scoreKey={scoreKey}>
+        <span className="text-muted-foreground">{label}</span>
+      </ScoreTooltip>
+      <span className="flex items-center gap-1.5">
+        {Math.round(value)}{suffix}
+        <ScoreInfoDialog scoreKey={scoreKey} />
+      </span>
     </div>
   );
 }
@@ -117,20 +142,24 @@ function ScoreRowCompare({
   label, 
   before, 
   after, 
-  suffix = '' 
+  suffix = '',
+  scoreKey
 }: { 
   label: string; 
   before: number; 
   after: number; 
   suffix?: string;
+  scoreKey: ScoreKey;
 }) {
   const diff = after - before;
   const isImproved = diff > 0;
   const isDeclined = diff < 0;
   
   return (
-    <div className="flex justify-between text-sm">
-      <span className="text-muted-foreground">{label}</span>
+    <div className="flex justify-between text-sm items-center">
+      <ScoreTooltip scoreKey={scoreKey}>
+        <span className="text-muted-foreground">{label}</span>
+      </ScoreTooltip>
       <span className="flex items-center gap-2">
         <span className="font-medium">{Math.round(after)}{suffix}</span>
         <span className={cn(
@@ -139,6 +168,7 @@ function ScoreRowCompare({
         )}>
           {isImproved ? '+' : ''}{Math.round(diff)}{suffix}
         </span>
+        <ScoreInfoDialog scoreKey={scoreKey} />
       </span>
     </div>
   );
@@ -352,19 +382,23 @@ export function QueryWorkingPanel({
                   <div className="grid grid-cols-4 gap-3">
                     <ScoreBox 
                       label="Passage" 
-                      value={queryItem.originalScores.passageScore} 
+                      value={queryItem.originalScores.passageScore}
+                      scoreKey="passageScore"
                     />
                     <ScoreBox 
                       label="Semantic" 
-                      value={(queryItem.originalScores.semanticSimilarity ?? 0) * 100} 
+                      value={(queryItem.originalScores.semanticSimilarity ?? 0) * 100}
+                      scoreKey="semantic"
                     />
                     <ScoreBox 
                       label="Lexical" 
-                      value={(queryItem.originalScores.lexicalScore ?? 0) * 100} 
+                      value={(queryItem.originalScores.lexicalScore ?? 0) * 100}
+                      scoreKey="lexical"
                     />
                     <ScoreBox 
                       label="Citation" 
-                      value={(queryItem.originalScores.citationScore ?? 0) * 100} 
+                      value={(queryItem.originalScores.citationScore ?? 0) * 100}
+                      scoreKey="citationScore"
                     />
                   </div>
                   
@@ -715,12 +749,12 @@ export function QueryWorkingPanel({
                     <div>
                       <p className="text-sm font-medium mb-3">Before Optimization</p>
                       <div className="space-y-2">
-                        <ScoreRow label="Passage Score" value={queryItem.originalScores?.passageScore ?? 0} />
-                        <ScoreRow label="Semantic" value={(queryItem.originalScores?.semanticSimilarity ?? 0) * 100} />
-                        <ScoreRow label="Lexical" value={(queryItem.originalScores?.lexicalScore ?? 0) * 100} />
-                        <ScoreRow label="Rerank" value={queryItem.originalScores?.rerankScore ?? 0} />
-                        <ScoreRow label="Citation" value={queryItem.originalScores?.citationScore ?? 0} />
-                        <ScoreRow label="Entity Overlap" value={(queryItem.originalScores?.entityOverlap ?? 0) * 100} suffix="%" />
+                        <ScoreRow label="Passage Score" value={queryItem.originalScores?.passageScore ?? 0} scoreKey="passageScore" />
+                        <ScoreRow label="Semantic" value={(queryItem.originalScores?.semanticSimilarity ?? 0) * 100} scoreKey="semantic" />
+                        <ScoreRow label="Lexical" value={(queryItem.originalScores?.lexicalScore ?? 0) * 100} scoreKey="lexical" />
+                        <ScoreRow label="Rerank" value={queryItem.originalScores?.rerankScore ?? 0} scoreKey="rerankScore" />
+                        <ScoreRow label="Citation" value={queryItem.originalScores?.citationScore ?? 0} scoreKey="citationScore" />
+                        <ScoreRow label="Entity Overlap" value={(queryItem.originalScores?.entityOverlap ?? 0) * 100} suffix="%" scoreKey="entityOverlap" />
                       </div>
                     </div>
                     <div>
@@ -729,33 +763,39 @@ export function QueryWorkingPanel({
                         <ScoreRowCompare 
                           label="Passage Score" 
                           before={queryItem.originalScores?.passageScore ?? 0}
-                          after={optState.lastScoredResults.passageScore} 
+                          after={optState.lastScoredResults.passageScore}
+                          scoreKey="passageScore"
                         />
                         <ScoreRowCompare 
                           label="Semantic" 
                           before={(queryItem.originalScores?.semanticSimilarity ?? 0) * 100}
-                          after={optState.lastScoredResults.semanticSimilarity * 100} 
+                          after={optState.lastScoredResults.semanticSimilarity * 100}
+                          scoreKey="semantic"
                         />
                         <ScoreRowCompare 
                           label="Lexical" 
                           before={(queryItem.originalScores?.lexicalScore ?? 0) * 100}
-                          after={optState.lastScoredResults.lexicalScore * 100} 
+                          after={optState.lastScoredResults.lexicalScore * 100}
+                          scoreKey="lexical"
                         />
                         <ScoreRowCompare 
                           label="Rerank" 
                           before={queryItem.originalScores?.rerankScore ?? 0}
-                          after={optState.lastScoredResults.rerankScore ?? 0} 
+                          after={optState.lastScoredResults.rerankScore ?? 0}
+                          scoreKey="rerankScore"
                         />
                         <ScoreRowCompare 
                           label="Citation" 
                           before={queryItem.originalScores?.citationScore ?? 0}
-                          after={optState.lastScoredResults.citationScore ?? 0} 
+                          after={optState.lastScoredResults.citationScore ?? 0}
+                          scoreKey="citationScore"
                         />
                         <ScoreRowCompare 
                           label="Entity Overlap" 
                           before={(queryItem.originalScores?.entityOverlap ?? 0) * 100}
                           after={(optState.lastScoredResults.entityOverlap ?? 0) * 100}
                           suffix="%"
+                          scoreKey="entityOverlap"
                         />
                       </div>
                     </div>
