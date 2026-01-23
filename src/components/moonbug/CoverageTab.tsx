@@ -1,20 +1,27 @@
-import { useMemo } from 'react';
+/**
+ * CoverageTab Component
+ * Displays queries organized by optimization status with interactive cards
+ */
+
+import { useMemo, useState, useCallback } from 'react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent } from '@/components/ui/card';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { 
   CheckCircle2, 
   Loader2, 
   Clock, 
-  AlertCircle,
+  AlertTriangle,
   Sparkles,
   ArrowRight,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { QueryCard } from './QueryCard';
+import { transformToWorkItems, getCoverageSummary } from '@/utils/coverageHelpers';
 import type { LayoutAwareChunk, DocumentElement } from '@/lib/layout-chunker';
 import type { ChunkScore, AnalysisResult } from '@/hooks/useAnalysis';
 import type { FanoutIntentType } from '@/lib/optimizer-types';
+import type { QueryWorkItem, CoverageState } from '@/types/coverage';
 
 interface CoverageTabProps {
   hasResults: boolean;
@@ -30,17 +37,6 @@ interface CoverageTabProps {
   elements: DocumentElement[];
   result?: AnalysisResult;
   onNavigateToDownloads?: () => void;
-}
-
-// Query status types for the new UX
-type QueryStatus = 'optimized' | 'in_progress' | 'ready' | 'gap';
-
-interface QueryWithStatus {
-  query: string;
-  status: QueryStatus;
-  intentType?: FanoutIntentType;
-  assignedChunkIndex?: number;
-  score?: number;
 }
 
 export function CoverageTab({
@@ -59,63 +55,59 @@ export function CoverageTab({
   onNavigateToDownloads
 }: CoverageTabProps) {
   
-  // Compute query statuses based on chunk scores
-  const queriesWithStatus = useMemo((): QueryWithStatus[] => {
+  // Coverage state management
+  const [coverageState, setCoverageState] = useState<CoverageState>({
+    queries: [],
+    activeQueryId: null,
+  });
+  
+  // Transform queries to work items when data is available
+  const workItems = useMemo((): QueryWorkItem[] => {
     if (!hasResults || keywords.length === 0) {
-      return keywords.map(q => ({
-        query: q,
-        status: 'gap' as QueryStatus,
-        intentType: queryIntentTypes[q],
+      return keywords.map(query => ({
+        id: crypto.randomUUID(),
+        query,
+        intentType: 'PRIMARY' as const,
+        status: 'gap' as const,
+        isApproved: false,
       }));
     }
     
-    // For now, all queries with analysis results are "ready to optimize"
-    // TODO: In future prompts, this will be updated to track actual optimization status
-    return keywords.map(query => {
-      // Find best chunk for this query
-      let bestScore = 0;
-      let bestChunkIndex: number | undefined;
-      
-      chunkScores.forEach((cs, idx) => {
-        const ks = cs.keywordScores.find(
-          k => k.keyword.toLowerCase() === query.toLowerCase()
-        );
-        if (ks) {
-          const score = ks.scores.cosine * 100;
-          if (score > bestScore) {
-            bestScore = score;
-            bestChunkIndex = idx;
-          }
-        }
-      });
-      
-      // Determine status based on score
-      const hasAssignment = bestScore >= 30; // Threshold for having a matching chunk
-      
-      return {
-        query,
-        status: hasAssignment ? 'ready' as QueryStatus : 'gap' as QueryStatus,
-        intentType: queryIntentTypes[query],
-        assignedChunkIndex: bestChunkIndex,
-        score: bestScore,
-      };
-    });
-  }, [hasResults, keywords, chunkScores, queryIntentTypes]);
+    // Convert keywords to query input format
+    const queryInputs = keywords.map(query => ({
+      query,
+      intentType: queryIntentTypes[query],
+    }));
+    
+    return transformToWorkItems(queryInputs, chunkScores, chunks, queryIntentTypes);
+  }, [hasResults, keywords, chunkScores, chunks, queryIntentTypes]);
   
   // Group queries by status
-  const optimizedQueries = queriesWithStatus.filter(q => q.status === 'optimized');
-  const inProgressQueries = queriesWithStatus.filter(q => q.status === 'in_progress');
-  const readyQueries = queriesWithStatus.filter(q => q.status === 'ready');
-  const gapQueries = queriesWithStatus.filter(q => q.status === 'gap');
+  const groupedQueries = useMemo(() => {
+    const optimized = workItems.filter(q => q.status === 'optimized');
+    const inProgress = workItems.filter(q => q.status === 'in_progress');
+    const ready = workItems.filter(q => q.status === 'ready');
+    const gaps = workItems.filter(q => q.status === 'gap');
+    
+    return { optimized, inProgress, ready, gaps };
+  }, [workItems]);
   
-  const totalQueries = keywords.length;
+  // Summary stats
+  const summary = useMemo(() => getCoverageSummary(workItems), [workItems]);
+  
+  // Handle query card click
+  const handleQueryClick = useCallback((queryId: string) => {
+    console.log('Opening working panel for query:', queryId);
+    setCoverageState(prev => ({ ...prev, activeQueryId: queryId }));
+    // Working panel will be implemented in future prompts
+  }, []);
   
   // Empty state
   if (!hasResults) {
     return (
       <div className="flex-1 flex items-center justify-center p-8">
         <div className="text-center space-y-4">
-          <AlertCircle className="h-12 w-12 text-muted-foreground mx-auto" />
+          <AlertTriangle className="h-12 w-12 text-muted-foreground mx-auto" />
           <h3 className="text-lg font-medium text-foreground">No analysis results yet</h3>
           <p className="text-sm text-muted-foreground max-w-md">
             Run analysis from the Queries tab to see coverage information.
@@ -135,8 +127,13 @@ export function CoverageTab({
         <div className="flex items-center gap-3">
           <h2 className="text-lg md:text-xl font-semibold text-foreground">Coverage</h2>
           <Badge variant="outline" className="text-xs">
-            {totalQueries} queries
+            {summary.total} queries
           </Badge>
+          {summary.optimized > 0 && (
+            <Badge variant="secondary" className="text-xs text-success">
+              {summary.optimized} optimized
+            </Badge>
+          )}
         </div>
         <Button disabled className="gap-2">
           <Sparkles className="h-4 w-4" />
@@ -148,7 +145,7 @@ export function CoverageTab({
       {contentModified && (
         <div className="px-4 md:px-6 py-2 bg-warning/10 border-b border-warning/30">
           <p className="text-sm text-warning flex items-center gap-2">
-            <AlertCircle className="h-4 w-4" />
+            <AlertTriangle className="h-4 w-4" />
             Content has been modified since last analysis.
             <Button variant="link" size="sm" className="p-0 h-auto text-warning" onClick={onReanalyze}>
               Re-analyze
@@ -167,13 +164,17 @@ export function CoverageTab({
               <CheckCircle2 className="h-5 w-5 text-success" />
               <span className="text-success">OPTIMIZED</span>
               <Badge variant="secondary" className="ml-2">
-                {optimizedQueries.length}/{totalQueries}
+                {groupedQueries.optimized.length}/{summary.total}
               </Badge>
             </h3>
-            {optimizedQueries.length > 0 ? (
-              <div className="space-y-2">
-                {optimizedQueries.map(q => (
-                  <QueryCard key={q.query} query={q} />
+            {groupedQueries.optimized.length > 0 ? (
+              <div className="space-y-3">
+                {groupedQueries.optimized.map(query => (
+                  <QueryCard 
+                    key={query.id}
+                    query={query}
+                    onClick={() => handleQueryClick(query.id)}
+                  />
                 ))}
               </div>
             ) : (
@@ -186,16 +187,20 @@ export function CoverageTab({
           {/* IN PROGRESS Section */}
           <section>
             <h3 className="text-lg font-semibold mb-4 flex items-center gap-2">
-              <Loader2 className="h-5 w-5 text-primary animate-spin" />
+              <Loader2 className="h-5 w-5 text-primary" />
               <span className="text-primary">IN PROGRESS</span>
               <Badge variant="secondary" className="ml-2">
-                {inProgressQueries.length}/{totalQueries}
+                {groupedQueries.inProgress.length}/{summary.total}
               </Badge>
             </h3>
-            {inProgressQueries.length > 0 ? (
-              <div className="space-y-2">
-                {inProgressQueries.map(q => (
-                  <QueryCard key={q.query} query={q} />
+            {groupedQueries.inProgress.length > 0 ? (
+              <div className="space-y-3">
+                {groupedQueries.inProgress.map(query => (
+                  <QueryCard 
+                    key={query.id}
+                    query={query}
+                    onClick={() => handleQueryClick(query.id)}
+                  />
                 ))}
               </div>
             ) : (
@@ -211,13 +216,17 @@ export function CoverageTab({
               <Clock className="h-5 w-5 text-warning" />
               <span className="text-warning">READY TO OPTIMIZE</span>
               <Badge variant="secondary" className="ml-2">
-                {readyQueries.length}/{totalQueries}
+                {groupedQueries.ready.length}/{summary.total}
               </Badge>
             </h3>
-            {readyQueries.length > 0 ? (
-              <div className="space-y-2">
-                {readyQueries.map(q => (
-                  <QueryCard key={q.query} query={q} />
+            {groupedQueries.ready.length > 0 ? (
+              <div className="space-y-3">
+                {groupedQueries.ready.map(query => (
+                  <QueryCard 
+                    key={query.id}
+                    query={query}
+                    onClick={() => handleQueryClick(query.id)}
+                  />
                 ))}
               </div>
             ) : (
@@ -230,16 +239,20 @@ export function CoverageTab({
           {/* CONTENT GAPS Section */}
           <section>
             <h3 className="text-lg font-semibold mb-4 flex items-center gap-2">
-              <AlertCircle className="h-5 w-5 text-destructive" />
+              <AlertTriangle className="h-5 w-5 text-destructive" />
               <span className="text-destructive">CONTENT GAPS</span>
               <Badge variant="secondary" className="ml-2">
-                {gapQueries.length}/{totalQueries}
+                {groupedQueries.gaps.length}/{summary.total}
               </Badge>
             </h3>
-            {gapQueries.length > 0 ? (
-              <div className="space-y-2">
-                {gapQueries.map(q => (
-                  <QueryCard key={q.query} query={q} />
+            {groupedQueries.gaps.length > 0 ? (
+              <div className="space-y-3">
+                {groupedQueries.gaps.map(query => (
+                  <QueryCard 
+                    key={query.id}
+                    query={query}
+                    onClick={() => handleQueryClick(query.id)}
+                  />
                 ))}
               </div>
             ) : (
@@ -252,56 +265,6 @@ export function CoverageTab({
         </div>
       </ScrollArea>
     </div>
-  );
-}
-
-// Query Card component for displaying individual queries
-function QueryCard({ query }: { query: QueryWithStatus }) {
-  const statusConfig = {
-    optimized: {
-      icon: CheckCircle2,
-      bgClass: 'bg-success/10 border-success/30',
-      iconClass: 'text-success',
-    },
-    in_progress: {
-      icon: Loader2,
-      bgClass: 'bg-primary/10 border-primary/30',
-      iconClass: 'text-primary animate-spin',
-    },
-    ready: {
-      icon: Clock,
-      bgClass: 'bg-warning/10 border-warning/30',
-      iconClass: 'text-warning',
-    },
-    gap: {
-      icon: AlertCircle,
-      bgClass: 'bg-destructive/10 border-destructive/30',
-      iconClass: 'text-destructive',
-    },
-  };
-  
-  const config = statusConfig[query.status];
-  const Icon = config.icon;
-  
-  return (
-    <Card className={cn('border transition-colors hover:bg-muted/30', config.bgClass)}>
-      <CardContent className="p-4 flex items-center justify-between gap-4">
-        <div className="flex items-center gap-3 min-w-0">
-          <Icon className={cn('h-4 w-4 shrink-0', config.iconClass)} />
-          <span className="text-sm font-medium truncate">{query.query}</span>
-          {query.intentType && (
-            <Badge variant="outline" className="text-xs shrink-0">
-              {query.intentType}
-            </Badge>
-          )}
-        </div>
-        {query.score !== undefined && query.status === 'ready' && (
-          <Badge variant="secondary" className="text-xs tabular-nums">
-            {Math.round(query.score)}%
-          </Badge>
-        )}
-      </CardContent>
-    </Card>
   );
 }
 
