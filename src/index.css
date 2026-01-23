@@ -567,6 +567,83 @@
   @apply text-muted-foreground pointer-events-none float-left h-0;
 }
 
+/* Working Panel Editor Styles */
+.working-panel-editor-container .ProseMirror {
+  @apply min-h-0;
+}
+
+.working-panel-editor {
+  @apply text-sm leading-relaxed;
+}
+
+.working-panel-editor h2 {
+  @apply text-base font-semibold mt-3 mb-2 text-foreground;
+}
+
+.working-panel-editor h3 {
+  @apply text-sm font-semibold mt-2 mb-1 text-foreground;
+}
+
+.working-panel-editor h4 {
+  @apply text-sm font-medium mt-2 mb-1 text-foreground;
+}
+
+.working-panel-editor p {
+  @apply my-2 leading-relaxed text-foreground/90;
+}
+
+.working-panel-editor ul {
+  @apply my-2 pl-5 list-disc;
+}
+
+.working-panel-editor ol {
+  @apply my-2 pl-5 list-decimal;
+}
+
+.working-panel-editor li {
+  @apply my-0.5 text-foreground/90;
+}
+
+.working-panel-editor li p {
+  @apply my-0;
+}
+
+.working-panel-editor code {
+  @apply bg-muted px-1 py-0.5 rounded text-xs font-mono text-foreground;
+}
+
+.working-panel-editor pre {
+  @apply bg-muted p-3 rounded-lg overflow-x-auto my-3;
+}
+
+.working-panel-editor pre code {
+  @apply bg-transparent p-0;
+}
+
+.working-panel-editor blockquote {
+  @apply border-l-2 border-primary/30 pl-3 italic text-muted-foreground my-3 text-sm;
+}
+
+.working-panel-editor strong {
+  @apply font-semibold text-foreground;
+}
+
+.working-panel-editor em {
+  @apply italic;
+}
+
+.working-panel-editor hr {
+  @apply my-4 border-border;
+}
+
+.working-panel-editor a {
+  @apply text-primary underline underline-offset-2 hover:text-primary/80;
+}
+
+.working-panel-editor:focus {
+  @apply outline-none;
+}
+
 /* Global Overflow Utilities */
 @layer utilities {
   /* Text overflow with line clamping */
