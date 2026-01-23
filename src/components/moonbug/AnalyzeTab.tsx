@@ -24,6 +24,8 @@ import { FanoutListView } from './FanoutListView';
 import { ExportFanoutDialog } from './ExportFanoutDialog';
 import { QueryAutoSuggest } from './QueryAutoSuggest';
 import { QuerySidebar } from './QuerySidebar';
+import { AnalysisStreamingPanel } from './AnalysisStreamingPanel';
+import type { AnalysisStep, EmbeddingInfo, EmbeddingBatch, DocumentChamferResult, ChunkScoredEvent, CoverageSummary, DiagnosticProgress, AnalysisSummary } from './AnalysisStreamingPanel';
 
 // Fanout tree node types for recursive display
 interface ExpandedQuery {
@@ -65,6 +67,19 @@ interface AnalyzeTabProps {
   progress: number;
   onGoToContent: () => void;
   content?: string;
+  // Streaming analysis state
+  streamingState?: {
+    steps: AnalysisStep[];
+    currentStep: number;
+    embeddingInfo: EmbeddingInfo | null;
+    embeddingProgress: EmbeddingBatch | null;
+    documentChamfer: DocumentChamferResult | null;
+    scoredChunks: ChunkScoredEvent[];
+    coverageSummary: CoverageSummary | null;
+    diagnosticProgress: DiagnosticProgress | null;
+    summary: AnalysisSummary | null;
+    error: string | null;
+  };
 }
 export function AnalyzeTab({
   hasChunks,
@@ -77,6 +92,7 @@ export function AnalyzeTab({
   progress,
   onGoToContent,
   content = '',
+  streamingState,
 }: AnalyzeTabProps) {
   const [newQuery, setNewQuery] = useState('');
   const [isGenerating, setIsGenerating] = useState(false);
@@ -592,8 +608,24 @@ export function AnalyzeTab({
               </AccordionItem>
             </Accordion>
 
-            {/* Progress indicator */}
-            {isAnalyzing && (
+            {/* Analysis Progress - Streaming Panel or Simple Progress */}
+            {isAnalyzing && streamingState && (
+              <AnalysisStreamingPanel
+                isAnalyzing={isAnalyzing}
+                steps={streamingState.steps}
+                currentStep={streamingState.currentStep}
+                embeddingInfo={streamingState.embeddingInfo}
+                embeddingProgress={streamingState.embeddingProgress}
+                documentChamfer={streamingState.documentChamfer}
+                scoredChunks={streamingState.scoredChunks}
+                coverageSummary={streamingState.coverageSummary}
+                diagnosticProgress={streamingState.diagnosticProgress}
+                summary={streamingState.summary}
+                error={streamingState.error}
+              />
+            )}
+            
+            {isAnalyzing && !streamingState && (
               <div className="space-y-2">
                 <Progress value={progress} className="h-1" />
                 <p className="text-xs text-muted-foreground text-center">
