@@ -399,9 +399,9 @@ Example:
 
 Variants losing primary entities = INTENT DRIFT = useless for ranking.
 
-=== OUTPUT FORMAT ===
+=== OUTPUT FORMAT (JSON) ===
 
-For EACH query provide:
+For EACH query provide a JSON object with:
 {
   "query": "Full search query (8-20 words)",
   "variantType": "EQUIVALENT|FOLLOW_UP|GENERALIZATION|CANONICALIZATION|ENTAILMENT|SPECIFICATION|CLARIFICATION",
@@ -411,7 +411,7 @@ For EACH query provide:
   "userJourneyPosition": "early|middle|late"
 }
 
-Return ONLY:
+Return ONLY valid JSON:
 {
   "variants": [...]
 }`;
