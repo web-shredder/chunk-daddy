@@ -391,38 +391,80 @@ async function generatePrimaryQuery(
   topicFocus: TopicFocus,
   entities: ExtractedEntities
 ): Promise<PrimaryQueryResult> {
+  // Pick only the 1-2 most important entities to avoid keyword stuffing
+  const coreEntity = topicFocus.primaryEntity || entities.primary[0] || 'the topic';
+  const secondaryEntity = entities.primary[1] || '';
+  
   const systemPrompt = `Generate the ONE PRIMARY SEARCH QUERY this content should rank #1 for. You must respond with valid JSON.
 
 This is the "money query" - the search someone would type that this content PERFECTLY answers.
 
-RULES:
-1. Must be natural language (how real humans search)
-2. Must be 5-15 words
-3. Must contain ALL primary entities: ${entities.primary.join(', ')}
-4. Should be the most valuable/high-intent version
+=== CRITICAL ANTI-PATTERNS (NEVER DO THESE) ===
+❌ BAD: "Boutique growth agency digital strategy SEO web solutions organic growth" (keyword list, NOT a query)
+❌ BAD: "Machine learning algorithms pattern recognition supervised learning unsupervised" (keyword stuffing)
+❌ BAD: "SEO content strategy data analytics web development technical SEO" (just listing topics)
+
+=== GOOD EXAMPLES ===
+✅ GOOD: "What is a boutique growth agency and how can it help my business?" (natural question)
+✅ GOOD: "How to choose the right SEO agency for organic growth" (specific intent)
+✅ GOOD: "Best practices for machine learning pattern recognition" (focused topic)
+
+=== RULES ===
+1. Must be a NATURAL LANGUAGE QUESTION or search phrase (how real humans search)
+2. Must be 5-12 words MAXIMUM
+3. Focus on the SINGLE most important concept: ${coreEntity}${secondaryEntity ? ` (and optionally: ${secondaryEntity})` : ''}
+4. DO NOT list multiple keywords - this is a SEARCH QUERY, not an entity list
+5. Should match the searcher's INTENT, not just contain keywords
 
 OUTPUT FORMAT (JSON):
 {
-  "query": "The primary query (5-15 words)",
+  "query": "Natural language search query (5-12 words max)",
   "searchIntent": "informational|navigational|transactional|commercial",
   "confidence": 0.95,
-  "reasoning": "Why this is THE primary query"
+  "reasoning": "Why this query captures the searcher's intent"
 }`;
 
-  const userPrompt = `TOPIC: ${topicFocus.primaryEntity}
+  const userPrompt = `MAIN TOPIC: ${coreEntity}
 PURPOSE: ${topicFocus.contentPurpose}
-PRIMARY ENTITIES (MUST include): ${entities.primary.join(', ')}
+TARGET ACTION: ${topicFocus.targetAction || 'learn about this topic'}
 
-CONTENT:
+CONTENT EXCERPT:
 ${content.slice(0, 2000)}`;
 
   const response = await callAI(systemPrompt, userPrompt, 'json_object', 512);
-  return parseAIResponse(response, {
-    query: `What is ${topicFocus.primaryEntity}`,
+  const result = parseAIResponse(response, {
+    query: `What is ${coreEntity}`,
     searchIntent: 'informational',
     confidence: 0.5,
     reasoning: 'Default fallback query',
   });
+  
+  // VALIDATION: Detect and fix keyword-stuffed queries
+  const wordCount = result.query.split(/\s+/).length;
+  const hasLowercaseWordsOnly = !/[?]/.test(result.query) && !/\b(how|what|why|when|where|which|is|are|do|does|can|should|best|top)\b/i.test(result.query);
+  const likelyKeywordList = wordCount > 8 && hasLowercaseWordsOnly;
+  
+  if (likelyKeywordList || wordCount > 15) {
+    console.log('Primary query validation FAILED - detected keyword list, using fallback');
+    // Generate a clean fallback based on the topic
+    const purpose = topicFocus.contentPurpose || 'learn about';
+    const fallbackQuery = purpose === 'compare' 
+      ? `How to compare ${coreEntity} options`
+      : purpose === 'guide'
+      ? `Complete guide to ${coreEntity}`
+      : purpose === 'sell'
+      ? `Best ${coreEntity} services`
+      : `What is ${coreEntity} and how does it work`;
+    
+    return {
+      query: fallbackQuery,
+      searchIntent: 'informational',
+      confidence: 0.6,
+      reasoning: `Fallback query - original was detected as keyword list: "${result.query.slice(0, 50)}..."`,
+    };
+  }
+  
+  return result;
 }
 
 // ============================================================
