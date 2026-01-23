@@ -21,6 +21,7 @@ import {
   Search,
   ListTree,
   Star,
+  ArrowRight,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { ExportFanoutDialog } from './ExportFanoutDialog';
@@ -263,8 +264,9 @@ export function FanoutListView({
                     )}
                     
                     {hasAnalysisResults && query.assignedChunkIndex !== null && query.assignedChunkIndex !== undefined && (
-                      <Badge variant="outline" className="text-[10px] shrink-0">
-                        → Chunk {query.assignedChunkIndex + 1}
+                      <Badge variant="outline" className="text-[10px] shrink-0 flex items-center gap-0.5">
+                        <ArrowRight className="h-2.5 w-2.5" />
+                        Chunk {query.assignedChunkIndex + 1}
                       </Badge>
                     )}
                   </div>
