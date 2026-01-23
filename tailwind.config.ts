@@ -104,10 +104,28 @@ export default {
             height: "0",
           },
         },
+        "slime-wobble": {
+          "0%, 100%": { transform: "scale(1, 1) rotate(0deg)" },
+          "25%": { transform: "scale(1.03, 0.97) rotate(1deg)" },
+          "50%": { transform: "scale(0.98, 1.02) rotate(-1deg)" },
+          "75%": { transform: "scale(1.02, 0.98) rotate(0.5deg)" },
+        },
+        "slime-pulse": {
+          "0%, 100%": { transform: "scale(1)", opacity: "1" },
+          "50%": { transform: "scale(1.08)", opacity: "0.85" },
+        },
+        "slime-form": {
+          "0%": { transform: "scale(0)", opacity: "0" },
+          "60%": { transform: "scale(1.15)", opacity: "0.8" },
+          "100%": { transform: "scale(1)", opacity: "1" },
+        },
       },
       animation: {
         "accordion-down": "accordion-down 0.2s ease-out",
         "accordion-up": "accordion-up 0.2s ease-out",
+        "slime-wobble": "slime-wobble 2.5s ease-in-out infinite",
+        "slime-pulse": "slime-pulse 1.8s ease-in-out infinite",
+        "slime-form": "slime-form 0.5s ease-out forwards",
       },
     },
   },

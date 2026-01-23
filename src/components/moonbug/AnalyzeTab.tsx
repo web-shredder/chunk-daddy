@@ -26,6 +26,7 @@ import { QueryAutoSuggest } from './QueryAutoSuggest';
 import { QuerySidebar } from './QuerySidebar';
 import { AnalysisStreamingPanel } from './AnalysisStreamingPanel';
 import type { AnalysisStep, EmbeddingInfo, EmbeddingBatch, DocumentChamferResult, ChunkScoredEvent, CoverageSummary, DiagnosticProgress, AnalysisSummary } from './AnalysisStreamingPanel';
+import { FanoutGenerationLoader, EmbeddingAnalysisLoader } from './loading';
 
 // Fanout tree node types for recursive display
 interface ExpandedQuery {
@@ -447,16 +448,34 @@ export function AnalyzeTab({
                         title="Generate related query variations"
                       >
                         {isGenerating ? (
-                          <Loader2 className="h-4 w-4 animate-spin" />
+                          <>
+                            <Loader2 className="h-4 w-4 animate-spin" />
+                            <span className="text-xs">Generating...</span>
+                          </>
                         ) : fanoutMode === 'tree' ? (
-                          <Network className="h-4 w-4" />
+                          <>
+                            <Network className="h-4 w-4" />
+                            <span className="text-xs">Run Fanout</span>
+                          </>
                         ) : (
-                          <Sparkles className="h-4 w-4" />
+                          <>
+                            <Sparkles className="h-4 w-4" />
+                            <span className="text-xs">Run Fanout</span>
+                          </>
                         )}
-                        <span className="text-xs">Run Fanout</span>
                       </button>
                     </div>
                   </div>
+
+                  {/* Slime Loader for Fanout Generation */}
+                  {isGenerating && (
+                    <FanoutGenerationLoader
+                      isLoading={isGenerating}
+                      primaryQuery={newQuery.trim()}
+                      currentDepth={fanoutDepth}
+                      totalGenerated={fanoutTree?.totalNodes || expandedQueries.length}
+                    />
+                  )}
 
                   {/* Fanout Tree View (new recursive) */}
                   {fanoutTree && (
@@ -645,12 +664,12 @@ export function AnalyzeTab({
             )}
             
             {isAnalyzing && !streamingState && (
-              <div className="space-y-2">
-                <Progress value={progress} className="h-1" />
-                <p className="text-xs text-muted-foreground text-center">
-                  Generating embeddings and calculating similarity...
-                </p>
-              </div>
+              <EmbeddingAnalysisLoader
+                isLoading={isAnalyzing}
+                progress={progress}
+                chunksCount={10}
+                queriesCount={keywords.length}
+              />
             )}
           </div>
         </div>
