@@ -24,6 +24,7 @@ export type Database = {
           optimized_content: string | null
           project_name: string
           queries: Json
+          query_intelligence: Json | null
           results: Json | null
           settings: Json
           updated_at: string
@@ -38,6 +39,7 @@ export type Database = {
           optimized_content?: string | null
           project_name: string
           queries?: Json
+          query_intelligence?: Json | null
           results?: Json | null
           settings?: Json
           updated_at?: string
@@ -52,6 +54,7 @@ export type Database = {
           optimized_content?: string | null
           project_name?: string
           queries?: Json
+          query_intelligence?: Json | null
           results?: Json | null
           settings?: Json
           updated_at?: string

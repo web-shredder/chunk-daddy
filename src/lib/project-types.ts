@@ -4,6 +4,33 @@ import type { ChunkerOptions } from './layout-chunker';
 import type { AnalysisResult } from '@/hooks/useAnalysis';
 import type { FullOptimizationResult, ArchitectureAnalysis } from './optimizer-types';
 
+export interface QueryIntelligenceState {
+  detectedTopic: { 
+    primaryEntity: string; 
+    entityType: string; 
+    contentPurpose: string; 
+    targetAction: string; 
+    confidence: number;
+  } | null;
+  primaryQuery: { 
+    query: string; 
+    searchIntent: string; 
+    confidence: number; 
+    reasoning: string;
+  } | null;
+  intelligence: any | null;
+  suggestions: any[];
+  intentSummary: any | null;
+  gaps: any;
+  entities: { 
+    primary: string[]; 
+    secondary: string[]; 
+    temporal: string[]; 
+    branded: string[];
+  } | null;
+  filtered: any[];
+}
+
 export interface ChunkDaddyProject {
   id: string;
   user_id: string;
@@ -15,6 +42,7 @@ export interface ChunkDaddyProject {
   optimized_content: string | null;
   optimization_result: FullOptimizationResult | null;
   architecture_analysis: ArchitectureAnalysis | null;
+  query_intelligence: QueryIntelligenceState | null;
   created_at: string;
   updated_at: string;
 }
