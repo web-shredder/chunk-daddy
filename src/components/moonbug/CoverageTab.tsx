@@ -165,9 +165,9 @@ export function CoverageTab({
   
   // Handle query card click
   const handleQueryClick = useCallback((queryId: string) => {
-    console.log('Opening working panel for query:', queryId);
+    console.log('[CoverageTab] Opening working panel for query:', queryId);
     setCoverageState(prev => ({ ...prev, activeQueryId: queryId }));
-  }, []);
+  }, [setCoverageState]);
   
   // Close working panel
   const handleClosePanel = useCallback(() => {
