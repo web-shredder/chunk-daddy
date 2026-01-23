@@ -192,6 +192,14 @@ export interface IntentSummary {
   avg_intent_score: number;
 }
 
+// Extracted entities from edge function
+export interface ExtractedEntities {
+  primary: string[];
+  secondary: string[];
+  temporal: string[];
+  branded: string[];
+}
+
 interface QueryIntelligenceDashboardProps {
   suggestions: EnhancedQuerySuggestion[];
   intentSummary: IntentSummary | null;
@@ -204,6 +212,10 @@ interface QueryIntelligenceDashboardProps {
   onAddQueries: (queries: string[]) => void;
   onGenerateBrief?: (query: string) => void;
   contentIntelligence?: ContentIntelligence | null;
+  // NEW: Entities and filtered queries
+  extractedEntities?: ExtractedEntities | null;
+  filteredQueries?: FilteredVariant[];
+  suggestionsByType?: Record<GoogleVariantType, EnhancedQuerySuggestion[]>;
 }
 
 // Entity type color mappings
@@ -291,6 +303,73 @@ const VALUE_STYLES: Record<string, { color: string; bg: string }> = {
   low: { color: 'text-muted-foreground', bg: 'bg-muted/50' },
 };
 
+// Google Patent Variant Type Styles
+const VARIANT_TYPE_STYLES: Record<string, { 
+  bg: string; 
+  text: string; 
+  border: string; 
+  icon: string;
+  label: string;
+  description: string;
+}> = {
+  EQUIVALENT: {
+    bg: 'bg-emerald-500/10',
+    text: 'text-emerald-600 dark:text-emerald-400',
+    border: 'border-emerald-500/30',
+    icon: '🔄',
+    label: 'Equivalent',
+    description: 'Same question, different words (must preserve all entities)'
+  },
+  FOLLOW_UP: {
+    bg: 'bg-blue-500/10',
+    text: 'text-blue-600 dark:text-blue-400',
+    border: 'border-blue-500/30',
+    icon: '➡️',
+    label: 'Follow-up',
+    description: 'Logical next questions in user journey'
+  },
+  GENERALIZATION: {
+    bg: 'bg-violet-500/10',
+    text: 'text-violet-600 dark:text-violet-400',
+    border: 'border-violet-500/30',
+    icon: '🔍',
+    label: 'Generalization',
+    description: 'Broader versions of the query'
+  },
+  CANONICALIZATION: {
+    bg: 'bg-indigo-500/10',
+    text: 'text-indigo-600 dark:text-indigo-400',
+    border: 'border-indigo-500/30',
+    icon: '📝',
+    label: 'Canonical',
+    description: 'Standardized forms (expand acronyms)'
+  },
+  ENTAILMENT: {
+    bg: 'bg-cyan-500/10',
+    text: 'text-cyan-600 dark:text-cyan-400',
+    border: 'border-cyan-500/30',
+    icon: '💡',
+    label: 'Entailment',
+    description: 'Logically implied queries'
+  },
+  SPECIFICATION: {
+    bg: 'bg-amber-500/10',
+    text: 'text-amber-600 dark:text-amber-400',
+    border: 'border-amber-500/30',
+    icon: '🎯',
+    label: 'Specification',
+    description: 'Narrower versions with qualifiers'
+  },
+  CLARIFICATION: {
+    bg: 'bg-pink-500/10',
+    text: 'text-pink-600 dark:text-pink-400',
+    border: 'border-pink-500/30',
+    icon: '❓',
+    label: 'Clarification',
+    description: 'Disambiguation queries'
+  },
+};
+
 // ============================================================
 // MAIN COMPONENT
 // ============================================================
@@ -307,13 +386,17 @@ export function QueryIntelligenceDashboard({
   onAddQueries,
   onGenerateBrief,
   contentIntelligence,
+  extractedEntities,
+  filteredQueries = [],
+  suggestionsByType,
 }: QueryIntelligenceDashboardProps) {
-  const [filter, setFilter] = useState<'all' | 'high' | 'medium' | 'low' | 'web_search'>('all');
+  const [filter, setFilter] = useState<'all' | 'high' | 'medium' | 'low' | 'web_search' | 'by_type'>('all');
   const [selectedQueries, setSelectedQueries] = useState<Set<string>>(new Set());
   const [detailsQuery, setDetailsQuery] = useState<EnhancedQuerySuggestion | null>(null);
   const [expandedGaps, setExpandedGaps] = useState<Set<string>>(new Set());
+  const [showFiltered, setShowFiltered] = useState(false);
 
-  // NEW: Entity-related state
+  // Entity-related state
   const [entityFilter, setEntityFilter] = useState<string | null>(null);
   const [entityViewMode, setEntityViewMode] = useState<'chips' | 'table'>('chips');
 
@@ -667,6 +750,74 @@ export function QueryIntelligenceDashboard({
         </div>
       )}
 
+      {/* Section 1.7: Extracted Entities from Edge Function */}
+      {extractedEntities && (extractedEntities.primary.length > 0 || extractedEntities.temporal.length > 0 || extractedEntities.branded.length > 0) && (
+        <div className="rounded-lg border border-border bg-card p-4 space-y-4">
+          <div className="flex items-center gap-2">
+            <FileText className="h-5 w-5 text-primary" />
+            <h3 className="font-semibold text-sm">Intent Preservation Entities</h3>
+            <span className="text-xs text-muted-foreground ml-auto">Google Patent methodology</span>
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {extractedEntities.primary.length > 0 && (
+              <div className="space-y-2">
+                <span className="text-xs font-medium text-emerald-600 dark:text-emerald-400 flex items-center gap-1.5">
+                  <span className="w-2 h-2 rounded-full bg-emerald-500" />
+                  PRIMARY (must preserve)
+                </span>
+                <div className="flex flex-wrap gap-1.5">
+                  {extractedEntities.primary.map((entity) => (
+                    <Badge key={entity} className="bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30 text-xs">{entity}</Badge>
+                  ))}
+                </div>
+              </div>
+            )}
+            {extractedEntities.branded.length > 0 && (
+              <div className="space-y-2">
+                <span className="text-xs font-medium text-amber-600 dark:text-amber-400 flex items-center gap-1.5">
+                  <span className="w-2 h-2 rounded-full bg-amber-500" />
+                  BRANDED
+                </span>
+                <div className="flex flex-wrap gap-1.5">
+                  {extractedEntities.branded.map((entity) => (
+                    <Badge key={entity} variant="outline" className="bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/30 text-xs">{entity}</Badge>
+                  ))}
+                </div>
+              </div>
+            )}
+            {extractedEntities.temporal.length > 0 && (
+              <div className="space-y-2">
+                <span className="text-xs font-medium text-blue-600 dark:text-blue-400 flex items-center gap-1.5">
+                  <span className="w-2 h-2 rounded-full bg-blue-500" />
+                  TEMPORAL (affects routing)
+                </span>
+                <div className="flex flex-wrap gap-1.5">
+                  {extractedEntities.temporal.map((entity) => (
+                    <Badge key={entity} variant="outline" className="bg-blue-500/10 text-blue-600 dark:text-blue-400 border-blue-500/30 text-xs">{entity}</Badge>
+                  ))}
+                </div>
+              </div>
+            )}
+            {extractedEntities.secondary.length > 0 && (
+              <div className="space-y-2">
+                <span className="text-xs font-medium text-muted-foreground flex items-center gap-1.5">
+                  <span className="w-2 h-2 rounded-full bg-muted-foreground" />
+                  SECONDARY
+                </span>
+                <div className="flex flex-wrap gap-1.5">
+                  {extractedEntities.secondary.slice(0, 8).map((entity) => (
+                    <Badge key={entity} variant="secondary" className="text-xs">{entity}</Badge>
+                  ))}
+                  {extractedEntities.secondary.length > 8 && (
+                    <Badge variant="outline" className="text-xs text-muted-foreground">+{extractedEntities.secondary.length - 8} more</Badge>
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
       {/* Section 2: Query List with Filters */}
       <div className="rounded-lg border border-border bg-card overflow-hidden">
         {/* Filter Tabs */}
@@ -676,6 +827,13 @@ export function QueryIntelligenceDashboard({
             label={`All (${counts.all})`}
             onClick={() => setFilter('all')}
           />
+          <FilterButton
+            active={filter === 'by_type'}
+            label="By Type"
+            onClick={() => setFilter('by_type')}
+            icon={<Layers className="h-3 w-3" />}
+          />
+          <div className="w-px h-4 bg-border mx-1" />
           <FilterButton
             active={filter === 'high'}
             label={`HIGH (${counts.high})`}
@@ -696,7 +854,7 @@ export function QueryIntelligenceDashboard({
           />
           <FilterButton
             active={filter === 'web_search'}
-            label={`Web Search (${counts.web_search})`}
+            label={`Web (${counts.web_search})`}
             onClick={() => setFilter('web_search')}
             icon={<Globe className="h-3 w-3" />}
           />
@@ -732,28 +890,118 @@ export function QueryIntelligenceDashboard({
           )}
         </div>
 
-        {/* Query Cards */}
-        <ScrollArea className="h-[350px]">
-          <div className="p-3 space-y-2">
-            {filteredSuggestions.map((suggestion) => (
-              <QueryCard
-                key={suggestion.query}
-                suggestion={suggestion}
-                isSelected={selectedQueries.has(suggestion.query)}
-                isExisting={existingQueries.includes(suggestion.query)}
-                onToggle={() => toggleQuery(suggestion.query)}
-                onViewDetails={() => setDetailsQuery(suggestion)}
-                onAdd={() => onAddQueries([suggestion.query])}
-              />
-            ))}
-            {filteredSuggestions.length === 0 && (
-              <div className="text-center py-8 text-muted-foreground">
-                No queries match this filter
-              </div>
+        {/* Query Cards - Grouped by Type OR Flat List */}
+        <ScrollArea className="h-[400px]">
+          <div className="p-3 space-y-3">
+            {filter === 'by_type' && suggestionsByType ? (
+              Object.entries(VARIANT_TYPE_STYLES).map(([type, style]) => {
+                const typeQueries = suggestionsByType[type as GoogleVariantType] || [];
+                if (typeQueries.length === 0) return null;
+                return (
+                  <div key={type} className="space-y-2">
+                    <div className="flex items-center gap-2 sticky top-0 bg-card py-1 z-10">
+                      <span className="text-lg">{style.icon}</span>
+                      <span className="text-sm font-medium">{style.label}</span>
+                      <Badge variant="secondary" className="text-xs">{typeQueries.length}</Badge>
+                      <TooltipProvider>
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <Info className="h-3.5 w-3.5 text-muted-foreground cursor-help" />
+                          </TooltipTrigger>
+                          <TooltipContent className="max-w-xs">
+                            <p className="text-xs">{style.description}</p>
+                          </TooltipContent>
+                        </Tooltip>
+                      </TooltipProvider>
+                    </div>
+                    <div className="space-y-2 pl-7">
+                      {typeQueries.map((suggestion) => (
+                        <QueryCard
+                          key={suggestion.query}
+                          suggestion={suggestion}
+                          isSelected={selectedQueries.has(suggestion.query)}
+                          isExisting={existingQueries.includes(suggestion.query)}
+                          onToggle={() => toggleQuery(suggestion.query)}
+                          onViewDetails={() => setDetailsQuery(suggestion)}
+                          onAdd={() => onAddQueries([suggestion.query])}
+                          showVariantType={false}
+                        />
+                      ))}
+                    </div>
+                  </div>
+                );
+              })
+            ) : (
+              <>
+                {filteredSuggestions.map((suggestion) => (
+                  <QueryCard
+                    key={suggestion.query}
+                    suggestion={suggestion}
+                    isSelected={selectedQueries.has(suggestion.query)}
+                    isExisting={existingQueries.includes(suggestion.query)}
+                    onToggle={() => toggleQuery(suggestion.query)}
+                    onViewDetails={() => setDetailsQuery(suggestion)}
+                    onAdd={() => onAddQueries([suggestion.query])}
+                  />
+                ))}
+                {filteredSuggestions.length === 0 && (
+                  <div className="text-center py-8 text-muted-foreground">
+                    No queries match this filter
+                  </div>
+                )}
+              </>
             )}
           </div>
         </ScrollArea>
       </div>
+
+      {/* Section 2.5: Filtered/Drifted Queries (Transparency) */}
+      {filteredQueries.length > 0 && (
+        <div className="rounded-lg border border-destructive/30 bg-destructive/5 overflow-hidden">
+          <button
+            onClick={() => setShowFiltered(!showFiltered)}
+            className="w-full flex items-center gap-2 p-3 text-left hover:bg-destructive/10 transition-colors"
+          >
+            <AlertTriangle className="h-4 w-4 text-destructive" />
+            <span className="text-sm font-medium">Intent Drift Detected</span>
+            <Badge variant="outline" className="text-destructive border-destructive/30 text-xs">
+              {filteredQueries.length} filtered
+            </Badge>
+            <span className="text-xs text-muted-foreground ml-auto">
+              {showFiltered ? 'Hide' : 'Show'} removed queries
+            </span>
+            {showFiltered ? <ChevronDown className="h-4 w-4 text-muted-foreground" /> : <ChevronRight className="h-4 w-4 text-muted-foreground" />}
+          </button>
+          {showFiltered && (
+            <div className="p-3 pt-0 space-y-3 border-t border-destructive/20">
+              <p className="text-xs text-muted-foreground">
+                These queries serve different user intents than your primary query. 
+                <span className="italic ml-1">(Source: iPullRank intent degradation research)</span>
+              </p>
+              <div className="space-y-2 max-h-[200px] overflow-y-auto">
+                {filteredQueries.map((fq, i) => {
+                  const typeStyle = VARIANT_TYPE_STYLES[fq.variantType as GoogleVariantType] || VARIANT_TYPE_STYLES.CLARIFICATION;
+                  return (
+                    <div key={i} className="flex items-start gap-2 p-2 rounded-md bg-background/50">
+                      <X className="h-4 w-4 text-destructive shrink-0 mt-0.5" />
+                      <div className="flex-1 min-w-0 space-y-1">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <Badge className={cn("text-xs", typeStyle.bg, typeStyle.text, "border", typeStyle.border)}>
+                            {typeStyle.icon} {typeStyle.label}
+                          </Badge>
+                          <Badge variant="secondary" className="text-xs">Score: {Math.round(fq.intentScore * 100)}</Badge>
+                        </div>
+                        <p className="text-sm break-words">"{fq.query}"</p>
+                        <p className="text-xs text-destructive">{fq.driftReason}</p>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Section 3: Critical Gaps Analysis */}
       {criticalGaps.length > 0 && (
