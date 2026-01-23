@@ -44,6 +44,8 @@ import {
   Tags,
   List,
   LayoutGrid,
+  Layers,
+  Info,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { getTierFromScore, TIER_COLORS } from '@/lib/tier-colors';
@@ -1246,6 +1248,7 @@ function QueryCard({
   onToggle,
   onViewDetails,
   onAdd,
+  showVariantType = true,
 }: {
   suggestion: EnhancedQuerySuggestion;
   isSelected: boolean;
@@ -1253,6 +1256,7 @@ function QueryCard({
   onToggle: () => void;
   onViewDetails: () => void;
   onAdd: () => void;
+  showVariantType?: boolean;
 }) {
   const intentStyles = INTENT_CATEGORY_STYLES[suggestion.intentCategory || 'MEDIUM'];
   const routeInfo = ROUTE_ICONS[suggestion.routePrediction || 'WEB_SEARCH'];
@@ -1291,9 +1295,21 @@ function QueryCard({
                 Score: {intentScore}
               </Badge>
             )}
-            {suggestion.variantType && (
-              <Badge variant="outline" className="text-xs">
-                {suggestion.variantType}
+            {showVariantType && suggestion.variantType && (
+              (() => {
+                const typeStyle = VARIANT_TYPE_STYLES[suggestion.variantType as GoogleVariantType];
+                return typeStyle ? (
+                  <Badge className={cn("text-xs", typeStyle.bg, typeStyle.text, "border", typeStyle.border)}>
+                    {typeStyle.icon} {typeStyle.label}
+                  </Badge>
+                ) : (
+                  <Badge variant="outline" className="text-xs">{suggestion.variantType}</Badge>
+                );
+              })()
+            )}
+            {suggestion.entityOverlap !== undefined && (
+              <Badge variant="secondary" className="text-xs">
+                Entities: {Math.round(suggestion.entityOverlap * 100)}%
               </Badge>
             )}
           </div>

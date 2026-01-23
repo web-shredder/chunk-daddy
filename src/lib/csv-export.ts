@@ -57,6 +57,8 @@ interface QueryIntelligenceExportData {
     variantType?: string;
     intentScore?: number;
     intentCategory?: string;
+    entityOverlap?: number;
+    sharedEntities?: string[];
   }>;
   gaps: Array<{
     gapType: string;
@@ -188,6 +190,10 @@ export function generateQueryIntelligenceCSV(data: QueryIntelligenceExportData):
   rows.push(['=== QUERY SUGGESTIONS ===']);
   rows.push([
     'Query',
+    'Variant Type',
+    'Intent Category',
+    'Intent Score',
+    'Entity Overlap',
     'Intent Type',
     'Match Strength',
     'Match Reason',
@@ -197,11 +203,15 @@ export function generateQueryIntelligenceCSV(data: QueryIntelligenceExportData):
   for (const suggestion of data.suggestions) {
     rows.push([
       escapeCSV(suggestion.query),
-      escapeCSV(suggestion.intentType),
-      escapeCSV(suggestion.matchStrength),
-      escapeCSV(suggestion.matchReason),
+      escapeCSV(suggestion.variantType || 'N/A'),
+      escapeCSV(suggestion.intentCategory || 'N/A'),
+      suggestion.intentScore ? `${Math.round(suggestion.intentScore * 100)}%` : 'N/A',
+      suggestion.entityOverlap !== undefined ? `${Math.round(suggestion.entityOverlap * 100)}%` : 'N/A',
+      escapeCSV(suggestion.intentType || 'N/A'),
+      escapeCSV(suggestion.matchStrength || 'N/A'),
+      escapeCSV(suggestion.matchReason || 'N/A'),
       escapeCSV(suggestion.relevantSection || 'N/A'),
-      `${Math.round(suggestion.confidence * 100)}%`,
+      suggestion.confidence ? `${Math.round(suggestion.confidence * 100)}%` : 'N/A',
     ]);
   }
   rows.push([]);
