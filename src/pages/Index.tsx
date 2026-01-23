@@ -9,6 +9,7 @@ import { useAnalysis, type AnalysisResult } from "@/hooks/useAnalysis";
 import { useAuth } from "@/hooks/useAuth";
 import { useProjects } from "@/hooks/useProjects";
 import { useStreamingDebug } from "@/hooks/useStreamingDebug";
+import { useStreamingAnalysis } from "@/hooks/useStreamingAnalysis";
 import { parseMarkdown, createLayoutAwareChunks, type LayoutAwareChunk, type ChunkerOptions, type DocumentElement } from "@/lib/layout-chunker";
 import type { FullOptimizationResult, ArchitectureAnalysis, ArchitectureTask, FanoutIntentType, ContentBrief } from "@/lib/optimizer-types";
 import {
@@ -25,6 +26,7 @@ const Index = () => {
   const navigate = useNavigate();
   const { isValid } = useApiKey();
   const { analyze, reset, setResultFromProject, isAnalyzing, result, progress } = useAnalysis();
+  const streamingAnalysis = useStreamingAnalysis();
   const { user, loading: authLoading, signOut } = useAuth();
   
   const {
@@ -325,7 +327,7 @@ const Index = () => {
     setActiveTab('analyze');
   };
 
-  const handleAnalyze = () => {
+  const handleAnalyze = async () => {
     const elements = parseMarkdown(content);
     const chunks = createLayoutAwareChunks(content, chunkerOptions);
     setParsedElements(elements);
@@ -335,13 +337,24 @@ const Index = () => {
     // Set flag to auto-navigate when analysis completes
     shouldNavigateToResults.current = true;
     
-    analyze({
+    // Use streaming analysis for real-time progress visualization
+    const streamResult = await streamingAnalysis.analyzeStreaming(
       content,
-      keywords,
-      strategy: 'layout-aware',
-      layoutChunks: chunks,
-      chunkerOptions,
-    });
+      chunks,
+      keywords
+    );
+    
+    if (streamResult) {
+      // After streaming completes, trigger the full local analysis 
+      // to compute all the additional metrics (improvements, etc.)
+      analyze({
+        content,
+        keywords,
+        strategy: 'layout-aware',
+        layoutChunks: chunks,
+        chunkerOptions,
+      });
+    }
   };
 
   const handleRenameProject = (projectId: string, newName: string) => {
@@ -1089,10 +1102,22 @@ const Index = () => {
           chunkerOptions={chunkerOptions}
           onOptionsChange={handleSettingsChange}
           onAnalyze={handleAnalyze}
-          isAnalyzing={isAnalyzing}
+          isAnalyzing={isAnalyzing || streamingAnalysis.steps.some(s => s.status === 'running')}
           progress={progress}
           onGoToContent={() => setActiveTab('content')}
           content={content}
+          streamingState={{
+            steps: streamingAnalysis.steps,
+            currentStep: streamingAnalysis.currentStep,
+            embeddingInfo: streamingAnalysis.embeddingInfo,
+            embeddingProgress: streamingAnalysis.embeddingProgress,
+            documentChamfer: streamingAnalysis.documentChamfer,
+            scoredChunks: streamingAnalysis.scoredChunks,
+            coverageSummary: streamingAnalysis.coverageSummary,
+            diagnosticProgress: streamingAnalysis.diagnosticProgress,
+            summary: streamingAnalysis.summary,
+            error: streamingAnalysis.error,
+          }}
         />
       )}
 
