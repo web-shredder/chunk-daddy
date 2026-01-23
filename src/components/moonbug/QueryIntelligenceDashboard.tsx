@@ -18,6 +18,14 @@ import {
   TooltipTrigger,
 } from '@/components/ui/tooltip';
 import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '@/components/ui/table';
+import {
   Check,
   AlertTriangle,
   ChevronDown,
@@ -33,6 +41,9 @@ import {
   Zap,
   FileText,
   X,
+  Tags,
+  List,
+  LayoutGrid,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { getTierFromScore, TIER_COLORS } from '@/lib/tier-colors';
@@ -40,6 +51,29 @@ import { getTierFromScore, TIER_COLORS } from '@/lib/tier-colors';
 // ============================================================
 // TYPES
 // ============================================================
+
+export interface CoreEntity {
+  name: string;
+  type: string;
+  role: 'primary' | 'secondary' | 'example' | string;
+  isExplained: boolean;
+  mentionCount: number;
+  sections: string[];
+}
+
+export interface ContentIntelligence {
+  coreEntities: CoreEntity[];
+  topicHierarchy?: {
+    broadCategory: string;
+    specificNiche: string;
+    exactFocus: string;
+  };
+  semanticClusters?: Array<{
+    clusterName: string;
+    concepts: string[];
+    coverageDepth: string;
+  }>;
+}
 
 export interface EnhancedQuerySuggestion {
   query: string;
@@ -140,7 +174,52 @@ interface QueryIntelligenceDashboardProps {
   existingQueries: string[];
   onAddQueries: (queries: string[]) => void;
   onGenerateBrief?: (query: string) => void;
+  contentIntelligence?: ContentIntelligence | null;
 }
+
+// Entity type color mappings
+const ENTITY_TYPE_STYLES: Record<string, { bg: string; text: string; border: string }> = {
+  primary: {
+    bg: 'bg-emerald-500/10',
+    text: 'text-emerald-600 dark:text-emerald-400',
+    border: 'border-emerald-500/30',
+  },
+  concept: {
+    bg: 'bg-blue-500/10',
+    text: 'text-blue-600 dark:text-blue-400',
+    border: 'border-blue-500/30',
+  },
+  technology: {
+    bg: 'bg-indigo-500/10',
+    text: 'text-indigo-600 dark:text-indigo-400',
+    border: 'border-indigo-500/30',
+  },
+  process: {
+    bg: 'bg-violet-500/10',
+    text: 'text-violet-600 dark:text-violet-400',
+    border: 'border-violet-500/30',
+  },
+  company: {
+    bg: 'bg-amber-500/10',
+    text: 'text-amber-600 dark:text-amber-400',
+    border: 'border-amber-500/30',
+  },
+  product: {
+    bg: 'bg-orange-500/10',
+    text: 'text-orange-600 dark:text-orange-400',
+    border: 'border-orange-500/30',
+  },
+  person: {
+    bg: 'bg-pink-500/10',
+    text: 'text-pink-600 dark:text-pink-400',
+    border: 'border-pink-500/30',
+  },
+  default: {
+    bg: 'bg-muted/50',
+    text: 'text-muted-foreground',
+    border: 'border-border',
+  },
+};
 
 // ============================================================
 // INTENT CATEGORY COLORS
@@ -198,27 +277,64 @@ export function QueryIntelligenceDashboard({
   existingQueries,
   onAddQueries,
   onGenerateBrief,
+  contentIntelligence,
 }: QueryIntelligenceDashboardProps) {
   const [filter, setFilter] = useState<'all' | 'high' | 'medium' | 'low' | 'web_search'>('all');
   const [selectedQueries, setSelectedQueries] = useState<Set<string>>(new Set());
   const [detailsQuery, setDetailsQuery] = useState<EnhancedQuerySuggestion | null>(null);
   const [expandedGaps, setExpandedGaps] = useState<Set<string>>(new Set());
 
-  // Filter suggestions based on selected filter
+  // NEW: Entity-related state
+  const [entityFilter, setEntityFilter] = useState<string | null>(null);
+  const [entityViewMode, setEntityViewMode] = useState<'chips' | 'table'>('chips');
+
+  // NEW: Filter suggestions based on entity filter too
   const filteredSuggestions = useMemo(() => {
+    let filtered = suggestions;
+    
+    // Intent/route filter
     switch (filter) {
       case 'high':
-        return suggestions.filter(s => s.intentCategory === 'HIGH');
+        filtered = filtered.filter(s => s.intentCategory === 'HIGH');
+        break;
       case 'medium':
-        return suggestions.filter(s => s.intentCategory === 'MEDIUM');
+        filtered = filtered.filter(s => s.intentCategory === 'MEDIUM');
+        break;
       case 'low':
-        return suggestions.filter(s => s.intentCategory === 'LOW');
+        filtered = filtered.filter(s => s.intentCategory === 'LOW');
+        break;
       case 'web_search':
-        return suggestions.filter(s => s.routePrediction === 'WEB_SEARCH');
-      default:
-        return suggestions;
+        filtered = filtered.filter(s => s.routePrediction === 'WEB_SEARCH');
+        break;
     }
-  }, [suggestions, filter]);
+    
+    // Entity filter
+    if (entityFilter) {
+      const lowerFilter = entityFilter.toLowerCase();
+      filtered = filtered.filter(s => 
+        s.sharedEntities?.some(e => e.toLowerCase() === lowerFilter) ||
+        s.primaryQueryEntities?.some(e => e.toLowerCase() === lowerFilter) ||
+        s.suggestedQueryEntities?.some(e => e.toLowerCase() === lowerFilter)
+      );
+    }
+    
+    return filtered;
+  }, [suggestions, filter, entityFilter]);
+
+  // NEW: Compute entity overlap across all suggestions
+  const entityOverlap = useMemo(() => {
+    const counts: Record<string, number> = {};
+    suggestions.forEach(s => {
+      (s.sharedEntities || []).forEach(entity => {
+        const key = entity.toLowerCase();
+        counts[key] = (counts[key] || 0) + 1;
+      });
+    });
+    return Object.entries(counts)
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 10)
+      .map(([name, count]) => ({ name, count }));
+  }, [suggestions]);
 
   // Count suggestions by category
   const counts = useMemo(() => ({
@@ -347,6 +463,171 @@ export function QueryIntelligenceDashboard({
               Avg Score: <span className="font-medium text-foreground">{Math.round((intentSummary.avg_intent_score || 0) * 100)}</span>
             </div>
           </div>
+        </div>
+      )}
+
+      {/* Section 1.5: Entity Extraction */}
+      {contentIntelligence?.coreEntities && contentIntelligence.coreEntities.length > 0 && (
+        <div className="rounded-lg border border-border bg-card p-4 space-y-4">
+          <div className="flex items-center gap-2">
+            <Tags className="h-5 w-5 text-primary" />
+            <h3 className="font-semibold text-sm">Extracted Entities</h3>
+            <Badge variant="secondary" className="ml-auto text-xs">
+              {contentIntelligence.coreEntities.length} entities
+            </Badge>
+            
+            {/* View mode toggle */}
+            <div className="flex items-center border border-border rounded-md overflow-hidden">
+              <button
+                onClick={() => setEntityViewMode('chips')}
+                className={cn(
+                  "px-2 py-1 text-xs flex items-center gap-1 transition-colors",
+                  entityViewMode === 'chips' ? "bg-primary/10 text-primary" : "text-muted-foreground hover:bg-muted"
+                )}
+              >
+                <LayoutGrid className="h-3 w-3" />
+              </button>
+              <button
+                onClick={() => setEntityViewMode('table')}
+                className={cn(
+                  "px-2 py-1 text-xs flex items-center gap-1 transition-colors",
+                  entityViewMode === 'table' ? "bg-primary/10 text-primary" : "text-muted-foreground hover:bg-muted"
+                )}
+              >
+                <List className="h-3 w-3" />
+              </button>
+            </div>
+          </div>
+
+          {/* Entity filter indicator */}
+          {entityFilter && (
+            <div className="flex items-center gap-2 p-2 rounded-md bg-primary/5 border border-primary/20">
+              <span className="text-xs text-muted-foreground">Filtering queries by:</span>
+              <Badge variant="secondary" className="text-xs">
+                {entityFilter}
+              </Badge>
+              <Button 
+                size="sm" 
+                variant="ghost" 
+                className="h-5 w-5 p-0 ml-auto"
+                onClick={() => setEntityFilter(null)}
+              >
+                <X className="h-3 w-3" />
+              </Button>
+            </div>
+          )}
+
+          {entityViewMode === 'chips' ? (
+            <div className="space-y-3">
+              {/* Primary entities */}
+              <EntityChipGroup
+                label="Primary Entities"
+                entities={contentIntelligence.coreEntities.filter(e => e.role === 'primary')}
+                typeKey="primary"
+                activeFilter={entityFilter}
+                onFilterClick={setEntityFilter}
+              />
+              
+              {/* Concepts & Technologies */}
+              <EntityChipGroup
+                label="Concepts & Technologies"
+                entities={contentIntelligence.coreEntities.filter(e => 
+                  ['concept', 'technology', 'process'].includes(e.type.toLowerCase())
+                )}
+                typeKey="concept"
+                activeFilter={entityFilter}
+                onFilterClick={setEntityFilter}
+              />
+              
+              {/* Companies & Products */}
+              <EntityChipGroup
+                label="Companies & Products"
+                entities={contentIntelligence.coreEntities.filter(e => 
+                  ['company', 'product', 'person'].includes(e.type.toLowerCase())
+                )}
+                typeKey="company"
+                activeFilter={entityFilter}
+                onFilterClick={setEntityFilter}
+              />
+            </div>
+          ) : (
+            <div className="border border-border rounded-md overflow-hidden">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead className="text-xs">Entity</TableHead>
+                    <TableHead className="text-xs">Type</TableHead>
+                    <TableHead className="text-xs">Role</TableHead>
+                    <TableHead className="text-xs text-center">Mentions</TableHead>
+                    <TableHead className="text-xs text-center">Explained</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {contentIntelligence.coreEntities.map((entity) => {
+                    const typeStyle = ENTITY_TYPE_STYLES[entity.type.toLowerCase()] || ENTITY_TYPE_STYLES.default;
+                    return (
+                      <TableRow 
+                        key={entity.name}
+                        className={cn(
+                          "cursor-pointer hover:bg-muted/50",
+                          entityFilter?.toLowerCase() === entity.name.toLowerCase() && "bg-primary/5"
+                        )}
+                        onClick={() => setEntityFilter(
+                          entityFilter?.toLowerCase() === entity.name.toLowerCase() ? null : entity.name
+                        )}
+                      >
+                        <TableCell className="text-xs font-medium">{entity.name}</TableCell>
+                        <TableCell>
+                          <Badge variant="outline" className={cn("text-[10px]", typeStyle.bg, typeStyle.text, typeStyle.border)}>
+                            {entity.type}
+                          </Badge>
+                        </TableCell>
+                        <TableCell className="text-xs capitalize">{entity.role}</TableCell>
+                        <TableCell className="text-xs text-center">{entity.mentionCount || 1}</TableCell>
+                        <TableCell className="text-center">
+                          {entity.isExplained ? (
+                            <Check className="h-3.5 w-3.5 text-emerald-500 mx-auto" />
+                          ) : (
+                            <span className="text-muted-foreground">—</span>
+                          )}
+                        </TableCell>
+                      </TableRow>
+                    );
+                  })}
+                </TableBody>
+              </Table>
+            </div>
+          )}
+
+          {/* Entity overlap across queries */}
+          {entityOverlap.length > 0 && (
+            <div className="pt-3 border-t border-border space-y-2">
+              <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                <Shuffle className="h-3.5 w-3.5" />
+                <span>Most Shared Across Queries</span>
+              </div>
+              <div className="flex flex-wrap gap-1.5">
+                {entityOverlap.map(({ name, count }) => (
+                  <Badge 
+                    key={name}
+                    variant="secondary" 
+                    className={cn(
+                      "text-xs cursor-pointer transition-colors",
+                      entityFilter?.toLowerCase() === name.toLowerCase() 
+                        ? "bg-primary/20 text-primary border-primary/30" 
+                        : "hover:bg-muted"
+                    )}
+                    onClick={() => setEntityFilter(
+                      entityFilter?.toLowerCase() === name.toLowerCase() ? null : name
+                    )}
+                  >
+                    {name}
+                    <span className="ml-1 opacity-70">({count})</span>
+                  </Badge>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
       )}
 
@@ -512,7 +793,72 @@ export function QueryIntelligenceDashboard({
 // SUB-COMPONENTS
 // ============================================================
 
-function IntentBar({ 
+function EntityChipGroup({
+  label,
+  entities,
+  typeKey,
+  activeFilter,
+  onFilterClick,
+}: {
+  label: string;
+  entities: CoreEntity[];
+  typeKey: string;
+  activeFilter: string | null;
+  onFilterClick: (name: string | null) => void;
+}) {
+  if (entities.length === 0) return null;
+  
+  const styles = ENTITY_TYPE_STYLES[typeKey] || ENTITY_TYPE_STYLES.default;
+  
+  return (
+    <div className="space-y-1.5">
+      <span className="text-xs text-muted-foreground">{label}</span>
+      <div className="flex flex-wrap gap-1.5">
+        {entities.map((entity) => {
+          const isActive = activeFilter?.toLowerCase() === entity.name.toLowerCase();
+          return (
+            <TooltipProvider key={entity.name}>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Badge
+                    className={cn(
+                      "text-xs border cursor-pointer transition-all",
+                      isActive 
+                        ? "bg-primary/20 text-primary border-primary/40 ring-2 ring-primary/20" 
+                        : cn(styles.bg, styles.text, styles.border, "hover:opacity-80")
+                    )}
+                    onClick={() => onFilterClick(isActive ? null : entity.name)}
+                  >
+                    {entity.name}
+                    {entity.mentionCount > 1 && (
+                      <span className="ml-1 opacity-70">×{entity.mentionCount}</span>
+                    )}
+                    {entity.isExplained && (
+                      <Check className="h-3 w-3 ml-1" />
+                    )}
+                  </Badge>
+                </TooltipTrigger>
+                <TooltipContent side="top" className="max-w-xs">
+                  <div className="text-xs space-y-1">
+                    <p><span className="font-medium">Type:</span> {entity.type}</p>
+                    <p><span className="font-medium">Role:</span> {entity.role}</p>
+                    <p><span className="font-medium">Explained in content:</span> {entity.isExplained ? 'Yes' : 'Just mentioned'}</p>
+                    {entity.sections?.length > 0 && (
+                      <p><span className="font-medium">Sections:</span> {entity.sections.slice(0, 3).join(', ')}{entity.sections.length > 3 ? '...' : ''}</p>
+                    )}
+                    <p className="pt-1 text-muted-foreground italic">Click to filter queries</p>
+                  </div>
+                </TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function IntentBar({
   label, 
   count, 
   total, 
