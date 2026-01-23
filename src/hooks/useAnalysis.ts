@@ -16,6 +16,13 @@ import {
   calculateAllDiagnostics, 
   type DiagnosticScores 
 } from '@/lib/diagnostic-scoring';
+import {
+  categorizeAllVariants,
+  type CategorizedVariant,
+  type CategoryBreakdown,
+  type CategorizationSummary,
+  CATEGORIZATION_THRESHOLDS,
+} from '@/lib/query-categorization';
 
 export interface KeywordScore {
   keyword: string;
@@ -76,8 +83,12 @@ export interface AnalysisResult {
     gaps: number;
     totalQueries: number;
   };
-  // NEW: Diagnostic scores for all chunk-query pairs
+  // Diagnostic scores for all chunk-query pairs
   diagnostics: ChunkDiagnostics[];
+  // 4-Bucket Categorization results
+  categorizedVariants?: CategorizedVariant[];
+  categoryBreakdown?: CategoryBreakdown;
+  categorizationSummary?: CategorizationSummary;
 }
 
 export interface UseAnalysisOptions {
@@ -455,6 +466,75 @@ export function useAnalysis() {
         importantIssues: diagnostics.filter(d => d.scores.diagnosis.fixPriority === 'important').length,
       });
 
+      // ========== 4-BUCKET CATEGORIZATION ==========
+      // Categorize each query into: Optimization Opportunity, Content Gap, Intent Drift, Out of Scope
+      const variantsForCategorization = validKeywords.map((query) => {
+        // Find best chunk for this query
+        let bestChunkIdx = 0;
+        let bestScore = 0;
+        
+        chunkEmbeddings.forEach((chunkEmbed, chunkIdx) => {
+          const score = cosineSimilarity(chunkEmbed.embedding, keywordEmbeddings[validKeywords.indexOf(query)].embedding);
+          if (score > bestScore) {
+            bestScore = score;
+            bestChunkIdx = chunkIdx;
+          }
+        });
+        
+        // Calculate content similarity (query vs full document)
+        const contentSimilarity = cosineSimilarity(
+          originalEmbedding,
+          keywordEmbeddings[validKeywords.indexOf(query)].embedding
+        );
+        
+        // Calculate passage score
+        const passageScore = calculatePassageScore(bestScore, documentChamfer);
+        
+        return {
+          query,
+          variantType: 'aspect', // Default type, can be enhanced with Query Intelligence data
+          contentSimilarity,
+          bestChunkSimilarity: bestScore,
+          bestChunkIndex: bestScore >= CATEGORIZATION_THRESHOLDS.SIMILARITY_THRESHOLD ? bestChunkIdx : null,
+          passageScore,
+          intentAnalysis: {
+            category: 'informational' as const,
+            stage: 'consideration' as const,
+            queryType: 'how_to' as const,
+            driftScore: 0, // Will be set from Query Intelligence if available
+            driftLevel: 'none' as const,
+            driftReasoning: null,
+          },
+          entityAnalysis: {
+            variantEntities: query.split(/\s+/).filter(w => w.length > 3),
+            sharedEntities: [],
+            overlapPercent: 0,
+            missingEntities: [],
+          },
+        };
+      });
+
+      // Prepare chunk headings for categorization
+      const chunksForCategorization = layoutChunks 
+        ? layoutChunks.map(c => ({
+            heading: c.headingPath[c.headingPath.length - 1] || `Chunk ${c.id}`,
+          }))
+        : chunkTexts.map((_, idx) => ({ heading: `Chunk ${idx + 1}` }));
+
+      const { 
+        categorized: categorizedVariants, 
+        breakdown: categoryBreakdown, 
+        summary: categorizationSummary 
+      } = categorizeAllVariants(variantsForCategorization, chunksForCategorization);
+
+      console.log('📊 [CATEGORIZATION] Summary:', {
+        total: categorizationSummary.total,
+        optimization: categorizationSummary.byCategory.optimization,
+        gaps: categorizationSummary.byCategory.gaps,
+        drift: categorizationSummary.byCategory.drift,
+        outOfScope: categorizationSummary.byCategory.outOfScope,
+      });
+
       setProgress(100);
 
       const analysisResult: AnalysisResult = {
@@ -468,8 +548,12 @@ export function useAnalysis() {
         documentChamfer,
         coverageMap,
         coverageSummary,
-        // NEW: Diagnostic scores
+        // Diagnostic scores
         diagnostics,
+        // 4-Bucket Categorization
+        categorizedVariants,
+        categoryBreakdown,
+        categorizationSummary,
       };
 
       setResult(analysisResult);
