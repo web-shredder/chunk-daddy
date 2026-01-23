@@ -833,3 +833,178 @@ code {
 .tabular-nums {
   font-variant-numeric: tabular-nums;
 }
+
+/* ========================================
+   SLIME LOADING ANIMATIONS
+   ======================================== */
+
+/* Organic blob wobble - continuous subtle movement */
+@keyframes slime-wobble {
+  0%, 100% {
+    transform: scale(1, 1) rotate(0deg);
+  }
+  25% {
+    transform: scale(1.03, 0.97) rotate(1deg);
+  }
+  50% {
+    transform: scale(0.98, 1.02) rotate(-1deg);
+  }
+  75% {
+    transform: scale(1.02, 0.98) rotate(0.5deg);
+  }
+}
+
+.animate-slime-wobble {
+  animation: slime-wobble 2.5s ease-in-out infinite;
+}
+
+/* Blob pulse - breathing effect */
+@keyframes slime-pulse {
+  0%, 100% {
+    transform: scale(1);
+    opacity: 1;
+  }
+  50% {
+    transform: scale(1.08);
+    opacity: 0.85;
+  }
+}
+
+.animate-slime-pulse {
+  animation: slime-pulse 1.8s ease-in-out infinite;
+}
+
+/* Blob forming - emergence from parent */
+@keyframes slime-form {
+  0% {
+    transform: scale(0);
+    opacity: 0;
+  }
+  60% {
+    transform: scale(1.15);
+    opacity: 0.8;
+  }
+  100% {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+
+.animate-slime-form {
+  animation: slime-form 0.5s ease-out forwards;
+}
+
+/* Blob falling - detached acceleration */
+@keyframes slime-fall {
+  0% {
+    transform: translateY(0);
+    opacity: 1;
+  }
+  100% {
+    transform: translateY(30px);
+    opacity: 0;
+  }
+}
+
+.animate-slime-fall {
+  animation: slime-fall 0.5s ease-in forwards;
+}
+
+/* Connection stretching */
+@keyframes slime-stretch {
+  0% {
+    stroke-dashoffset: 100;
+    opacity: 0;
+  }
+  100% {
+    stroke-dashoffset: 0;
+    opacity: 1;
+  }
+}
+
+.animate-slime-stretch {
+  stroke-dasharray: 100;
+  animation: slime-stretch 0.6s ease-out forwards;
+}
+
+/* Connection thinning before snap */
+@keyframes slime-thin {
+  0% {
+    stroke-width: inherit;
+    opacity: 1;
+  }
+  100% {
+    stroke-width: 0.5;
+    opacity: 0.3;
+  }
+}
+
+.animate-slime-thin {
+  animation: slime-thin 0.4s ease-in forwards;
+}
+
+/* Connection snap - quick retraction */
+@keyframes slime-snap {
+  0% {
+    stroke-dashoffset: 0;
+    opacity: 1;
+  }
+  100% {
+    stroke-dashoffset: 100;
+    opacity: 0;
+  }
+}
+
+.animate-slime-snap {
+  stroke-dasharray: 100;
+  animation: slime-snap 0.2s ease-in forwards;
+}
+
+/* Tendril probing - oscillating reach */
+@keyframes slime-probe {
+  0%, 100% {
+    stroke-dashoffset: 0;
+  }
+  50% {
+    stroke-dashoffset: 10;
+  }
+}
+
+.animate-slime-probe {
+  stroke-dasharray: 20 5;
+  animation: slime-probe 0.8s ease-in-out infinite;
+}
+
+/* Drip fall animation */
+@keyframes slime-drip {
+  0% {
+    transform: translateY(0) scale(1);
+    opacity: 0.8;
+  }
+  50% {
+    transform: translateY(8px) scale(0.9);
+    opacity: 0.6;
+  }
+  100% {
+    transform: translateY(15px) scale(0.7);
+    opacity: 0;
+  }
+}
+
+.animate-slime-drip {
+  animation: slime-drip 1.2s ease-in infinite;
+}
+
+/* Liquid fill - wobbling surface */
+@keyframes slime-fill {
+  0%, 100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-1px);
+  }
+}
+
+.animate-slime-fill {
+  animation: slime-fill 1s ease-in-out infinite;
+}
