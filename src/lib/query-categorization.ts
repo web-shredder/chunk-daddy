@@ -8,6 +8,18 @@
 // ============================================================================
 
 // ============================================================================
+// DEBUG LOGGING
+// ============================================================================
+
+const DEBUG = true; // Set to false in production
+
+function debugLog(label: string, data: unknown) {
+  if (DEBUG) {
+    console.log(`[Categorization] ${label}:`, data);
+  }
+}
+
+// ============================================================================
 // CATEGORY TYPES
 // ============================================================================
 
@@ -181,6 +193,15 @@ export function categorizeVariant(
 ): CategorizedVariant {
   const { DRIFT_THRESHOLD, SIMILARITY_THRESHOLD, PASSAGE_SCORE_THRESHOLD } = CATEGORIZATION_THRESHOLDS;
   
+  // Debug: Log input variant
+  debugLog('Input variant', {
+    query: variant.query,
+    contentSimilarity: variant.contentSimilarity,
+    passageScore: variant.passageScore,
+    driftScore: variant.intentAnalysis.driftScore,
+    bestChunkIndex: variant.bestChunkIndex,
+  });
+  
   let category: VariantCategory;
   let categoryReasoning: string;
   let actionable: CategorizedVariant['actionable'];
@@ -198,7 +219,7 @@ export function categorizeVariant(
         variantIntent: `Different stage detected`,
       }
     };
-  } 
+  }
   // 2. Check for Out of Scope (Category D)
   else if (variant.contentSimilarity < SIMILARITY_THRESHOLD) {
     category = 'OUT_OF_SCOPE';
@@ -234,6 +255,14 @@ export function categorizeVariant(
     };
   }
   
+  // Debug: Log categorization result
+  debugLog('Categorization result', {
+    query: variant.query,
+    category,
+    reasoning: categoryReasoning,
+    action: actionable.primaryAction,
+  });
+  
   return {
     ...variant,
     category,
@@ -246,6 +275,11 @@ export function categorizeAllVariants(
   variants: Array<Parameters<typeof categorizeVariant>[0]>,
   chunks: Array<{ heading: string }>
 ): { categorized: CategorizedVariant[]; breakdown: CategoryBreakdown; summary: CategorizationSummary } {
+  // Debug: Log start of batch categorization
+  debugLog('Starting categorization', {
+    totalVariants: variants.length,
+    totalChunks: chunks.length,
+  });
   const categorized = variants.map(v => categorizeVariant(v, chunks));
   
   const breakdown: CategoryBreakdown = {
@@ -271,6 +305,13 @@ export function categorizeAllVariants(
       driftScore: categorized.reduce((sum, v) => sum + v.intentAnalysis.driftScore, 0) / total,
     },
   };
+  
+  // Debug: Log completion summary
+  debugLog('Categorization complete', {
+    total: summary.total,
+    byCategory: summary.byCategory,
+    averageScores: summary.averageScores,
+  });
   
   return { categorized, breakdown, summary };
 }
