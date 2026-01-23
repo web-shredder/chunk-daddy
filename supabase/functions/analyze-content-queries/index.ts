@@ -463,8 +463,36 @@ Generate query suggestions with full intent preservation scoring:`;
   const parsed = parseAIResponse(response, { suggestions: [], summary: {} });
   
   // Ensure we have the right structure
-  const suggestions = parsed.suggestions || parsed.items || [];
-  const summary = parsed.summary || {
+  let suggestions = parsed.suggestions || parsed.items || [];
+  
+  // FALLBACK: If AI suggestions failed but we have entities, generate basic queries from them
+  if (suggestions.length === 0 && intelligence.coreEntities && intelligence.coreEntities.length > 0) {
+    console.log('AI suggestions failed, generating fallback from', intelligence.coreEntities.length, 'entities');
+    
+    suggestions = intelligence.coreEntities
+      .filter(e => e.role === 'primary' || e.role === 'secondary')
+      .slice(0, 12)
+      .map((entity, idx) => ({
+        query: `what is ${entity.name.toLowerCase()}`,
+        intentType: 'definition' as const,
+        matchStrength: entity.isExplained ? 'strong' : 'partial' as const,
+        matchReason: `Derived from extracted entity: ${entity.name} (${entity.role})`,
+        relevantSection: entity.sections?.[0] || null,
+        confidence: entity.isExplained ? 0.75 : 0.5,
+        intentCategory: entity.role === 'primary' ? 'HIGH' : 'MEDIUM' as const,
+        intentScore: entity.role === 'primary' ? 78 : 55,
+        routePrediction: 'WEB_SEARCH' as const,
+        sharedEntities: [entity.name],
+        primaryQueryEntities: [topicFocus.primaryEntity],
+        suggestedQueryEntities: [entity.name],
+        variantType: 'Definition' as const,
+        isFallback: true,
+      }));
+    
+    console.log('Generated', suggestions.length, 'fallback suggestions from entities');
+  }
+  
+  const summary = {
     total_generated: suggestions.length,
     high_intent: suggestions.filter((s: QuerySuggestion) => s.intentCategory === 'HIGH').length,
     medium_intent: suggestions.filter((s: QuerySuggestion) => s.intentCategory === 'MEDIUM').length,
@@ -476,6 +504,7 @@ Generate query suggestions with full intent preservation scoring:`;
     web_search_likely: suggestions.filter((s: QuerySuggestion) => s.routePrediction === 'WEB_SEARCH').length,
     parametric_likely: suggestions.filter((s: QuerySuggestion) => s.routePrediction === 'PARAMETRIC').length,
     hybrid_likely: suggestions.filter((s: QuerySuggestion) => s.routePrediction === 'HYBRID').length,
+    has_fallback: suggestions.some((s: QuerySuggestion) => s.isFallback),
   };
   
   return { suggestions, summary };
@@ -915,6 +944,9 @@ interface QuerySuggestion {
   
   // DRIFT DETECTION
   driftReason: string | null;        // If intentCategory is LOW
+  
+  // FALLBACK INDICATOR
+  isFallback?: boolean;              // True if generated from entity fallback
 }
 
 interface QuerySuggestionsResponse {
