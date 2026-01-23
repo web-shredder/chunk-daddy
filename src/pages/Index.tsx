@@ -65,6 +65,18 @@ const Index = () => {
   const [architectureTasks, setArchitectureTasks] = useState<ArchitectureTask[]>([]);
   const [architectureLoading, setArchitectureLoading] = useState(false);
   
+  // Query Intelligence state (persisted across tab switches)
+  const [queryIntelligence, setQueryIntelligence] = useState<{
+    detectedTopic: { primaryEntity: string; entityType: string; contentPurpose: string; targetAction: string; confidence: number } | null;
+    primaryQuery: { query: string; searchIntent: string; confidence: number; reasoning: string } | null;
+    intelligence: any | null;
+    suggestions: any[];
+    intentSummary: any | null;
+    gaps: any;
+    entities: { primary: string[]; secondary: string[]; temporal: string[]; branded: string[] } | null;
+    filtered: any[];
+  } | null>(null);
+  
   // Optimization review state (lifted from OptimizeTab)
   const [optimizeViewState, setOptimizeViewState] = useState<'assignment' | 'optimizing' | 'review'>('assignment');
   const [acceptedChunks, setAcceptedChunks] = useState<Set<number>>(new Set());
@@ -1106,6 +1118,8 @@ const Index = () => {
           progress={progress}
           onGoToContent={() => setActiveTab('content')}
           content={content}
+          queryIntelligence={queryIntelligence}
+          onQueryIntelligenceChange={setQueryIntelligence}
           streamingState={{
             steps: streamingAnalysis.steps,
             currentStep: streamingAnalysis.currentStep,

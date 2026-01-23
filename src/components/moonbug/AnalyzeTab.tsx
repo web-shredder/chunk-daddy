@@ -56,6 +56,18 @@ const intentLabels: Record<FanoutIntentType, string> = {
   problem: 'Problem',
   aspect: 'Aspect',
 };
+// Query Intelligence state type (persisted in Index.tsx)
+export interface QueryIntelligenceState {
+  detectedTopic: { primaryEntity: string; entityType: string; contentPurpose: string; targetAction: string; confidence: number } | null;
+  primaryQuery: { query: string; searchIntent: string; confidence: number; reasoning: string } | null;
+  intelligence: any | null;
+  suggestions: any[];
+  intentSummary: any | null;
+  gaps: any;
+  entities: { primary: string[]; secondary: string[]; temporal: string[]; branded: string[] } | null;
+  filtered: any[];
+}
+
 interface AnalyzeTabProps {
   hasChunks: boolean;
   keywords: string[];
@@ -67,6 +79,9 @@ interface AnalyzeTabProps {
   progress: number;
   onGoToContent: () => void;
   content?: string;
+  // Query Intelligence persistence
+  queryIntelligence?: QueryIntelligenceState | null;
+  onQueryIntelligenceChange?: (state: QueryIntelligenceState | null) => void;
   // Streaming analysis state
   streamingState?: {
     steps: AnalysisStep[];
@@ -92,6 +107,8 @@ export function AnalyzeTab({
   progress,
   onGoToContent,
   content = '',
+  queryIntelligence,
+  onQueryIntelligenceChange,
   streamingState,
 }: AnalyzeTabProps) {
   const [newQuery, setNewQuery] = useState('');
@@ -308,6 +325,8 @@ export function AnalyzeTab({
                     onKeywordsChange([query, ...keywords.filter(k => k !== query)]);
                   }
                 }}
+                initialState={queryIntelligence}
+                onStateChange={onQueryIntelligenceChange}
               />
             </div>
 
