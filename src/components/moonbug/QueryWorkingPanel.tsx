@@ -51,6 +51,7 @@ interface QueryWorkingPanelProps {
   initialOptState?: QueryOptimizationState;
   onClose: () => void;
   onUpdate: (updates: Partial<QueryWorkItem>) => void;
+  onStatusChange: (status: import('@/types/coverage').QueryStatus) => void;
   onApprove: (approvedText: string) => void;
   onOptimizationStateChange: (queryId: string, state: QueryOptimizationState) => void;
 }
@@ -187,6 +188,7 @@ export function QueryWorkingPanel({
   initialOptState,
   onClose,
   onUpdate,
+  onStatusChange,
   onApprove,
   onOptimizationStateChange,
 }: QueryWorkingPanelProps) {
@@ -227,6 +229,16 @@ export function QueryWorkingPanel({
   // Detect if this is a gap query
   const isGapQuery = queryItem ? (queryItem.status === 'gap' || !chunk) : false;
 
+  // Handle starting generation (moves to in_progress)
+  const handleStartGeneration = useCallback((isGap: boolean) => {
+    onStatusChange('in_progress');
+    if (isGap) {
+      generateBrief();
+    } else {
+      generateAnalysis();
+    }
+  }, [onStatusChange, generateBrief, generateAnalysis]);
+
   // Handle approve button click
   const handleApprove = useCallback(() => {
     const result = approveOptimization();
@@ -255,6 +267,9 @@ export function QueryWorkingPanel({
       });
     }
     
+    // Explicitly update status to optimized
+    onStatusChange('optimized');
+    
     // Call the onApprove callback
     if (result.approvedText) {
       onApprove(result.approvedText);
@@ -264,7 +279,7 @@ export function QueryWorkingPanel({
     setTimeout(() => {
       onClose();
     }, 1500);
-  }, [approveOptimization, onUpdate, onApprove, onClose, isGapQuery]);
+  }, [approveOptimization, onUpdate, onStatusChange, onApprove, onClose, isGapQuery]);
 
   if (!queryItem) {
     return null;
@@ -512,7 +527,7 @@ export function QueryWorkingPanel({
                 </span>
                 <Button 
                   size="sm" 
-                  onClick={isGapQuery ? generateBrief : generateAnalysis}
+                  onClick={() => handleStartGeneration(isGapQuery)}
                   disabled={isAnalyzing}
                 >
                   {isAnalyzing ? (
