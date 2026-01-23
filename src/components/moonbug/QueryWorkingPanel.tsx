@@ -16,7 +16,8 @@ import {
   AlertCircle,
   FileEdit,
   BarChart3,
-  CheckCircle2
+  CheckCircle2,
+  Plus
 } from 'lucide-react';
 import {
   Sheet,
@@ -37,6 +38,7 @@ import { WorkingPanelEditor, MarkdownPreview } from '@/components/moonbug/Workin
 import { ScoreTooltip } from '@/components/moonbug/ScoreTooltip';
 import { ScoreInfoDialog } from '@/components/moonbug/ScoreInfoDialog';
 import { SCORE_DEFINITIONS, ScoreKey } from '@/constants/scoreDefinitions';
+import { extractMissingConcepts } from '@/utils/coverageHelpers';
 import type { QueryWorkItem, QueryIntentType, QueryOptimizationState } from '@/types/coverage';
 import type { LayoutAwareChunk } from '@/lib/layout-chunker';
 
@@ -240,6 +242,10 @@ export function QueryWorkingPanel({
   const chunkHeading = chunk?.headingPath?.slice(-1)[0] || 'Untitled Section';
   const chunkHeadingPath = chunk?.headingPath ?? [];
   
+  // Detect if this is a gap query
+  const isGapQuery = queryItem.status === 'gap' || !chunk;
+  const missingConcepts = isGapQuery ? extractMissingConcepts(queryItem.query) : [];
+  
   const isAnalyzing = optState.step === 'analyzing';
   const isOptimizing = optState.step === 'optimizing';
   const hasAnalysis = !!optState.generatedAnalysis;
@@ -305,7 +311,7 @@ export function QueryWorkingPanel({
           </Card>
 
           {/* Assigned Chunk Section (for non-gap queries) */}
-          {queryItem.status !== 'gap' && chunk && (
+          {!isGapQuery && chunk && (
             <Card>
               <CardHeader className="pb-3">
                 <div className="flex items-center justify-between">
@@ -336,24 +342,54 @@ export function QueryWorkingPanel({
             </Card>
           )}
 
-          {/* Gap Notice (for gap queries) */}
-          {queryItem.status === 'gap' && (
+          {/* Content Gap Notice (for gap queries) */}
+          {isGapQuery && (
             <Card className="border-warning/50 bg-warning/5">
               <CardHeader className="pb-3">
                 <CardTitle className="text-base flex items-center gap-2">
-                  <AlertTriangle className="w-4 h-4 text-warning" />
-                  Content Gap
+                  <AlertTriangle className="w-5 h-5 text-warning" />
+                  Content Gap Detected
                 </CardTitle>
               </CardHeader>
-              <CardContent>
+              <CardContent className="space-y-3">
                 <p className="text-sm text-muted-foreground">
-                  No existing content matches this query well enough. You'll need to create new content to fill this gap.
+                  No existing content adequately addresses this query. You'll create a new section to fill this gap.
                 </p>
+                
+                {/* Show best partial match if one exists */}
                 {queryItem.originalScores && (
-                  <div className="mt-3 text-sm">
-                    <span className="text-muted-foreground">Best partial match score: </span>
-                    <span className="font-medium">{Math.round(queryItem.originalScores.passageScore)}</span>
-                    <span className="text-muted-foreground"> (below threshold of 45)</span>
+                  <div className="p-3 bg-background rounded border">
+                    <p className="text-xs text-muted-foreground uppercase tracking-wide mb-1">Best Partial Match</p>
+                    <div className="flex items-center justify-between">
+                      <span className="text-sm">
+                        Score: <span className="font-medium">{Math.round(queryItem.originalScores.passageScore)}</span>
+                      </span>
+                      <span className="text-xs text-muted-foreground">
+                        (Threshold: 45)
+                      </span>
+                    </div>
+                  </div>
+                )}
+                
+                {/* Missing concepts analysis */}
+                {missingConcepts.length > 0 && (
+                  <div className="p-3 bg-background rounded border">
+                    <p className="text-xs text-muted-foreground uppercase tracking-wide mb-2">Key Concepts to Address</p>
+                    <div className="flex flex-wrap gap-1">
+                      {missingConcepts.map((concept, i) => (
+                        <Badge key={i} variant="secondary" className="text-xs">
+                          {concept}
+                        </Badge>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                
+                {/* Suggested placement info if available */}
+                {queryItem.suggestedPlacement && (
+                  <div className="p-3 bg-background rounded border">
+                    <p className="text-xs text-muted-foreground uppercase tracking-wide mb-1">Suggested Placement</p>
+                    <p className="text-sm">{queryItem.suggestedPlacement}</p>
                   </div>
                 )}
               </CardContent>
@@ -429,12 +465,12 @@ export function QueryWorkingPanel({
             </Card>
           )}
 
-          {/* Step 1: Analysis Prompt */}
+          {/* Step 1: Analysis Prompt / Content Brief */}
           <Card>
             <CardHeader>
               <CardTitle className="text-base flex items-center justify-between">
                 <span className="flex items-center gap-2">
-                  Step 1: Analysis Prompt
+                  {isGapQuery ? 'Step 1: Content Brief' : 'Step 1: Analysis Prompt'}
                   {isStep1Complete && (
                     <Badge variant="outline" className="text-xs bg-success/10 text-success border-success/30">
                       Complete
@@ -444,12 +480,12 @@ export function QueryWorkingPanel({
                 <Button 
                   size="sm" 
                   onClick={generateAnalysis}
-                  disabled={isAnalyzing || queryItem.status === 'gap'}
+                  disabled={isAnalyzing}
                 >
                   {isAnalyzing ? (
                     <>
                       <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                      Analyzing...
+                      {isGapQuery ? 'Generating Brief...' : 'Analyzing...'}
                     </>
                   ) : hasAnalysis ? (
                     <>
@@ -457,12 +493,17 @@ export function QueryWorkingPanel({
                       Regenerate
                     </>
                   ) : (
-                    'Generate Analysis'
+                    <>
+                      {isGapQuery && <Plus className="w-4 h-4 mr-2" />}
+                      {isGapQuery ? 'Generate Brief' : 'Generate Analysis'}
+                    </>
                   )}
                 </Button>
               </CardTitle>
               <CardDescription>
-                What should this chunk become to best answer the query?
+                {isGapQuery 
+                  ? 'Define what new content should be created to answer this query'
+                  : 'What should this chunk become to best answer the query?'}
               </CardDescription>
             </CardHeader>
             <CardContent>
@@ -476,21 +517,23 @@ export function QueryWorkingPanel({
               {isAnalyzing ? (
                 <div className="text-center py-8 text-muted-foreground">
                   <Loader2 className="w-8 h-8 mx-auto mb-3 animate-spin" />
-                  <p className="text-sm">Generating analysis...</p>
+                  <p className="text-sm">{isGapQuery ? 'Generating content brief...' : 'Generating analysis...'}</p>
                 </div>
               ) : hasAnalysis ? (
                 <div className="space-y-3">
                   <WorkingPanelEditor
                     value={optState.userEditedAnalysis ?? ''}
                     onChange={setUserAnalysis}
-                    placeholder={queryItem.status === 'gap' 
+                    placeholder={isGapQuery 
                       ? "Edit the content brief as needed..." 
                       : "Edit the analysis as needed..."}
                     minHeight="200px"
                     maxHeight="400px"
                   />
                   <p className="text-xs text-muted-foreground">
-                    Edit this analysis to add your own context, data, or specific requirements before optimization.
+                    {isGapQuery 
+                      ? 'Edit this brief to add your own context, data, or specific requirements before generating content.'
+                      : 'Edit this analysis to add your own context, data, or specific requirements before optimization.'}
                   </p>
                 </div>
               ) : (
@@ -498,7 +541,7 @@ export function QueryWorkingPanel({
                   <div className="text-center text-muted-foreground">
                     <FileText className="w-8 h-8 mx-auto mb-3 opacity-50" />
                     <p className="text-sm">
-                      {queryItem.status === 'gap' 
+                      {isGapQuery 
                         ? 'Click "Generate Brief" to get content recommendations'
                         : 'Click "Generate Analysis" to get optimization recommendations'}
                     </p>
@@ -518,16 +561,16 @@ export function QueryWorkingPanel({
                   {isOptimizing ? (
                     <>
                       <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                      Optimizing...
+                      {isGapQuery ? 'Generating...' : 'Optimizing...'}
                     </>
                   ) : hasOptimizedContent ? (
                     <>
                       <RefreshCw className="w-4 h-4 mr-2" />
-                      Re-optimize
+                      {isGapQuery ? 'Regenerate Content' : 'Re-optimize'}
                     </>
                   ) : (
                     <>
-                      Run Optimization
+                      {isGapQuery ? 'Generate Content' : 'Run Optimization'}
                       <ArrowRight className="w-4 h-4 ml-2" />
                     </>
                   )}
@@ -536,7 +579,7 @@ export function QueryWorkingPanel({
             )}
           </Card>
 
-          {/* Step 2: Optimized Content */}
+          {/* Step 2: Optimized/New Content */}
           <Card className={cn(
             (optState.step === 'idle' || optState.step === 'analyzing' || optState.step === 'analysis_ready') && !hasOptimizedContent 
               && 'opacity-50 pointer-events-none'
@@ -544,7 +587,7 @@ export function QueryWorkingPanel({
             <CardHeader className="pb-3">
               <div className="flex items-center justify-between">
                 <CardTitle className="text-base flex items-center gap-2">
-                  Step 2: Optimized Content
+                  {isGapQuery ? 'Step 2: New Content' : 'Step 2: Optimized Content'}
                   {isStep2Complete && (
                     <Badge variant="outline" className="text-xs bg-success/10 text-success border-success/30">
                       Complete
@@ -566,7 +609,7 @@ export function QueryWorkingPanel({
                     ) : (
                       <>
                         <BarChart3 className="w-4 h-4 mr-2" />
-                        {optState.lastScoredResults ? 'Re-score' : 'Score Changes'}
+                        {optState.lastScoredResults ? 'Re-score' : 'Score Content'}
                       </>
                     )}
                   </Button>
@@ -574,9 +617,9 @@ export function QueryWorkingPanel({
               </div>
               <CardDescription>
                 {isOptimizing 
-                  ? 'Generating optimized content...'
+                  ? (isGapQuery ? 'Generating new content...' : 'Generating optimized content...')
                   : isStep2Complete
-                  ? 'Review and edit the optimized content below'
+                  ? (isGapQuery ? 'Review and edit the generated content below' : 'Review and edit the optimized content below')
                   : 'Complete Step 1 first'}
               </CardDescription>
             </CardHeader>
@@ -585,29 +628,33 @@ export function QueryWorkingPanel({
               {isOptimizing ? (
                 <div className="flex items-center justify-center py-12">
                   <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
-                  <span className="ml-3 text-muted-foreground">Generating optimized content...</span>
+                  <span className="ml-3 text-muted-foreground">
+                    {isGapQuery ? 'Generating new content...' : 'Generating optimized content...'}
+                  </span>
                 </div>
               ) : hasOptimizedContent ? (
                 <div className="space-y-4">
-                  {/* Original vs Optimized comparison toggle */}
-                  <div className="flex items-center gap-2 mb-2">
-                    <Button
-                      variant={showOriginal ? "default" : "outline"}
-                      size="sm"
-                      onClick={() => setShowOriginal(true)}
-                    >
-                      Original
-                    </Button>
-                    <Button
-                      variant={!showOriginal ? "default" : "outline"}
-                      size="sm"
-                      onClick={() => setShowOriginal(false)}
-                    >
-                      Optimized
-                    </Button>
-                  </div>
+                  {/* Original vs Optimized comparison toggle - only for non-gap queries */}
+                  {!isGapQuery && (
+                    <div className="flex items-center gap-2 mb-2">
+                      <Button
+                        variant={showOriginal ? "default" : "outline"}
+                        size="sm"
+                        onClick={() => setShowOriginal(true)}
+                      >
+                        Original
+                      </Button>
+                      <Button
+                        variant={!showOriginal ? "default" : "outline"}
+                        size="sm"
+                        onClick={() => setShowOriginal(false)}
+                      >
+                        Optimized
+                      </Button>
+                    </div>
+                  )}
 
-                  {showOriginal ? (
+                  {!isGapQuery && showOriginal ? (
                     <MarkdownPreview
                       content={chunk?.text || ''}
                       label="Original Content"
@@ -616,7 +663,7 @@ export function QueryWorkingPanel({
                     <WorkingPanelEditor
                       value={optState.userEditedContent || ''}
                       onChange={setUserContent}
-                      placeholder={queryItem.status === 'gap' 
+                      placeholder={isGapQuery 
                         ? "New content will appear here..." 
                         : "Optimized content will appear here..."}
                       minHeight="250px"
@@ -624,53 +671,79 @@ export function QueryWorkingPanel({
                     />
                   )}
 
-                  {/* Word count comparison */}
+                  {/* Word count - different display for gaps */}
                   <div className="flex justify-between text-xs text-muted-foreground">
-                    <span>Original: {chunk?.text.split(/\s+/).length || 0} words</span>
-                    <span>Optimized: {optState.userEditedContent?.split(/\s+/).length || 0} words</span>
-                    <span>
-                      {(() => {
-                        const origLen = chunk?.text.split(/\s+/).length || 1;
-                        const newLen = optState.userEditedContent?.split(/\s+/).length || 0;
-                        const diff = Math.round(((newLen - origLen) / origLen) * 100);
-                        return diff >= 0 ? `+${diff}%` : `${diff}%`;
-                      })()}
-                    </span>
+                    {isGapQuery ? (
+                      <>
+                        <span>Word count: {optState.userEditedContent?.split(/\s+/).length || 0}</span>
+                        <span>Recommended: 300-600 words</span>
+                      </>
+                    ) : (
+                      <>
+                        <span>Original: {chunk?.text.split(/\s+/).length || 0} words</span>
+                        <span>Optimized: {optState.userEditedContent?.split(/\s+/).length || 0} words</span>
+                        <span>
+                          {(() => {
+                            const origLen = chunk?.text.split(/\s+/).length || 1;
+                            const newLen = optState.userEditedContent?.split(/\s+/).length || 0;
+                            const diff = Math.round(((newLen - origLen) / origLen) * 100);
+                            return diff >= 0 ? `+${diff}%` : `${diff}%`;
+                          })()}
+                        </span>
+                      </>
+                    )}
                   </div>
 
                   {/* Show rescored results if available */}
                   {optState.lastScoredResults && (
                     <div className="mt-4 p-4 bg-muted/50 rounded-lg">
-                      <p className="text-sm font-medium mb-3">Updated Scores</p>
-                      <div className="grid grid-cols-4 gap-3">
-                        <ScoreCompare 
-                          label="Passage" 
-                          before={queryItem.originalScores?.passageScore ?? 0}
-                          after={optState.lastScoredResults.passageScore}
-                        />
-                        <ScoreCompare 
-                          label="Semantic" 
-                          before={(queryItem.originalScores?.semanticSimilarity ?? 0) * 100}
-                          after={optState.lastScoredResults.semanticSimilarity * 100}
-                        />
-                        <ScoreCompare 
-                          label="Lexical" 
-                          before={(queryItem.originalScores?.lexicalScore ?? 0) * 100}
-                          after={optState.lastScoredResults.lexicalScore * 100}
-                        />
-                        <ScoreCompare 
-                          label="Entity" 
-                          before={(queryItem.originalScores?.entityOverlap ?? 0) * 100}
-                          after={optState.lastScoredResults.entityOverlap * 100}
-                        />
-                      </div>
+                      <p className="text-sm font-medium mb-3">
+                        {isGapQuery ? 'Content Scores' : 'Updated Scores'}
+                      </p>
+                      {isGapQuery ? (
+                        // For gaps, just show the new scores (no comparison)
+                        <div className="grid grid-cols-4 gap-3">
+                          <ScoreBox label="Passage" value={optState.lastScoredResults.passageScore} scoreKey="passageScore" />
+                          <ScoreBox label="Semantic" value={optState.lastScoredResults.semanticSimilarity * 100} scoreKey="semantic" />
+                          <ScoreBox label="Lexical" value={optState.lastScoredResults.lexicalScore * 100} scoreKey="lexical" />
+                          <ScoreBox label="Entity" value={(optState.lastScoredResults.entityOverlap ?? 0) * 100} scoreKey="entityOverlap" />
+                        </div>
+                      ) : (
+                        // For optimizations, show comparison
+                        <div className="grid grid-cols-4 gap-3">
+                          <ScoreCompare 
+                            label="Passage" 
+                            before={queryItem.originalScores?.passageScore ?? 0}
+                            after={optState.lastScoredResults.passageScore}
+                          />
+                          <ScoreCompare 
+                            label="Semantic" 
+                            before={(queryItem.originalScores?.semanticSimilarity ?? 0) * 100}
+                            after={optState.lastScoredResults.semanticSimilarity * 100}
+                          />
+                          <ScoreCompare 
+                            label="Lexical" 
+                            before={(queryItem.originalScores?.lexicalScore ?? 0) * 100}
+                            after={optState.lastScoredResults.lexicalScore * 100}
+                          />
+                          <ScoreCompare 
+                            label="Entity" 
+                            before={(queryItem.originalScores?.entityOverlap ?? 0) * 100}
+                            after={(optState.lastScoredResults.entityOverlap ?? 0) * 100}
+                          />
+                        </div>
+                      )}
                     </div>
                   )}
                 </div>
               ) : (
                 <div className="text-center py-8 text-muted-foreground">
                   <FileEdit className="w-8 h-8 mx-auto mb-3 opacity-50" />
-                  <p className="text-sm">Complete analysis in Step 1, then run optimization</p>
+                  <p className="text-sm">
+                    {isGapQuery 
+                      ? 'Complete the brief in Step 1, then generate content'
+                      : 'Complete analysis in Step 1, then run optimization'}
+                  </p>
                 </div>
               )}
             </CardContent>
@@ -678,7 +751,9 @@ export function QueryWorkingPanel({
             {isStep2Complete && (
               <CardFooter className="border-t pt-4 flex justify-between">
                 <p className="text-xs text-muted-foreground">
-                  Edit the content as needed, then proceed to review
+                  {isGapQuery 
+                    ? 'Edit the content as needed, then proceed to review'
+                    : 'Edit the content as needed, then proceed to review'}
                 </p>
                 <Button disabled={!optState.userEditedContent?.trim()}>
                   Continue to Review
@@ -703,10 +778,10 @@ export function QueryWorkingPanel({
               </CardTitle>
               <CardDescription>
                 {optState.step === 'approved'
-                  ? 'This optimization has been approved'
+                  ? (isGapQuery ? 'This new content has been approved' : 'This optimization has been approved')
                   : optState.lastScoredResults
-                  ? 'Review the score changes and approve when ready'
-                  : 'Score your changes to see the improvement before approving'}
+                  ? 'Review the scores and approve when ready'
+                  : (isGapQuery ? 'Score your new content before approving' : 'Score your changes to see the improvement before approving')}
               </CardDescription>
             </CardHeader>
             
@@ -716,138 +791,224 @@ export function QueryWorkingPanel({
                   <div className="flex items-center gap-3 p-4 bg-success/10 border border-success/30 rounded-lg">
                     <CheckCircle2 className="w-6 h-6 text-success flex-shrink-0" />
                     <div>
-                      <p className="font-medium text-success">Optimization Approved</p>
+                      <p className="font-medium text-success">
+                        {isGapQuery ? 'New Content Approved' : 'Optimization Approved'}
+                      </p>
                       <p className="text-sm text-muted-foreground">
-                        This content is ready for export in the Downloads tab.
+                        {isGapQuery 
+                          ? 'This new section is ready for export in the Downloads tab.'
+                          : 'This content is ready for export in the Downloads tab.'}
                       </p>
                     </div>
                   </div>
                   
-                  {/* Final score summary */}
+                  {/* Final score summary - different for gaps vs optimizations */}
                   {optState.lastScoredResults && (
-                    <div className="grid grid-cols-2 gap-4">
-                      <div className="p-4 bg-muted rounded-lg">
-                        <p className="text-xs text-muted-foreground uppercase tracking-wide mb-1">Original Score</p>
-                        <p className="text-3xl font-bold">{queryItem.originalScores?.passageScore ?? 0}</p>
-                      </div>
+                    isGapQuery ? (
+                      // Gap: show single score card
                       <div className="p-4 bg-success/10 border border-success/30 rounded-lg">
-                        <p className="text-xs text-success uppercase tracking-wide mb-1">Final Score</p>
+                        <p className="text-xs text-success uppercase tracking-wide mb-1">Content Score</p>
                         <p className="text-3xl font-bold text-success">
                           {optState.lastScoredResults.passageScore}
-                          <span className="text-lg ml-2">
-                            (+{optState.lastScoredResults.passageScore - (queryItem.originalScores?.passageScore ?? 0)})
-                          </span>
+                        </p>
+                        <p className="text-sm text-muted-foreground mt-1">
+                          New content created to fill gap
                         </p>
                       </div>
-                    </div>
+                    ) : (
+                      // Optimization: show before/after comparison
+                      <div className="grid grid-cols-2 gap-4">
+                        <div className="p-4 bg-muted rounded-lg">
+                          <p className="text-xs text-muted-foreground uppercase tracking-wide mb-1">Original Score</p>
+                          <p className="text-3xl font-bold">{queryItem.originalScores?.passageScore ?? 0}</p>
+                        </div>
+                        <div className="p-4 bg-success/10 border border-success/30 rounded-lg">
+                          <p className="text-xs text-success uppercase tracking-wide mb-1">Final Score</p>
+                          <p className="text-3xl font-bold text-success">
+                            {optState.lastScoredResults.passageScore}
+                            <span className="text-lg ml-2">
+                              (+{optState.lastScoredResults.passageScore - (queryItem.originalScores?.passageScore ?? 0)})
+                            </span>
+                          </p>
+                        </div>
+                      </div>
+                    )
                   )}
                 </div>
               ) : optState.lastScoredResults ? (
                 <div className="space-y-4">
-                  {/* Score comparison grid */}
-                  <div className="grid grid-cols-2 gap-4">
+                  {isGapQuery ? (
+                    // For gaps: show single column of scores
                     <div>
-                      <p className="text-sm font-medium mb-3">Before Optimization</p>
-                      <div className="space-y-2">
-                        <ScoreRow label="Passage Score" value={queryItem.originalScores?.passageScore ?? 0} scoreKey="passageScore" />
-                        <ScoreRow label="Semantic" value={(queryItem.originalScores?.semanticSimilarity ?? 0) * 100} scoreKey="semantic" />
-                        <ScoreRow label="Lexical" value={(queryItem.originalScores?.lexicalScore ?? 0) * 100} scoreKey="lexical" />
-                        <ScoreRow label="Rerank" value={queryItem.originalScores?.rerankScore ?? 0} scoreKey="rerankScore" />
-                        <ScoreRow label="Citation" value={queryItem.originalScores?.citationScore ?? 0} scoreKey="citationScore" />
-                        <ScoreRow label="Entity Overlap" value={(queryItem.originalScores?.entityOverlap ?? 0) * 100} suffix="%" scoreKey="entityOverlap" />
+                      <p className="text-sm font-medium mb-3">Content Scores</p>
+                      <div className="grid grid-cols-2 gap-4">
+                        <div className="space-y-2">
+                          <ScoreRow label="Passage Score" value={optState.lastScoredResults.passageScore} scoreKey="passageScore" />
+                          <ScoreRow label="Semantic" value={optState.lastScoredResults.semanticSimilarity * 100} scoreKey="semantic" />
+                          <ScoreRow label="Lexical" value={optState.lastScoredResults.lexicalScore * 100} scoreKey="lexical" />
+                        </div>
+                        <div className="space-y-2">
+                          <ScoreRow label="Rerank" value={optState.lastScoredResults.rerankScore ?? 0} scoreKey="rerankScore" />
+                          <ScoreRow label="Citation" value={optState.lastScoredResults.citationScore ?? 0} scoreKey="citationScore" />
+                          <ScoreRow label="Entity Overlap" value={(optState.lastScoredResults.entityOverlap ?? 0) * 100} suffix="%" scoreKey="entityOverlap" />
+                        </div>
                       </div>
-                    </div>
-                    <div>
-                      <p className="text-sm font-medium mb-3">After Optimization</p>
-                      <div className="space-y-2">
-                        <ScoreRowCompare 
-                          label="Passage Score" 
-                          before={queryItem.originalScores?.passageScore ?? 0}
-                          after={optState.lastScoredResults.passageScore}
-                          scoreKey="passageScore"
-                        />
-                        <ScoreRowCompare 
-                          label="Semantic" 
-                          before={(queryItem.originalScores?.semanticSimilarity ?? 0) * 100}
-                          after={optState.lastScoredResults.semanticSimilarity * 100}
-                          scoreKey="semantic"
-                        />
-                        <ScoreRowCompare 
-                          label="Lexical" 
-                          before={(queryItem.originalScores?.lexicalScore ?? 0) * 100}
-                          after={optState.lastScoredResults.lexicalScore * 100}
-                          scoreKey="lexical"
-                        />
-                        <ScoreRowCompare 
-                          label="Rerank" 
-                          before={queryItem.originalScores?.rerankScore ?? 0}
-                          after={optState.lastScoredResults.rerankScore ?? 0}
-                          scoreKey="rerankScore"
-                        />
-                        <ScoreRowCompare 
-                          label="Citation" 
-                          before={queryItem.originalScores?.citationScore ?? 0}
-                          after={optState.lastScoredResults.citationScore ?? 0}
-                          scoreKey="citationScore"
-                        />
-                        <ScoreRowCompare 
-                          label="Entity Overlap" 
-                          before={(queryItem.originalScores?.entityOverlap ?? 0) * 100}
-                          after={(optState.lastScoredResults.entityOverlap ?? 0) * 100}
-                          suffix="%"
-                          scoreKey="entityOverlap"
-                        />
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Overall improvement callout */}
-                  <div className={cn(
-                    'p-4 rounded-lg border',
-                    optState.lastScoredResults.passageScore > (queryItem.originalScores?.passageScore ?? 0)
-                      ? 'bg-success/10 border-success/30'
-                      : 'bg-warning/10 border-warning/30'
-                  )}>
-                    <div className="flex items-center justify-between">
-                      <div>
-                        <p className="font-medium">
-                          {optState.lastScoredResults.passageScore > (queryItem.originalScores?.passageScore ?? 0)
-                            ? 'Score Improved'
-                            : 'Score Needs Work'}
-                        </p>
-                        <p className="text-sm text-muted-foreground">
-                          {queryItem.originalScores?.passageScore ?? 0} → {optState.lastScoredResults.passageScore}
-                        </p>
-                      </div>
+                      
+                      {/* Score quality callout for gaps */}
                       <div className={cn(
-                        'text-3xl font-bold',
-                        optState.lastScoredResults.passageScore > (queryItem.originalScores?.passageScore ?? 0)
-                          ? 'text-success'
-                          : 'text-warning'
+                        'p-4 rounded-lg border mt-4',
+                        optState.lastScoredResults.passageScore >= 70
+                          ? 'bg-success/10 border-success/30'
+                          : optState.lastScoredResults.passageScore >= 45
+                          ? 'bg-warning/10 border-warning/30'
+                          : 'bg-destructive/10 border-destructive/30'
                       )}>
-                        {optState.lastScoredResults.passageScore - (queryItem.originalScores?.passageScore ?? 0) > 0 ? '+' : ''}
-                        {optState.lastScoredResults.passageScore - (queryItem.originalScores?.passageScore ?? 0)}
+                        <div className="flex items-center justify-between">
+                          <div>
+                            <p className="font-medium">
+                              {optState.lastScoredResults.passageScore >= 70
+                                ? 'Strong Content'
+                                : optState.lastScoredResults.passageScore >= 45
+                                ? 'Adequate Coverage'
+                                : 'Needs Improvement'}
+                            </p>
+                            <p className="text-sm text-muted-foreground">
+                              {optState.lastScoredResults.passageScore >= 70
+                                ? 'This content should rank well for this query'
+                                : optState.lastScoredResults.passageScore >= 45
+                                ? 'Consider improving to increase ranking potential'
+                                : 'Edit and re-score to improve coverage'}
+                            </p>
+                          </div>
+                          <div className={cn(
+                            'text-3xl font-bold',
+                            optState.lastScoredResults.passageScore >= 70
+                              ? 'text-success'
+                              : optState.lastScoredResults.passageScore >= 45
+                              ? 'text-warning'
+                              : 'text-destructive'
+                          )}>
+                            {optState.lastScoredResults.passageScore}
+                          </div>
+                        </div>
                       </div>
                     </div>
-                  </div>
+                  ) : (
+                    // For optimizations: show before/after comparison grid
+                    <>
+                      <div className="grid grid-cols-2 gap-4">
+                        <div>
+                          <p className="text-sm font-medium mb-3">Before Optimization</p>
+                          <div className="space-y-2">
+                            <ScoreRow label="Passage Score" value={queryItem.originalScores?.passageScore ?? 0} scoreKey="passageScore" />
+                            <ScoreRow label="Semantic" value={(queryItem.originalScores?.semanticSimilarity ?? 0) * 100} scoreKey="semantic" />
+                            <ScoreRow label="Lexical" value={(queryItem.originalScores?.lexicalScore ?? 0) * 100} scoreKey="lexical" />
+                            <ScoreRow label="Rerank" value={queryItem.originalScores?.rerankScore ?? 0} scoreKey="rerankScore" />
+                            <ScoreRow label="Citation" value={queryItem.originalScores?.citationScore ?? 0} scoreKey="citationScore" />
+                            <ScoreRow label="Entity Overlap" value={(queryItem.originalScores?.entityOverlap ?? 0) * 100} suffix="%" scoreKey="entityOverlap" />
+                          </div>
+                        </div>
+                        <div>
+                          <p className="text-sm font-medium mb-3">After Optimization</p>
+                          <div className="space-y-2">
+                            <ScoreRowCompare 
+                              label="Passage Score" 
+                              before={queryItem.originalScores?.passageScore ?? 0}
+                              after={optState.lastScoredResults.passageScore}
+                              scoreKey="passageScore"
+                            />
+                            <ScoreRowCompare 
+                              label="Semantic" 
+                              before={(queryItem.originalScores?.semanticSimilarity ?? 0) * 100}
+                              after={optState.lastScoredResults.semanticSimilarity * 100}
+                              scoreKey="semantic"
+                            />
+                            <ScoreRowCompare 
+                              label="Lexical" 
+                              before={(queryItem.originalScores?.lexicalScore ?? 0) * 100}
+                              after={optState.lastScoredResults.lexicalScore * 100}
+                              scoreKey="lexical"
+                            />
+                            <ScoreRowCompare 
+                              label="Rerank" 
+                              before={queryItem.originalScores?.rerankScore ?? 0}
+                              after={optState.lastScoredResults.rerankScore ?? 0}
+                              scoreKey="rerankScore"
+                            />
+                            <ScoreRowCompare 
+                              label="Citation" 
+                              before={queryItem.originalScores?.citationScore ?? 0}
+                              after={optState.lastScoredResults.citationScore ?? 0}
+                              scoreKey="citationScore"
+                            />
+                            <ScoreRowCompare 
+                              label="Entity Overlap" 
+                              before={(queryItem.originalScores?.entityOverlap ?? 0) * 100}
+                              after={(optState.lastScoredResults.entityOverlap ?? 0) * 100}
+                              suffix="%"
+                              scoreKey="entityOverlap"
+                            />
+                          </div>
+                        </div>
+                      </div>
+                    </>
+                  )}
 
-                  {/* Warning if score declined */}
-                  {optState.lastScoredResults.passageScore < (queryItem.originalScores?.passageScore ?? 0) && (
-                    <div className="flex items-start gap-3 p-3 bg-warning/10 border border-warning/30 rounded-lg">
-                      <AlertTriangle className="w-5 h-5 text-warning flex-shrink-0 mt-0.5" />
-                      <div className="text-sm">
-                        <p className="font-medium text-warning">Score declined</p>
-                        <p className="text-muted-foreground">
-                          Consider editing the content in Step 2 and re-scoring, or regenerate with different analysis instructions.
-                        </p>
+                  {/* Overall improvement callout - only for non-gap queries */}
+                  {!isGapQuery && (
+                    <>
+                      <div className={cn(
+                        'p-4 rounded-lg border',
+                        optState.lastScoredResults.passageScore > (queryItem.originalScores?.passageScore ?? 0)
+                          ? 'bg-success/10 border-success/30'
+                          : 'bg-warning/10 border-warning/30'
+                      )}>
+                        <div className="flex items-center justify-between">
+                          <div>
+                            <p className="font-medium">
+                              {optState.lastScoredResults.passageScore > (queryItem.originalScores?.passageScore ?? 0)
+                                ? 'Score Improved'
+                                : 'Score Needs Work'}
+                            </p>
+                            <p className="text-sm text-muted-foreground">
+                              {queryItem.originalScores?.passageScore ?? 0} → {optState.lastScoredResults.passageScore}
+                            </p>
+                          </div>
+                          <div className={cn(
+                            'text-3xl font-bold',
+                            optState.lastScoredResults.passageScore > (queryItem.originalScores?.passageScore ?? 0)
+                              ? 'text-success'
+                              : 'text-warning'
+                          )}>
+                            {optState.lastScoredResults.passageScore - (queryItem.originalScores?.passageScore ?? 0) > 0 ? '+' : ''}
+                            {optState.lastScoredResults.passageScore - (queryItem.originalScores?.passageScore ?? 0)}
+                          </div>
+                        </div>
                       </div>
-                    </div>
+
+                      {/* Warning if score declined */}
+                      {optState.lastScoredResults.passageScore < (queryItem.originalScores?.passageScore ?? 0) && (
+                        <div className="flex items-start gap-3 p-3 bg-warning/10 border border-warning/30 rounded-lg">
+                          <AlertTriangle className="w-5 h-5 text-warning flex-shrink-0 mt-0.5" />
+                          <div className="text-sm">
+                            <p className="font-medium text-warning">Score declined</p>
+                            <p className="text-muted-foreground">
+                              Consider editing the content in Step 2 and re-scoring, or regenerate with different analysis instructions.
+                            </p>
+                          </div>
+                        </div>
+                      )}
+                    </>
                   )}
                 </div>
               ) : (
                 <div className="text-center py-8 text-muted-foreground">
                   <BarChart3 className="w-8 h-8 mx-auto mb-3 opacity-50" />
-                  <p className="text-sm">Score your optimized content to see the improvement</p>
+                  <p className="text-sm">
+                    {isGapQuery 
+                      ? 'Score your new content before approving'
+                      : 'Score your optimized content to see the improvement'}
+                  </p>
                   <Button 
                     variant="outline" 
                     size="sm" 
@@ -855,7 +1016,7 @@ export function QueryWorkingPanel({
                     onClick={rescoreContent}
                     disabled={!optState.userEditedContent?.trim()}
                   >
-                    Score Changes
+                    {isGapQuery ? 'Score Content' : 'Score Changes'}
                   </Button>
                 </div>
               )}
