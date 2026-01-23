@@ -17,6 +17,7 @@ import {
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { QueryCard } from './QueryCard';
+import { QueryWorkingPanel } from './QueryWorkingPanel';
 import { transformToWorkItems, getCoverageSummary } from '@/utils/coverageHelpers';
 import type { LayoutAwareChunk, DocumentElement } from '@/lib/layout-chunker';
 import type { ChunkScore, AnalysisResult } from '@/hooks/useAnalysis';
@@ -99,8 +100,23 @@ export function CoverageTab({
   const handleQueryClick = useCallback((queryId: string) => {
     console.log('Opening working panel for query:', queryId);
     setCoverageState(prev => ({ ...prev, activeQueryId: queryId }));
-    // Working panel will be implemented in future prompts
   }, []);
+  
+  // Close working panel
+  const handleClosePanel = useCallback(() => {
+    setCoverageState(prev => ({ ...prev, activeQueryId: null }));
+  }, []);
+  
+  // Get active query and its assigned chunk
+  const activeQuery = useMemo(() => {
+    if (!coverageState.activeQueryId) return undefined;
+    return workItems.find(q => q.id === coverageState.activeQueryId);
+  }, [coverageState.activeQueryId, workItems]);
+  
+  const activeChunk = useMemo(() => {
+    if (!activeQuery?.assignedChunk) return undefined;
+    return chunks[activeQuery.assignedChunk.index];
+  }, [activeQuery, chunks]);
   
   // Empty state
   if (!hasResults) {
@@ -264,6 +280,22 @@ export function CoverageTab({
 
         </div>
       </ScrollArea>
+      
+      {/* Query Working Panel */}
+      <QueryWorkingPanel
+        isOpen={!!activeQuery}
+        queryItem={activeQuery}
+        chunk={activeChunk}
+        onClose={handleClosePanel}
+        onUpdate={(updates) => {
+          // Update logic will be implemented in future prompts
+          console.log('Update query:', updates);
+        }}
+        onApprove={(text) => {
+          // Approve logic will be implemented in future prompts
+          console.log('Approve text:', text);
+        }}
+      />
     </div>
   );
 }
