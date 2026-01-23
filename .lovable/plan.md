@@ -1,161 +1,99 @@
 
-# Fix: Coverage Tab State Persistence
+# Fix: Coverage Panels Close Unexpectedly During Interactions
 
 ## Problem Summary
+When you interact with query cards in the Coverage tab (click to open panel, generate analysis, update optimization state), the panel unexpectedly closes. This also happens when analysis is generated.
 
-All edits, optimization work, and approvals in the Coverage panel are stored in **local React state** that is:
-1. Never lifted to the parent `Index.tsx`
-2. Never saved to the database
-3. Reset whenever the tab unmounts or the page reloads
+## Root Cause Analysis
 
-This means any analysis text you write, any optimized content you generate, and any approvals you make are **completely lost** when you navigate away.
+The bug is in `CoverageTab.tsx` at **line 81-85** — the `setCoverageState` callback:
 
----
+```typescript
+const setCoverageState = useCallback((updater: CoverageState | ((prev: CoverageState) => CoverageState)) => {
+  const newState = typeof updater === 'function' ? updater(coverageState) : updater;
+  setLocalCoverageState(newState);
+  onCoverageStateChange(newState);
+}, [coverageState, onCoverageStateChange]);  // ← BUG: coverageState in deps
+```
 
-## Solution Overview
+**The Problem**: The callback has `coverageState` in its dependency array. When any coverage state update happens (clicking a card, status change, optimization update), it:
 
-We need to:
-1. **Add a database column** for coverage state
-2. **Lift the coverage state** to `Index.tsx` (like we do for `queryIntelligence`)
-3. **Wire up the persistence** through `useProjects`
-4. **Restore the state** when loading a project
+1. Calls `setCoverageState(prev => ({ ...prev, activeQueryId: queryId }))`
+2. The `updater` function receives `prev` but the callback uses `coverageState` directly for the evaluation
+3. When the callback is recreated due to `coverageState` changing, the `updater(coverageState)` call uses a **stale closure** of `coverageState`
+4. This means when you call `updater(prev)`, the `prev` argument is the old `coverageState` captured in the closure — NOT the current state
+5. This causes the `activeQueryId` to be lost/reset because each update overwrites with stale data
 
----
+**Why it's worse on interactions**: Every optimization state change (analysis generated, content optimized) triggers `handleOptimizationStateChange` → `setCoverageState` → state overwrite with stale value → panel closes.
+
+## Technical Fix
+
+### File: `src/components/moonbug/CoverageTab.tsx`
+
+**Change the setCoverageState callback** to properly handle the function updater pattern without using stale closure:
+
+```typescript
+// BEFORE (buggy):
+const setCoverageState = useCallback((updater: CoverageState | ((prev: CoverageState) => CoverageState)) => {
+  const newState = typeof updater === 'function' ? updater(coverageState) : updater;
+  setLocalCoverageState(newState);
+  onCoverageStateChange(newState);
+}, [coverageState, onCoverageStateChange]);
+
+// AFTER (fixed):
+const setCoverageState = useCallback((updater: CoverageState | ((prev: CoverageState) => CoverageState)) => {
+  setLocalCoverageState(prev => {
+    // Get actual previous state from React's setState
+    const currentState = externalCoverageState || prev;
+    const newState = typeof updater === 'function' ? updater(currentState) : updater;
+    // Also notify parent
+    onCoverageStateChange(newState);
+    return newState;
+  });
+}, [externalCoverageState, onCoverageStateChange]);
+```
+
+**Key changes**:
+1. Use `setLocalCoverageState(prev => ...)` to get the actual current state from React
+2. Remove `coverageState` from dependencies (it was causing stale closures)
+3. Use `externalCoverageState` as the source of truth when available
+
+### Alternative Simpler Fix
+
+If the above pattern causes issues with state syncing, an even simpler fix is to use `useRef` to track the latest state:
+
+```typescript
+// Add ref to track latest state
+const coverageStateRef = useRef(coverageState);
+coverageStateRef.current = coverageState;
+
+const setCoverageState = useCallback((updater: CoverageState | ((prev: CoverageState) => CoverageState)) => {
+  const currentState = coverageStateRef.current;
+  const newState = typeof updater === 'function' ? updater(currentState) : updater;
+  setLocalCoverageState(newState);
+  onCoverageStateChange(newState);
+}, [onCoverageStateChange]); // No more coverageState dependency
+```
 
 ## Implementation Steps
 
-### Step 1: Add Database Migration
-
-Add a new JSONB column `coverage_state` to the `chunk_daddy_projects` table to store:
-- Query work items with their statuses
-- Optimization states (analysis text, optimized content, user edits)
-- Approval states
-
-```sql
-ALTER TABLE chunk_daddy_projects 
-ADD COLUMN coverage_state jsonb DEFAULT NULL;
-```
-
----
-
-### Step 2: Update Project Types
-
-Update `src/lib/project-types.ts` to include the new field:
-
-```typescript
-import type { CoverageState } from '@/types/coverage';
-
-export interface ChunkDaddyProject {
-  // ... existing fields ...
-  coverage_state: CoverageState | null;  // NEW
-}
-```
-
----
-
-### Step 3: Update useProjects Hook
-
-Modify `src/hooks/useProjects.ts`:
-
-1. Add `coverageState` to the `pendingData` ref type
-2. Add it as a parameter to `saveProject()`
-3. Add it as a parameter to `markUnsaved()`
-4. Include it in the database save payload
-
----
-
-### Step 4: Lift State to Index.tsx
-
-In `src/pages/Index.tsx`:
-
-1. Add global state for coverage:
-   ```typescript
-   const [coverageState, setCoverageState] = useState<CoverageState | null>(null);
-   ```
-
-2. Pass coverage state to `CoverageTab` as props:
-   ```typescript
-   <CoverageTab
-     coverageState={coverageState}
-     onCoverageStateChange={setCoverageState}
-     // ... existing props
-   />
-   ```
-
-3. Include coverage state in `markUnsaved()` calls
-4. Restore coverage state when loading a project
-
----
-
-### Step 5: Update CoverageTab Component
-
-Modify `src/components/moonbug/CoverageTab.tsx`:
-
-1. Accept `coverageState` and `onCoverageStateChange` as props
-2. Initialize from props instead of empty state
-3. Call `onCoverageStateChange` whenever local state changes
-4. Merge with base work items intelligently (preserve edits, update scores)
-
----
-
-### Step 6: Restore State on Project Load
-
-In `Index.tsx`, when `currentProject` changes:
-
-```typescript
-if (currentProject.coverage_state) {
-  setCoverageState(currentProject.coverage_state);
-} else {
-  setCoverageState(null);
-}
-```
-
----
-
-## Technical Details
-
-### CoverageState Structure (already defined)
-
-```typescript
-interface CoverageState {
-  queries: QueryWorkItem[];          // Status, scores, approved text
-  activeQueryId: string | null;      // Currently open panel
-  optimizationStates: Record<string, QueryOptimizationState>;  // Analysis/content per query
-}
-```
-
-### What Gets Persisted
-
-- **Query statuses**: `optimized`, `in_progress`, `ready`, `gap`
-- **Generated analysis/brief**: User can continue editing where they left off
-- **Generated content**: Optimized or new content
-- **User edits**: Any modifications to generated content
-- **Scores**: Before and after scores for comparisons
-- **Approvals**: Which queries have been approved
-
-### Merge Strategy on Load
-
-When loading a project with existing coverage state:
-1. Start with saved `queries` and `optimizationStates`
-2. Re-run `transformToWorkItems` to get fresh chunk assignments/scores
-3. Merge: preserve user edits and approvals, update derived data (chunk matches, scores)
-
----
+1. **Update `setCoverageState` callback** in `CoverageTab.tsx` (lines 81-85) to use the ref pattern or functional update pattern
+2. **Test the fix** by:
+   - Clicking a query card → panel should open and stay open
+   - Generating analysis → panel should remain open with loading state → analysis displays
+   - Running optimization → panel stays open through all steps
+   - Approving → panel closes after 1.5s delay (expected behavior)
 
 ## Files to Modify
 
 | File | Changes |
 |------|---------|
-| `supabase/migrations/` | Add `coverage_state` column |
-| `src/lib/project-types.ts` | Add `coverage_state` to interface |
-| `src/hooks/useProjects.ts` | Add to save/load/markUnsaved |
-| `src/pages/Index.tsx` | Lift state, pass to CoverageTab, restore on load |
-| `src/components/moonbug/CoverageTab.tsx` | Accept props, sync with parent |
+| `src/components/moonbug/CoverageTab.tsx` | Fix `setCoverageState` callback to avoid stale closure |
 
----
+## Expected Outcome
 
-## Risk Mitigation
-
-- **Backward Compatibility**: The column defaults to `NULL`, so existing projects load fine
-- **Large State**: JSONB can handle the coverage state size (typically <100KB)
-- **State Conflicts**: Clear state when creating a new project or running re-analysis
+After this fix:
+- Query panels will stay open during all interactions
+- Analysis generation won't close the panel
+- Optimization state changes won't reset `activeQueryId`
+- The 1.5-second close after approval will continue to work as intended
