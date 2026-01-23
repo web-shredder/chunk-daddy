@@ -12,10 +12,11 @@ interface QueryChunkAssignment {
 }
 
 interface OptimizationRequest {
-  type: 'analyze' | 'optimize' | 'optimize_focused' | 'explain' | 'suggest_keywords' | 'summarize' | 'generateContentBrief' | 'generate_fanout' | 'generate_fanout_tree' | 'deduplicate_fanout' | 'analyze_architecture';
+  type: 'analyze' | 'optimize' | 'optimize_focused' | 'explain' | 'suggest_keywords' | 'summarize' | 'generateContentBrief' | 'generate_gap_brief' | 'generate_fanout' | 'generate_fanout_tree' | 'deduplicate_fanout' | 'analyze_architecture';
   content: string;
   queries?: string[];
   query?: string;  // Single query for generateContentBrief
+  gapQuery?: string;  // For generate_gap_brief
   currentScores?: Record<string, number>;
   analysis?: any;
   validatedChanges?: any;
@@ -28,6 +29,7 @@ interface OptimizationRequest {
   branchFactor?: number;
   similarityThreshold?: number;
   headings?: string[];
+  existingHeadings?: string[];  // For generate_gap_brief
   chunkScores?: any;
   chunkSummaries?: { index: number; heading?: string; preview: string }[];
   // Deduplication options
@@ -44,6 +46,7 @@ const maxTokensByType: Record<OptimizationRequest['type'], number> = {
   'suggest_keywords': 2048,
   'summarize': 8192,
   'generateContentBrief': 4096,
+  'generate_gap_brief': 4096,
   'generate_fanout': 4096,
   'generate_fanout_tree': 8192,
   'deduplicate_fanout': 2048,
@@ -108,7 +111,7 @@ serve(async (req) => {
       );
     }
 
-    const { type, content, queries, query, currentScores, analysis, validatedChanges, chunkScoreData, queryAssignments, chunks, primaryQuery, contentContext, maxDepth, branchFactor, similarityThreshold, headings, chunkScores, chunkSummaries, primaryEntities, threshold }: OptimizationRequest = await req.json();
+    const { type, content, queries, query, gapQuery, currentScores, analysis, validatedChanges, chunkScoreData, queryAssignments, chunks, primaryQuery, contentContext, maxDepth, branchFactor, similarityThreshold, headings, existingHeadings, chunkScores, chunkSummaries, primaryEntities, threshold }: OptimizationRequest = await req.json();
 
     console.log(`Processing ${type} request for content length: ${content?.length}, queries: ${queries?.length}`);
 
@@ -1227,6 +1230,94 @@ Generate a content brief for a NEW section that would rank highly for this query
       }];
       toolChoice = { type: "function", function: { name: "generate_content_brief" } };
     
+    } else if (type === 'generate_gap_brief') {
+      // Generate enhanced content brief for categorized content gaps (Category B)
+      if (!gapQuery || !primaryQuery) {
+        return new Response(
+          JSON.stringify({ error: 'generate_gap_brief requires gapQuery and primaryQuery' }),
+          { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        );
+      }
+
+      const safeExistingHeadings = existingHeadings || [];
+      const safePrimaryEntities = primaryEntities || [];
+      const safeContentContext = contentContext || content || '';
+
+      systemPrompt = `You are a content strategist creating detailed content briefs for SEO optimization.
+
+CONTEXT:
+- Primary query: "${primaryQuery}"
+- Content gap query: "${gapQuery}"
+- Existing content sections: ${safeExistingHeadings.length > 0 ? safeExistingHeadings.join(', ') : 'No existing headings provided'}
+- Core entities that must be mentioned: ${safePrimaryEntities.length > 0 ? safePrimaryEntities.join(', ') : 'No primary entities specified'}
+
+TASK: Create a comprehensive content brief for a NEW SECTION that addresses the gap query.
+
+The brief must include:
+1. RECOMMENDED HEADING (H2 level) - Clear, SEO-friendly heading
+2. ESTIMATED LENGTH (word count range)
+3. SUGGESTED PLACEMENT (which existing section to place after)
+4. KEY POINTS TO COVER (5-8 bullet points)
+5. REQUIRED ENTITIES (terms that must appear for SEO)
+6. SEMANTIC ENRICHMENT (related concepts to include for depth)
+7. EXAMPLE SENTENCES (2-3 model sentences showing tone/style)
+8. INTERNAL LINKING OPPORTUNITIES (which existing sections to link to)
+9. QUERY ALIGNMENT (how this section will answer the gap query)`;
+
+      userPrompt = `Generate a content brief for the gap query: "${gapQuery}"
+
+Content context:
+${safeContentContext.slice(0, 2000)}
+
+Existing sections: ${safeExistingHeadings.length > 0 ? safeExistingHeadings.join(', ') : 'None provided'}
+
+Create a detailed brief that will help a content writer create a section that ranks highly for this gap query.`;
+
+      tools = [{
+        type: "function",
+        function: {
+          name: "generate_gap_brief",
+          description: "Generate a comprehensive content brief for a content gap",
+          parameters: {
+            type: "object",
+            properties: {
+              heading: { type: "string", description: "Recommended H2 heading for the new section" },
+              estimatedWords: { type: "string", description: "Word count range, e.g. '400-600'" },
+              placement: { type: "string", description: "Where to place the new section, e.g. 'After [section name]'" },
+              keyPoints: { 
+                type: "array", 
+                items: { type: "string" },
+                description: "5-8 key points the section should cover"
+              },
+              requiredEntities: { 
+                type: "array", 
+                items: { type: "string" },
+                description: "Terms/entities that must appear for SEO"
+              },
+              semanticEnrichment: { 
+                type: "array", 
+                items: { type: "string" },
+                description: "Related concepts to include for topical depth"
+              },
+              exampleSentences: { 
+                type: "array", 
+                items: { type: "string" },
+                description: "2-3 example sentences showing tone and style"
+              },
+              internalLinks: { 
+                type: "array", 
+                items: { type: "string" },
+                description: "Sections to link to/from"
+              },
+              queryAlignment: { type: "string", description: "How this section answers the gap query" },
+              gapAnalysis: { type: "string", description: "Why the current content fails to cover this query" }
+            },
+            required: ["heading", "estimatedWords", "placement", "keyPoints", "requiredEntities", "semanticEnrichment", "exampleSentences", "internalLinks", "queryAlignment", "gapAnalysis"]
+          }
+        }
+      }];
+      toolChoice = { type: "function", function: { name: "generate_gap_brief" } };
+
     } else if (type === 'analyze_architecture') {
       // Analyze document architecture for structural issues
       if (!chunks || chunks.length === 0) {
@@ -1492,6 +1583,20 @@ Be thorough but practical. Focus on issues that would meaningfully improve retri
             targetQuery: query,  // Use already-parsed query variable
             ...result
           }
+        }),
+        { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
+
+    // For generate_gap_brief, add metadata to the result
+    if (type === 'generate_gap_brief') {
+      return new Response(
+        JSON.stringify({ 
+          success: true,
+          gapQuery,
+          primaryQuery,
+          brief: result,
+          timestamp: new Date().toISOString(),
         }),
         { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
