@@ -103,6 +103,9 @@ export interface EnhancedQuerySuggestion {
   
   // Drift detection
   driftReason?: string | null;
+  
+  // Fallback indicator
+  isFallback?: boolean;
 }
 
 export interface CriticalGap {
@@ -396,7 +399,14 @@ export function QueryIntelligenceDashboard({
     setExpandedGaps(newExpanded);
   };
 
-  if (suggestions.length === 0) {
+  // Show dashboard if we have ANY data worth showing - entities, intent summary, gaps, or suggestions
+  const hasAnyData = 
+    suggestions.length > 0 || 
+    (contentIntelligence?.coreEntities && contentIntelligence.coreEntities.length > 0) ||
+    intentSummary ||
+    criticalGaps.length > 0;
+
+  if (!hasAnyData) {
     return null;
   }
 

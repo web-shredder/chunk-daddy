@@ -458,8 +458,11 @@ export function QueryAutoSuggest({
   const legacyNiceToHaveGaps = legacyGaps.filter(g => g.severity === 'nice-to-have');
   
   // Check if we have enhanced intelligence data - show dashboard if we have ANY data
-  // Relaxed check: show if we have intent summary, any suggestions, OR a detected topic
-  const hasEnhancedData = intentSummary || suggestions.length > 0 || detectedTopic;
+  // Relaxed check: show if we have intent summary, any suggestions, detected topic, OR entity extraction
+  const hasEnhancedData = intentSummary || suggestions.length > 0 || detectedTopic || (intelligence?.coreEntities && intelligence.coreEntities.length > 0);
+  
+  // Check if we have entity data but suggestions failed (partial success state)
+  const hasEntitiesButNoSuggestions = (intelligence?.coreEntities && intelligence.coreEntities.length > 0) && suggestions.length === 0;
 
   return (
     <div className="space-y-4">
@@ -666,6 +669,42 @@ export function QueryAutoSuggest({
               )}
             </div>
           </div>
+        </div>
+      )}
+
+      {/* Warning: Entities found but suggestions failed */}
+      {hasEntitiesButNoSuggestions && detectedTopic && !isAnalyzing && (
+        <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-4 space-y-2">
+          <div className="flex items-center gap-2">
+            <AlertTriangle className="h-5 w-5 text-amber-500" />
+            <span className="font-medium text-sm">Query generation partially failed</span>
+          </div>
+          <p className="text-sm text-muted-foreground">
+            Topic detected: &quot;{detectedTopic.primaryEntity}&quot; with {intelligence?.coreEntities?.length || 0} entities extracted,
+            but query suggestions failed to generate. The AI response may have timed out or returned invalid data.
+          </p>
+          {intelligence?.coreEntities && intelligence.coreEntities.length > 0 && (
+            <div className="pt-2">
+              <span className="text-xs text-muted-foreground">Extracted entities (still available):</span>
+              <div className="flex flex-wrap gap-1 mt-1">
+                {intelligence.coreEntities.slice(0, 8).map(e => (
+                  <Badge key={e.name} variant="secondary" className="text-xs">{e.name}</Badge>
+                ))}
+                {intelligence.coreEntities.length > 8 && (
+                  <Badge variant="outline" className="text-xs">+{intelligence.coreEntities.length - 8} more</Badge>
+                )}
+              </div>
+            </div>
+          )}
+          <Button
+            onClick={() => runAnalysis()}
+            size="sm"
+            variant="outline"
+            className="mt-2"
+          >
+            <RefreshCw className="h-3.5 w-3.5 mr-1.5" />
+            Retry Analysis
+          </Button>
         </div>
       )}
 
