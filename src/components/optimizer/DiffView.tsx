@@ -28,15 +28,13 @@ export function DiffView({ optimizedChunks, acceptedChanges, originalScores }: D
         const newScores = chunk.scores;
         
         const origCosine = origScores?.cosine;
-        const origChamfer = origScores?.chamfer;
         const newCosine = newScores?.cosine;
-        const newChamfer = newScores?.chamfer;
         
-        const origPassage = origCosine !== undefined && origChamfer !== undefined 
-          ? calculatePassageScore(origCosine, origChamfer) 
+        const origPassage = origCosine !== undefined 
+          ? calculatePassageScore(origCosine) 
           : undefined;
-        const newPassage = newCosine !== undefined && newChamfer !== undefined 
-          ? calculatePassageScore(newCosine, newChamfer) 
+        const newPassage = newCosine !== undefined 
+          ? calculatePassageScore(newCosine) 
           : undefined;
         
         const passageImprovement = origPassage !== undefined && newPassage !== undefined
@@ -125,20 +123,6 @@ export function DiffView({ optimizedChunks, acceptedChanges, originalScores }: D
                     </div>
                   ) : (
                     <span className="font-mono font-semibold">{formatScore(newCosine)}</span>
-                  )}
-                </div>
-              )}
-              {newChamfer !== undefined && (
-                <div className="flex items-center gap-2">
-                  <span className="text-muted-foreground">Chamfer:</span>
-                  {origChamfer !== undefined ? (
-                    <div className="flex items-center gap-1 font-mono">
-                      <span className="opacity-60">{formatScore(origChamfer)}</span>
-                      <ArrowRight className="h-3 w-3 opacity-40" />
-                      <span className="font-semibold">{formatScore(newChamfer)}</span>
-                    </div>
-                  ) : (
-                    <span className="font-mono font-semibold">{formatScore(newChamfer)}</span>
                   )}
                 </div>
               )}

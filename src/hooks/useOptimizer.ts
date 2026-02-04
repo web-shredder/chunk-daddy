@@ -329,22 +329,21 @@ export function useOptimizer() {
           const optimizedMetrics = calculateAllMetrics(optimizedEmb, queryEmb);
           const originalMetrics = calculateAllMetrics(origEmb, queryEmb);
           
-          // Use document-level chamfer (Path 5 architecture)
-          // Passage Score = (cosine × 0.7) + (chamfer × 0.3) × 100
-          const optimizedPassageScore = calculatePassageScore(optimizedMetrics.cosine, optimizedDocumentChamfer);
-          const originalPassageScore = calculatePassageScore(originalMetrics.cosine, originalDocumentChamfer);
+          // Passage Score = cosine × 100
+          const optimizedPassageScore = calculatePassageScore(optimizedMetrics.cosine);
+          const originalPassageScore = calculatePassageScore(originalMetrics.cosine);
           
           chunkScores[query] = optimizedMetrics.cosine;
           originalScores[query] = originalMetrics.cosine;
           
           chunkFullScores[query] = { 
             cosine: optimizedMetrics.cosine, 
-            chamfer: optimizedDocumentChamfer, 
+            chamfer: 0, // Deprecated
             passageScore: optimizedPassageScore 
           };
           originalFullScores[query] = { 
             cosine: originalMetrics.cosine, 
-            chamfer: originalDocumentChamfer, 
+            chamfer: 0, // Deprecated
             passageScore: originalPassageScore 
           };
         });

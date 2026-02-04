@@ -553,8 +553,7 @@ function getBestScore(result: AnalysisResult | null): string {
   const scores = result.chunkScores.flatMap(cs => 
     cs.keywordScores?.map(ks => {
       const cosine = ks.scores?.cosine || 0;
-      const chamfer = ks.scores?.chamfer || 0;
-      return (cosine * 0.7 + chamfer * 0.3) * 100;
+      return cosine * 100;
     }) || []
   ).filter(s => typeof s === 'number');
   return scores.length > 0 ? Math.max(...scores).toFixed(1) : 'N/A';
@@ -565,8 +564,7 @@ function getWorstScore(result: AnalysisResult | null): string {
   const scores = result.chunkScores.flatMap(cs => 
     cs.keywordScores?.map(ks => {
       const cosine = ks.scores?.cosine || 0;
-      const chamfer = ks.scores?.chamfer || 0;
-      return (cosine * 0.7 + chamfer * 0.3) * 100;
+      return cosine * 100;
     }) || []
   ).filter(s => typeof s === 'number');
   return scores.length > 0 ? Math.min(...scores).toFixed(1) : 'N/A';
@@ -577,8 +575,7 @@ function getAvgScore(result: AnalysisResult | null): string {
   const scores = result.chunkScores.flatMap(cs => 
     cs.keywordScores?.map(ks => {
       const cosine = ks.scores?.cosine || 0;
-      const chamfer = ks.scores?.chamfer || 0;
-      return (cosine * 0.7 + chamfer * 0.3) * 100;
+      return cosine * 100;
     }) || []
   ).filter(s => typeof s === 'number');
   if (scores.length === 0) return 'N/A';

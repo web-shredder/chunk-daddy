@@ -142,10 +142,9 @@ function TechnicalScoreSection({
   ) || chunkScore.keywordScores[0];
   
   const cosine = assignedKeywordScore.scores.cosine;
-  const chamfer = assignedKeywordScore.scores.chamfer;
   
-  const cosineContribution = cosine * 0.7;
-  const chamferContribution = chamfer * 0.3;
+  // Simplified scoring: just cosine * 100
+  const cosineContribution = cosine;
   
   return (
     <div className="border-t border-border">
@@ -181,7 +180,7 @@ function TechnicalScoreSection({
               Passage Score Formula:
             </div>
             <code className="text-xs font-mono text-foreground">
-              (Cosine × 0.7) + (Chamfer × 0.3) × 100
+              Cosine Similarity × 100
             </code>
           </div>
           
@@ -191,7 +190,7 @@ function TechnicalScoreSection({
               <div>
                 <div className="text-sm font-medium">Cosine Similarity</div>
                 <div className="text-[10px] text-muted-foreground">
-                  Direct semantic relevance (70% weight)
+                  Direct semantic relevance
                 </div>
               </div>
               <div className="text-right">
@@ -199,7 +198,7 @@ function TechnicalScoreSection({
                   {cosine.toFixed(3)}
                 </div>
                 <div className={cn("text-[10px] font-mono", SCORE_CHANGE_COLORS.positive)}>
-                  +{(cosineContribution * 100).toFixed(1)} pts
+                  = {(cosineContribution * 100).toFixed(1)} pts
                 </div>
               </div>
             </div>
@@ -214,44 +213,13 @@ function TechnicalScoreSection({
             </p>
           </div>
           
-          {/* Chamfer Similarity */}
-          <div className="space-y-2">
-            <div className="flex items-center justify-between">
-              <div>
-                <div className="text-sm font-medium">Chamfer Similarity</div>
-                <div className="text-[10px] text-muted-foreground">
-                  Multi-aspect coverage (30% weight)
-                </div>
-              </div>
-              <div className="text-right">
-                <div className="font-mono text-lg font-semibold">
-                  {chamfer.toFixed(3)}
-                </div>
-                <div className={cn("text-[10px] font-mono", SCORE_CHANGE_COLORS.positive)}>
-                  +{(chamferContribution * 100).toFixed(1)} pts
-                </div>
-              </div>
-            </div>
-            <div className="h-2 bg-muted rounded-full overflow-hidden">
-              <div 
-                className={cn("h-full transition-all", METRIC_COLORS.chamfer)}
-                style={{ width: `${chamfer * 100}%` }}
-              />
-            </div>
-            <p className="text-[10px] text-muted-foreground">
-              Measures bidirectional coverage between content and query aspects. Higher = better multi-facet addressing.
-            </p>
-          </div>
-          
           {/* Final Calculation */}
           <div className="p-3 bg-muted/30 rounded-lg space-y-1">
             <div className="text-[10px] uppercase tracking-wider text-muted-foreground">
               Final Score Calculation:
             </div>
             <div className="font-mono text-xs space-y-0.5">
-              <div>({cosine.toFixed(3)} × 0.7) + ({chamfer.toFixed(3)} × 0.3)</div>
-              <div>= {cosineContribution.toFixed(3)} + {chamferContribution.toFixed(3)}</div>
-              <div>= {(cosineContribution + chamferContribution).toFixed(3)}</div>
+              <div>{cosine.toFixed(3)} × 100</div>
               <div className="text-accent font-semibold">
                 = {passageScore} / 100
               </div>
@@ -264,7 +232,7 @@ function TechnicalScoreSection({
               <div className="text-sm font-medium">Scores by Query:</div>
               <div className="space-y-1">
                 {chunkScore.keywordScores.map((ks) => {
-                  const queryPassageScore = calculatePassageScore(ks.scores.cosine, ks.scores.chamfer);
+                  const queryPassageScore = calculatePassageScore(ks.scores.cosine);
                   return (
                     <div 
                       key={ks.keyword}
@@ -274,8 +242,7 @@ function TechnicalScoreSection({
                         {stripMarkdown(ks.keyword)}
                       </span>
                       <span className="flex items-center gap-2 shrink-0 font-mono text-muted-foreground">
-                        <span>C: {ks.scores.cosine.toFixed(2)}</span>
-                        <span>Ch: {ks.scores.chamfer.toFixed(2)}</span>
+                        <span>Cosine: {ks.scores.cosine.toFixed(2)}</span>
                         <Badge variant="outline" className="text-[10px] px-1 py-0">
                           {queryPassageScore}
                         </Badge>
@@ -864,15 +831,12 @@ export function ChunkDetailsPanel({
     );
     
     if (assignedKeywordScore) {
-      return calculatePassageScore(
-        assignedKeywordScore.scores.cosine,
-        assignedKeywordScore.scores.chamfer
-      );
+      return calculatePassageScore(assignedKeywordScore.scores.cosine);
     }
     
     // Fallback to first keyword if no match
     const first = chunkScore.keywordScores[0];
-    return calculatePassageScore(first.scores.cosine, first.scores.chamfer);
+    return calculatePassageScore(first.scores.cosine);
   }, [chunkScore, assignedQuery]);
   
   return (

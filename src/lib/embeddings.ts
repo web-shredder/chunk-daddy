@@ -1,5 +1,7 @@
-// OpenAI Embeddings via Edge Function for Chunk Daddy
+// Gemini Embeddings via Edge Function for Chunk Daddy
 import { supabase } from '@/integrations/supabase/client';
+
+export type TaskType = 'RETRIEVAL_QUERY' | 'RETRIEVAL_DOCUMENT' | 'SEMANTIC_SIMILARITY';
 
 export interface EmbeddingResult {
   text: string;
@@ -8,10 +10,19 @@ export interface EmbeddingResult {
 
 /**
  * Generate embeddings for multiple texts via edge function
+ * 
+ * @param texts - Array of text strings to embed
+ * @param taskType - The task type for embeddings:
+ *   - RETRIEVAL_DOCUMENT: For content/chunks that will be retrieved
+ *   - RETRIEVAL_QUERY: For queries that will search against documents
+ *   - SEMANTIC_SIMILARITY: For general similarity comparisons
  */
-export async function generateEmbeddings(texts: string[]): Promise<EmbeddingResult[]> {
+export async function generateEmbeddings(
+  texts: string[],
+  taskType: TaskType = 'RETRIEVAL_DOCUMENT'
+): Promise<EmbeddingResult[]> {
   const { data, error } = await supabase.functions.invoke('generate-embeddings', {
-    body: { texts },
+    body: { texts, taskType },
   });
 
   if (error) {
@@ -28,8 +39,11 @@ export async function generateEmbeddings(texts: string[]): Promise<EmbeddingResu
 /**
  * Generate embedding for a single text
  */
-export async function generateEmbedding(text: string): Promise<number[]> {
-  const results = await generateEmbeddings([text]);
+export async function generateEmbedding(
+  text: string,
+  taskType: TaskType = 'RETRIEVAL_DOCUMENT'
+): Promise<number[]> {
+  const results = await generateEmbeddings([text], taskType);
   return results[0].embedding;
 }
 
@@ -59,6 +73,10 @@ export interface SentenceEmbeddingResult {
 /**
  * Generate embeddings for all sentences across chunks and queries in a single batch.
  * Returns maps for easy lookup by source index.
+ * 
+ * Uses appropriate task types:
+ * - Chunks use RETRIEVAL_DOCUMENT
+ * - Queries use RETRIEVAL_QUERY
  */
 export async function generateSentenceEmbeddingsBatch(
   chunkSentences: { chunkIndex: number; sentences: string[] }[],
@@ -67,65 +85,60 @@ export async function generateSentenceEmbeddingsBatch(
   chunkEmbeddings: Map<number, number[][]>; // chunkIndex -> sentence embeddings
   queryEmbeddings: Map<number, number[][]>; // queryIndex -> clause embeddings
 }> {
-  // Collect all texts for single batch call
-  const allTexts: string[] = [];
-  const textMetadata: Array<{
-    type: 'chunk' | 'query';
-    sourceIndex: number;
-    sentenceIndex: number;
-  }> = [];
-  
-  chunkSentences.forEach(({ chunkIndex, sentences }) => {
-    sentences.forEach((sentence, sentenceIndex) => {
-      allTexts.push(sentence);
-      textMetadata.push({
-        type: 'chunk',
-        sourceIndex: chunkIndex,
-        sentenceIndex,
-      });
-    });
-  });
-  
-  queryClauses.forEach(({ queryIndex, clauses }) => {
-    clauses.forEach((clause, clauseIndex) => {
-      allTexts.push(clause);
-      textMetadata.push({
-        type: 'query',
-        sourceIndex: queryIndex,
-        sentenceIndex: clauseIndex,
-      });
-    });
-  });
-  
   // If no texts to embed, return empty maps
-  if (allTexts.length === 0) {
+  if (chunkSentences.length === 0 && queryClauses.length === 0) {
     return {
       chunkEmbeddings: new Map(),
       queryEmbeddings: new Map(),
     };
   }
+
+  // Collect chunk texts
+  const chunkTexts: string[] = [];
+  const chunkMetadata: Array<{ sourceIndex: number; sentenceIndex: number }> = [];
   
-  // Single batch API call
-  const embeddings = await generateEmbeddings(allTexts);
+  chunkSentences.forEach(({ chunkIndex, sentences }) => {
+    sentences.forEach((sentence, sentenceIndex) => {
+      chunkTexts.push(sentence);
+      chunkMetadata.push({ sourceIndex: chunkIndex, sentenceIndex });
+    });
+  });
   
-  // Organize results by source
+  // Collect query texts
+  const queryTexts: string[] = [];
+  const queryMetadata: Array<{ sourceIndex: number; sentenceIndex: number }> = [];
+  
+  queryClauses.forEach(({ queryIndex, clauses }) => {
+    clauses.forEach((clause, clauseIndex) => {
+      queryTexts.push(clause);
+      queryMetadata.push({ sourceIndex: queryIndex, sentenceIndex: clauseIndex });
+    });
+  });
+  
+  // Make separate API calls for chunks and queries with appropriate task types
+  const [chunkEmbeddingsResult, queryEmbeddingsResult] = await Promise.all([
+    chunkTexts.length > 0 ? generateEmbeddings(chunkTexts, 'RETRIEVAL_DOCUMENT') : Promise.resolve([]),
+    queryTexts.length > 0 ? generateEmbeddings(queryTexts, 'RETRIEVAL_QUERY') : Promise.resolve([]),
+  ]);
+  
+  // Organize chunk results by source
   const chunkEmbeddings = new Map<number, number[][]>();
-  const queryEmbeddings = new Map<number, number[][]>();
-  
-  embeddings.forEach((emb, idx) => {
-    const meta = textMetadata[idx];
-    
-    if (meta.type === 'chunk') {
-      if (!chunkEmbeddings.has(meta.sourceIndex)) {
-        chunkEmbeddings.set(meta.sourceIndex, []);
-      }
-      chunkEmbeddings.get(meta.sourceIndex)!.push(emb.embedding);
-    } else {
-      if (!queryEmbeddings.has(meta.sourceIndex)) {
-        queryEmbeddings.set(meta.sourceIndex, []);
-      }
-      queryEmbeddings.get(meta.sourceIndex)!.push(emb.embedding);
+  chunkEmbeddingsResult.forEach((emb, idx) => {
+    const meta = chunkMetadata[idx];
+    if (!chunkEmbeddings.has(meta.sourceIndex)) {
+      chunkEmbeddings.set(meta.sourceIndex, []);
     }
+    chunkEmbeddings.get(meta.sourceIndex)!.push(emb.embedding);
+  });
+  
+  // Organize query results by source
+  const queryEmbeddings = new Map<number, number[][]>();
+  queryEmbeddingsResult.forEach((emb, idx) => {
+    const meta = queryMetadata[idx];
+    if (!queryEmbeddings.has(meta.sourceIndex)) {
+      queryEmbeddings.set(meta.sourceIndex, []);
+    }
+    queryEmbeddings.get(meta.sourceIndex)!.push(emb.embedding);
   });
   
   return { chunkEmbeddings, queryEmbeddings };
