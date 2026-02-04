@@ -27,7 +27,7 @@ interface DebugPanelProps {
   layoutChunks: LayoutAwareChunk[];
   result: AnalysisResult | null;
   architectureAnalysis: ArchitectureAnalysis | null;
-  architectureTasks: ArchitectureTask[];
+  // architectureTasks removed - architecture UI moved to standalone tool
   optimizationResult: FullOptimizationResult | null;
   optimizedContent: string;
   completedSteps: string[];
@@ -47,7 +47,6 @@ export function DebugPanel({
   layoutChunks,
   result,
   architectureAnalysis,
-  architectureTasks,
   optimizationResult,
   optimizedContent,
   completedSteps,
@@ -84,7 +83,6 @@ export function DebugPanel({
       hasAnalysis: !!result,
       chunkScores: result?.chunkScores?.length || 0,
       hasArchitecture: !!architectureAnalysis,
-      architectureTasks: architectureTasks?.length || 0,
       hasOptimization: !!optimizationResult,
       optimizedChunks: optimizationResult?.optimizedChunks?.length || 0,
       hasOptimizedContent: !!optimizedContent,
@@ -99,7 +97,6 @@ export function DebugPanel({
     layoutChunks,
     result,
     architectureAnalysis,
-    architectureTasks,
     optimizationResult,
     optimizedContent,
     completedSteps,
@@ -108,7 +105,7 @@ export function DebugPanel({
     applyArchitecture,
     generateBriefs,
     streaming,
-  }), [activeTab, content, keywords, layoutChunks, result, architectureAnalysis, architectureTasks, optimizationResult, optimizedContent, completedSteps, queryAssignments, selectedArchitectureTasks, applyArchitecture, generateBriefs, streaming]);
+  }), [activeTab, content, keywords, layoutChunks, result, architectureAnalysis, optimizationResult, optimizedContent, completedSteps, queryAssignments, selectedArchitectureTasks, applyArchitecture, generateBriefs, streaming]);
 
   const errorCount = events.filter(e => e.error).length;
   const streamingActive = streaming?.isStreaming || false;
@@ -243,7 +240,7 @@ function TabButton({ active, onClick, children }: { active: boolean; onClick: ()
 
 // State View
 function StateView({ state }: { state: DebugPanelProps }) {
-  const { content, keywords, layoutChunks, result, architectureAnalysis, architectureTasks, optimizationResult, optimizedContent, streaming } = state;
+  const { content, keywords, layoutChunks, result, architectureAnalysis, optimizationResult, optimizedContent, streaming } = state;
   
   return (
     <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-xs font-mono">
@@ -274,14 +271,13 @@ function StateView({ state }: { state: DebugPanelProps }) {
         )}
       </Section>
 
-      {/* Architecture */}
+      {/* Architecture (analysis only - UI moved to standalone tool) */}
       <Section title="Architecture">
         <DataRow label="Has Analysis" value={!!architectureAnalysis} />
         {architectureAnalysis && (
           <>
             <DataRow label="Issues" value={architectureAnalysis.issues?.length || 0} />
-            <DataRow label="Tasks" value={architectureTasks?.length || 0} />
-            <DataRow label="Selected" value={architectureTasks?.filter(t => t.isSelected).length || 0} />
+            <DataRow label="Score" value={architectureAnalysis.summary?.architectureScore || 0} />
           </>
         )}
       </Section>
