@@ -83,7 +83,6 @@ export function DebugPanel({
       queries: keywords?.length || 0,
       hasAnalysis: !!result,
       chunkScores: result?.chunkScores?.length || 0,
-      documentChamfer: result?.documentChamfer?.toFixed(4) || 'N/A',
       hasArchitecture: !!architectureAnalysis,
       architectureTasks: architectureTasks?.length || 0,
       hasOptimization: !!optimizationResult,
@@ -269,7 +268,6 @@ function StateView({ state }: { state: DebugPanelProps }) {
         {result && (
           <>
             <DataRow label="Chunk Scores" value={result.chunkScores?.length || 0} />
-            <DataRow label="Doc Chamfer" value={result.documentChamfer?.toFixed(3) || 'N/A'} />
             <DataRow label="Best Score" value={getBestScore(result)} />
             <DataRow label="Worst Score" value={getWorstScore(result)} />
           </>

@@ -74,11 +74,10 @@ function generateId(): string {
 // Passage Score context to educate AI about the scoring system
 const PASSAGE_SCORE_CONTEXT = `
 PASSAGE SCORE SYSTEM:
-Passage Score (0-100) predicts RAG retrieval probability by combining two metrics:
-- Cosine Similarity (70% weight): Direct semantic relevance between chunk and query
-- Chamfer Similarity (30% weight): Multi-aspect coverage - how well the chunk addresses ALL facets of the query
+Passage Score (0-100) predicts RAG retrieval probability using cosine similarity 
+between chunk and query embeddings from Google's Gemini embedding model.
 
-FORMULA: Passage Score = (cosine × 0.7 + chamfer × 0.3) × 100
+FORMULA: Passage Score = cosine similarity × 100
 
 QUALITY TIERS:
 - Excellent (90-100): High retrieval probability, likely top 5 results
@@ -87,13 +86,12 @@ QUALITY TIERS:
 - Weak (40-59): May be retrieved if competition is low
 - Poor (0-39): Likely filtered out during retrieval
 
-WHY CHAMFER MATTERS:
-Chamfer similarity measures bidirectional coverage:
-- Does the chunk cover ALL aspects the user might be searching for?
-- A chunk that only matches one keyword strongly (high cosine) but misses related concepts (low chamfer) scores lower
-- Adding context, related terms, and self-contained explanations improves chamfer
+HOW GEMINI EMBEDDINGS WORK:
+Gemini uses task-type differentiation (RETRIEVAL_QUERY vs RETRIEVAL_DOCUMENT) 
+which naturally handles query-document asymmetry. Higher cosine similarity means 
+better semantic alignment between what users search for and what the content provides.
 
-OPTIMIZATION GOAL: Maximize Passage Score, not just cosine similarity.
+OPTIMIZATION GOAL: Maximize semantic alignment with target queries.
 `;
 
 serve(async (req) => {
@@ -126,13 +124,13 @@ serve(async (req) => {
 ${PASSAGE_SCORE_CONTEXT}
 
 Analyze content to identify optimization opportunities that improve Passage Score:
-1. Topic boundaries where splits would improve focus (helps cosine)
-2. Missing context that would improve multi-aspect coverage (helps chamfer)
-3. Pronouns/references that create cross-chunk dependencies (hurts both)
-4. Heading opportunities that add semantic signals (helps cosine)
-5. Missing related concepts that queries might include (helps chamfer)
+1. Topic boundaries where splits would improve focus
+2. Missing context that would improve semantic coverage
+3. Pronouns/references that create cross-chunk dependencies
+4. Heading opportunities that add semantic signals
+5. Missing related concepts that queries might include
 
-Prioritize changes that improve BOTH cosine and chamfer simultaneously.`;
+Prioritize changes that improve semantic alignment with target queries.`;
 
       userPrompt = `Analyze this content for Passage Score optimization:
 
@@ -242,7 +240,7 @@ Target Queries: ${queries?.join(', ') || 'None'}
 
 Rewrite the content applying the identified optimizations. For each change:
 1. Show exact before/after text
-2. Explain impact on BOTH cosine (semantic match) and chamfer (multi-aspect coverage)
+2. Explain impact on semantic similarity
 3. Predict Passage Score improvement
 
 Maintain readability - don't make it robotic.`;
@@ -424,9 +422,8 @@ ${PASSAGE_SCORE_CONTEXT}
 
 For each change:
 1. What specifically changed (concrete before/after)
-2. How it affects cosine similarity (semantic match)
-3. How it affects chamfer similarity (multi-aspect coverage)
-4. Net Passage Score impact with actual numbers
+2. How it affects semantic similarity (meaning alignment)
+3. Net Passage Score impact with actual numbers
 
 Keep explanations to 2-3 sentences. Use Passage Score tier names (Excellent, Good, Moderate, Weak, Poor) when relevant.`;
 

@@ -1,7 +1,7 @@
 import { useState, useCallback } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { generateEmbeddings } from '@/lib/embeddings';
-import { calculateAllMetrics, calculateImprovement, calculatePassageScore, getPassageScoreTier, chamferSimilarity, type SimilarityScores } from '@/lib/similarity';
+import { calculateAllMetrics, calculateImprovement, calculatePassageScore, getPassageScoreTier, type SimilarityScores } from '@/lib/similarity';
 import type {
   ContentAnalysis,
   OptimizationResult,
@@ -273,43 +273,17 @@ export function useOptimizer() {
         embedding: embeddingMap.get(optimizedTexts.length + originalTexts.length + idx) || []
       }));
 
-      // Calculate document-level chamfer similarity (Path 5 architecture)
-      // This measures how well the ENTIRE document covers all query aspects
-      const allOptimizedVectors = optimizedEmbeddings
-        .map(e => e.embedding)
-        .filter(e => e && e.length > 0);
-      const allOriginalVectors = originalEmbeddings
-        .map(e => e.embedding)
-        .filter(e => e && e.length > 0);
-      const allQueryVectors = queryEmbeddings
-        .map(e => e.embedding)
-        .filter(e => e && e.length > 0);
-
-      // Calculate document chamfer for optimized and original content
-      let optimizedDocumentChamfer = 0;
-      let originalDocumentChamfer = 0;
-      
-      if (allOptimizedVectors.length > 0 && allQueryVectors.length > 0) {
-        optimizedDocumentChamfer = chamferSimilarity(allOptimizedVectors, allQueryVectors);
-        console.log('📊 [OPTIMIZER] Optimized document chamfer:', optimizedDocumentChamfer.toFixed(4));
-      }
-      
-      if (allOriginalVectors.length > 0 && allQueryVectors.length > 0) {
-        originalDocumentChamfer = chamferSimilarity(allOriginalVectors, allQueryVectors);
-        console.log('📊 [OPTIMIZER] Original document chamfer:', originalDocumentChamfer.toFixed(4));
-      }
-
       setState(prev => ({ ...prev, progress: 70 }));
 
       // Calculate scores and improvements + capture for summary
-      const originalScoresMap: Record<number, Record<string, { cosine: number; chamfer: number; passageScore: number }>> = {};
-      const optimizedScoresMap: Record<number, Record<string, { cosine: number; chamfer: number; passageScore: number }>> = {};
+      const originalScoresMap: Record<number, Record<string, { cosine: number; passageScore: number }>> = {};
+      const optimizedScoresMap: Record<number, Record<string, { cosine: number; passageScore: number }>> = {};
       
       const validatedChunks: ValidatedChunk[] = optimization.optimized_chunks.map((chunk, chunkIdx) => {
         const chunkScores: Record<string, number> = {};
         const originalScores: Record<string, number> = {};
-        const chunkFullScores: Record<string, { cosine: number; chamfer: number; passageScore: number }> = {};
-        const originalFullScores: Record<string, { cosine: number; chamfer: number; passageScore: number }> = {};
+        const chunkFullScores: Record<string, { cosine: number; passageScore: number }> = {};
+        const originalFullScores: Record<string, { cosine: number; passageScore: number }> = {};
 
         queries.forEach((query, queryIdx) => {
           const optimizedEmb = optimizedEmbeddings[chunkIdx]?.embedding;
@@ -321,8 +295,8 @@ export function useOptimizer() {
             console.warn(`Missing embedding for chunk ${chunkIdx} or query "${query}"`);
             chunkScores[query] = 0;
             originalScores[query] = 0;
-            chunkFullScores[query] = { cosine: 0, chamfer: 0, passageScore: 0 };
-            originalFullScores[query] = { cosine: 0, chamfer: 0, passageScore: 0 };
+            chunkFullScores[query] = { cosine: 0, passageScore: 0 };
+            originalFullScores[query] = { cosine: 0, passageScore: 0 };
             return;
           }
 
@@ -338,12 +312,10 @@ export function useOptimizer() {
           
           chunkFullScores[query] = { 
             cosine: optimizedMetrics.cosine, 
-            chamfer: 0, // Deprecated
             passageScore: optimizedPassageScore 
           };
           originalFullScores[query] = { 
             cosine: originalMetrics.cosine, 
-            chamfer: 0, // Deprecated
             passageScore: originalPassageScore 
           };
         });
@@ -400,8 +372,6 @@ export function useOptimizer() {
             passageScoreChange: optScores.passageScore - origScores.passageScore,
             originalTier: getPassageScoreTier(origScores.passageScore),
             optimizedTier: getPassageScoreTier(optScores.passageScore),
-            originalChamfer: origScores.chamfer,
-            optimizedChamfer: optScores.chamfer,
           };
         }),
       }));
