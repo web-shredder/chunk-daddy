@@ -1,5 +1,6 @@
 // Streaming Analysis Edge Function
 // Performs embedding generation, scoring, and diagnostics with SSE progress updates
+// Uses Gemini embeddings (gemini-embedding-001)
 
 import "https://deno.land/x/xhr@0.3.0/mod.ts";
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
@@ -9,9 +10,8 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
-const OPENAI_API_URL = "https://api.openai.com/v1/embeddings";
-const MODEL = "text-embedding-3-large";
-const MAX_CHARS_PER_BATCH = 150000;
+const GEMINI_BATCH_URL = "https://generativelanguage.googleapis.com/v1beta/models/gemini-embedding-001:batchEmbedContents";
+const MAX_BATCH_SIZE = 100; // Gemini supports up to 100 texts per batch
 
 interface ChunkInput {
   id: string;
@@ -218,104 +218,71 @@ function cosineSimilarity(vecA: number[], vecB: number[]): number {
   return dotProduct / (Math.sqrt(normA) * Math.sqrt(normB));
 }
 
-function chamferSimilarity(setA: number[][], setB: number[][]): number {
-  if (setA.length === 0 || setB.length === 0) return 0;
-  
-  // For each vector in A, find max similarity to any vector in B
-  let sumAtoB = 0;
-  for (const a of setA) {
-    let maxSim = -Infinity;
-    for (const b of setB) {
-      const sim = cosineSimilarity(a, b);
-      if (sim > maxSim) maxSim = sim;
-    }
-    sumAtoB += maxSim;
-  }
-  
-  // For each vector in B, find max similarity to any vector in A
-  let sumBtoA = 0;
-  for (const b of setB) {
-    let maxSim = -Infinity;
-    for (const a of setA) {
-      const sim = cosineSimilarity(a, b);
-      if (sim > maxSim) maxSim = sim;
-    }
-    sumBtoA += maxSim;
-  }
-  
-  // Symmetric average
-  return (sumAtoB / setA.length + sumBtoA / setB.length) / 2;
-}
-
-function calculatePassageScore(cosine: number, chamfer: number): number {
-  return (cosine * 0.7 + chamfer * 0.3) * 100;
+function calculatePassageScore(cosine: number): number {
+  return Math.round(Math.max(0, Math.min(1, cosine)) * 100);
 }
 
 // =============== EMBEDDING GENERATION ===============
 
-async function generateEmbeddingsBatch(
+interface EmbeddingRequest {
+  text: string;
+  taskType: "RETRIEVAL_DOCUMENT" | "RETRIEVAL_QUERY";
+}
+
+async function generateGeminiBatch(
+  requests: EmbeddingRequest[],
+  apiKey: string
+): Promise<number[][]> {
+  const url = `${GEMINI_BATCH_URL}?key=${apiKey}`;
+  
+  const response = await fetch(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      requests: requests.map(r => ({
+        model: "models/gemini-embedding-001",
+        content: { parts: [{ text: r.text }] },
+        taskType: r.taskType,
+      })),
+    }),
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    throw new Error(`Gemini API error: ${response.status} - ${errorText}`);
+  }
+
+  const data = await response.json();
+  return data.embeddings.map((e: { values: number[] }) => e.values);
+}
+
+async function generateEmbeddingsWithTaskType(
   texts: string[],
+  taskType: "RETRIEVAL_DOCUMENT" | "RETRIEVAL_QUERY",
   apiKey: string,
   onProgress: (batch: number, total: number, count: number) => void
 ): Promise<number[][]> {
+  // Split into batches of MAX_BATCH_SIZE
   const batches: string[][] = [];
-  let currentBatch: string[] = [];
-  let currentChars = 0;
-
-  for (const text of texts) {
-    const textChars = text.length;
-    if (currentChars + textChars > MAX_CHARS_PER_BATCH && currentBatch.length > 0) {
-      batches.push(currentBatch);
-      currentBatch = [text];
-      currentChars = textChars;
-    } else {
-      currentBatch.push(text);
-      currentChars += textChars;
-    }
-  }
-  if (currentBatch.length > 0) {
-    batches.push(currentBatch);
+  for (let i = 0; i < texts.length; i += MAX_BATCH_SIZE) {
+    batches.push(texts.slice(i, i + MAX_BATCH_SIZE));
   }
 
-  const allEmbeddings: { index: number; embedding: number[] }[] = [];
+  const allEmbeddings: number[][] = [];
   let processedCount = 0;
 
   for (let i = 0; i < batches.length; i++) {
     const batch = batches[i];
+    const requests: EmbeddingRequest[] = batch.map(text => ({ text, taskType }));
     
-    const response = await fetch(OPENAI_API_URL, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        input: batch,
-        model: MODEL,
-      }),
-    });
-
-    if (!response.ok) {
-      const errorText = await response.text();
-      throw new Error(`OpenAI API error: ${response.status} - ${errorText}`);
-    }
-
-    const data = await response.json();
-    
-    for (const item of data.data) {
-      allEmbeddings.push({
-        index: processedCount + item.index,
-        embedding: item.embedding,
-      });
-    }
+    const embeddings = await generateGeminiBatch(requests, apiKey);
+    allEmbeddings.push(...embeddings);
     
     processedCount += batch.length;
     onProgress(i + 1, batches.length, processedCount);
   }
 
-  // Sort by original index
-  allEmbeddings.sort((a, b) => a.index - b.index);
-  return allEmbeddings.map(e => e.embedding);
+  return allEmbeddings;
 }
 
 // =============== MAIN HANDLER ===============
@@ -342,9 +309,9 @@ serve(async (req) => {
       });
     }
 
-    const openAIKey = Deno.env.get("OPENAI_API_KEY");
-    if (!openAIKey) {
-      return new Response(JSON.stringify({ error: "OpenAI API key not configured" }), {
+    const geminiKey = Deno.env.get("GEMINI_API_KEY");
+    if (!geminiKey) {
+      return new Response(JSON.stringify({ error: "Gemini API key not configured" }), {
         status: 500,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
@@ -366,43 +333,58 @@ serve(async (req) => {
             totalPairs: chunks.length * queries.length,
             steps: [
               { id: 1, name: "Embedding Generation", status: "pending" },
-              { id: 2, name: "Document Chamfer", status: "pending" },
-              { id: 3, name: "Chunk Scoring", status: "pending" },
-              { id: 4, name: "Coverage Mapping", status: "pending" },
-              { id: 5, name: "Diagnostic Scoring", status: "pending" },
+              { id: 2, name: "Chunk Scoring", status: "pending" },
+              { id: 3, name: "Coverage Mapping", status: "pending" },
+              { id: 4, name: "Diagnostic Scoring", status: "pending" },
             ],
           });
 
-          // =============== STEP 2: EMBEDDING GENERATION ===============
+          // =============== STEP 1: EMBEDDING GENERATION ===============
           send("step_started", { step: 1, name: "Embedding Generation" });
           
-          // Prepare all texts for embedding
-          const textsToEmbed: string[] = [
-            originalContent,
-            ...chunks.map(c => c.text),
-            ...queries,
-          ];
+          // Prepare texts for embedding - documents and queries need different task types
+          const documentTexts = [originalContent, ...chunks.map(c => c.text)];
+          const queryTexts = queries;
 
           send("embedding_info", {
-            totalTexts: textsToEmbed.length,
+            totalTexts: documentTexts.length + queryTexts.length,
             breakdown: {
               originalContent: 1,
               chunks: chunks.length,
               queries: queries.length,
             },
-            model: MODEL,
-            dimensions: 3072,
+            model: "gemini-embedding-001",
+            dimensions: 768,
           });
 
-          const embeddings = await generateEmbeddingsBatch(
-            textsToEmbed,
-            openAIKey,
-            (batch, total, processed) => {
+          // Generate embeddings for documents
+          const documentEmbeddings = await generateEmbeddingsWithTaskType(
+            documentTexts,
+            "RETRIEVAL_DOCUMENT",
+            geminiKey,
+            (batch: number, total: number, processed: number) => {
               send("embedding_batch", {
                 batch,
                 totalBatches: total,
                 textsProcessed: processed,
-                totalTexts: textsToEmbed.length,
+                totalTexts: documentTexts.length,
+                type: "documents",
+              });
+            }
+          );
+
+          // Generate embeddings for queries
+          const queryEmbeddings = await generateEmbeddingsWithTaskType(
+            queryTexts,
+            "RETRIEVAL_QUERY",
+            geminiKey,
+            (batch: number, total: number, processed: number) => {
+              send("embedding_batch", {
+                batch,
+                totalBatches: total,
+                textsProcessed: processed,
+                totalTexts: queryTexts.length,
+                type: "queries",
               });
             }
           );
@@ -410,35 +392,15 @@ serve(async (req) => {
           send("step_complete", { 
             step: 1, 
             name: "Embedding Generation",
-            totalEmbeddings: embeddings.length,
-            dimensions: 3072,
+            totalEmbeddings: documentEmbeddings.length + queryEmbeddings.length,
+            dimensions: 768,
           });
 
-          // Extract embeddings
-          let idx = 0;
-          const originalEmbedding = embeddings[idx++];
-          const chunkEmbeddings = chunks.map(() => embeddings[idx++]);
-          const queryEmbeddings = queries.map(() => embeddings[idx++]);
+          // Extract embeddings - skip originalContent embedding (index 0)
+          const chunkEmbeddings = documentEmbeddings.slice(1);
 
-          // =============== STEP 3: DOCUMENT CHAMFER ===============
-          send("step_started", { step: 2, name: "Document Chamfer" });
-          
-          const documentChamfer = chamferSimilarity(chunkEmbeddings, queryEmbeddings);
-          
-          send("document_chamfer", {
-            score: documentChamfer,
-            scorePercent: (documentChamfer * 100).toFixed(1),
-            interpretation: documentChamfer >= 0.7 ? "excellent" : 
-                          documentChamfer >= 0.5 ? "good" : 
-                          documentChamfer >= 0.3 ? "moderate" : "weak",
-            chunkCount: chunks.length,
-            queryCount: queries.length,
-          });
-          
-          send("step_complete", { step: 2, name: "Document Chamfer" });
-
-          // =============== STEP 4: CHUNK SCORING ===============
-          send("step_started", { step: 3, name: "Chunk Scoring" });
+          // =============== STEP 2: CHUNK SCORING ===============
+          send("step_started", { step: 2, name: "Chunk Scoring" });
           
           const chunkScores: Array<{
             chunkIndex: number;
@@ -459,7 +421,7 @@ serve(async (req) => {
             
             const queryScores = queries.map((query, qIdx) => {
               const cosine = cosineSimilarity(chunkEmbed, queryEmbeddings[qIdx]);
-              const passageScore = calculatePassageScore(cosine, documentChamfer);
+              const passageScore = calculatePassageScore(cosine);
               return { query, cosine, passageScore };
             });
 
@@ -487,10 +449,10 @@ serve(async (req) => {
             });
           }
 
-          send("step_complete", { step: 3, name: "Chunk Scoring", chunksScored: chunks.length });
+          send("step_complete", { step: 2, name: "Chunk Scoring", chunksScored: chunks.length });
 
-          // =============== STEP 5: COVERAGE MAPPING ===============
-          send("step_started", { step: 4, name: "Coverage Mapping" });
+          // =============== STEP 3: COVERAGE MAPPING ===============
+          send("step_started", { step: 3, name: "Coverage Mapping" });
 
           const coverageMap = queries.map((query, qIdx) => {
             let bestScore = 0;
@@ -528,10 +490,10 @@ serve(async (req) => {
             map: coverageMap,
           });
 
-          send("step_complete", { step: 4, name: "Coverage Mapping" });
+          send("step_complete", { step: 3, name: "Coverage Mapping" });
 
-          // =============== STEP 6: DIAGNOSTIC SCORING ===============
-          send("step_started", { step: 5, name: "Diagnostic Scoring" });
+          // =============== STEP 4: DIAGNOSTIC SCORING ===============
+          send("step_started", { step: 4, name: "Diagnostic Scoring" });
 
           const totalPairs = chunks.length * queries.length;
           const diagnostics: Array<{
@@ -600,7 +562,7 @@ serve(async (req) => {
             }
           }
 
-          send("step_complete", { step: 5, name: "Diagnostic Scoring", pairsScored: diagnostics.length });
+          send("step_complete", { step: 4, name: "Diagnostic Scoring", pairsScored: diagnostics.length });
 
           // =============== COMPLETE ===============
           send("complete", {
@@ -608,8 +570,6 @@ serve(async (req) => {
             summary: {
               totalChunks: chunks.length,
               totalQueries: queries.length,
-              documentChamfer,
-              documentChamferPercent: (documentChamfer * 100).toFixed(1),
               coverage: coverageSummary,
               avgPassageScore: (chunkScores.reduce((sum, c) => sum + c.bestScore, 0) / chunks.length).toFixed(1),
             },
