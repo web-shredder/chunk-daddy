@@ -65,9 +65,8 @@ const Index = () => {
   const [optimizedContent, setOptimizedContent] = useState<string>("");
   const [sourceUrl, setSourceUrl] = useState<string | null>(null);
   const [optimizationResult, setOptimizationResult] = useState<FullOptimizationResult | null>(null);
+  // Architecture analysis - kept for project persistence but UI removed (moved to standalone tool)
   const [architectureAnalysis, setArchitectureAnalysis] = useState<ArchitectureAnalysis | null>(null);
-  const [architectureTasks, setArchitectureTasks] = useState<ArchitectureTask[]>([]);
-  const [architectureLoading, setArchitectureLoading] = useState(false);
   
   // Query Intelligence state (persisted across tab switches)
   const [queryIntelligence, setQueryIntelligence] = useState<{
@@ -1298,7 +1297,6 @@ const Index = () => {
         layoutChunks={layoutChunks}
         result={result}
         architectureAnalysis={architectureAnalysis}
-        architectureTasks={architectureTasks}
         optimizationResult={optimizationResult}
         optimizedContent={optimizedContent}
         completedSteps={completedStepIds}
