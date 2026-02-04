@@ -73,6 +73,7 @@ serve(async (req) => {
             model: 'models/gemini-embedding-001',
             content: { parts: [{ text }] },
             taskType,
+            outputDimensionality: 3072,
           })),
         }),
       });

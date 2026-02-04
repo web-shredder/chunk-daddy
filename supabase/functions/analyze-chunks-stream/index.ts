@@ -243,6 +243,7 @@ async function generateGeminiBatch(
         model: "models/gemini-embedding-001",
         content: { parts: [{ text: r.text }] },
         taskType: r.taskType,
+        outputDimensionality: 3072,
       })),
     }),
   });
@@ -354,7 +355,7 @@ serve(async (req) => {
               queries: queries.length,
             },
             model: "gemini-embedding-001",
-            dimensions: 768,
+            dimensions: 3072,
           });
 
           // Generate embeddings for documents
@@ -393,7 +394,7 @@ serve(async (req) => {
             step: 1, 
             name: "Embedding Generation",
             totalEmbeddings: documentEmbeddings.length + queryEmbeddings.length,
-            dimensions: 768,
+            dimensions: 3072,
           });
 
           // Extract embeddings - skip originalContent embedding (index 0)
