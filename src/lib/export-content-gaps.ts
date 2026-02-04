@@ -41,7 +41,7 @@ export function analyzeContentGaps(
           ks => ks.keyword.toLowerCase() === query.toLowerCase()
         );
         if (keywordScore) {
-          passageScore = calculatePassageScore(keywordScore.scores.cosine, keywordScore.scores.chamfer);
+          passageScore = calculatePassageScore(keywordScore.scores.cosine);
         }
       }
       

@@ -156,7 +156,7 @@ export function ArchitectureTab({
         const scores = chunkScores.map((chunk, chunkIndex) => {
           const keywordScore = chunk.keywordScores.find(ks => ks.keyword === query);
           const passageScore = keywordScore 
-            ? calculatePassageScore(keywordScore.scores.cosine, keywordScore.scores.chamfer)
+            ? calculatePassageScore(keywordScore.scores.cosine)
             : 0;
           return {
             chunkIndex,
@@ -254,7 +254,7 @@ export function ArchitectureTab({
       const formattedChunkScores = chunkScores.map((cs) => {
         const scores: Record<string, number> = {};
         cs.keywordScores.forEach(ks => {
-          const passageScore = calculatePassageScore(ks.scores.cosine, ks.scores.chamfer);
+          const passageScore = calculatePassageScore(ks.scores.cosine);
           scores[ks.keyword] = passageScore / 100;
         });
         return { scores };

@@ -153,7 +153,6 @@ export function downloadChunkAnalysis(
       bestMatchQuery: bestKeywordScore?.keyword || null,
       bestPassageScore: bestKeywordScore?.scores?.passageScore ?? null,
       bestCosineScore: bestKeywordScore?.scores?.cosine ?? null,
-      bestChamferScore: bestKeywordScore?.scores?.chamfer ?? null,
       previewText: chunk.text.slice(0, 200) + '...'
     };
   });

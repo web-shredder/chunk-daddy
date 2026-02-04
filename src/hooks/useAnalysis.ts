@@ -255,8 +255,7 @@ export function useAnalysis() {
             keyword: validKeywords[i],
             scores: {
               cosine,
-              chamfer: documentChamfer, // Document-level
-              passageScore: calculatePassageScore(cosine, documentChamfer),
+              passageScore: calculatePassageScore(cosine),
               euclidean: euclideanDistance(originalEmbedding, kwEmbed.embedding),
               manhattan: manhattanDistance(originalEmbedding, kwEmbed.embedding),
               dotProduct: dotProduct(originalEmbedding, kwEmbed.embedding),
@@ -268,7 +267,7 @@ export function useAnalysis() {
       setProgress(65);
 
       // ========== PER-CHUNK SCORING ==========
-      // Each chunk gets: 70% chunk-level cosine + 30% document-level chamfer
+      // Each chunk gets: cosine similarity × 100
       const chunkScores: ChunkScore[] = chunkTexts.map((text, chunkIdx) => ({
         chunkId: chunkData[chunkIdx].id,
         chunkIndex: chunkIdx,
@@ -282,14 +281,13 @@ export function useAnalysis() {
           // Chunk-level cosine (retrieval probability for this chunk-query pair)
           const cosine = cosineSimilarity(chunkVec, queryVec);
           
-          // Passage Score = 70% chunk cosine + 30% document chamfer
-          const passageScore = calculatePassageScore(cosine, documentChamfer);
+          // Passage Score = cosine × 100
+          const passageScore = calculatePassageScore(cosine);
           
           return {
             keyword: validKeywords[queryIdx],
             scores: {
               cosine,
-              chamfer: documentChamfer, // Same for all chunks (document-level)
               passageScore,
               euclidean: euclideanDistance(chunkVec, queryVec),
               manhattan: manhattanDistance(chunkVec, queryVec),
@@ -352,8 +350,7 @@ export function useAnalysis() {
               keyword: validKeywords[i],
               scores: {
                 cosine,
-                chamfer: documentChamfer,
-                passageScore: calculatePassageScore(cosine, documentChamfer),
+                passageScore: calculatePassageScore(cosine),
                 euclidean: euclideanDistance(noCascadeEmbeddings[chunkIdx].embedding, kwEmbed.embedding),
                 manhattan: manhattanDistance(noCascadeEmbeddings[chunkIdx].embedding, kwEmbed.embedding),
                 dotProduct: dotProduct(noCascadeEmbeddings[chunkIdx].embedding, kwEmbed.embedding),
@@ -378,8 +375,7 @@ export function useAnalysis() {
               keyword: validKeywords[i],
               scores: {
                 cosine,
-                chamfer: documentChamfer,
-                passageScore: calculatePassageScore(cosine, documentChamfer),
+                passageScore: calculatePassageScore(cosine),
                 euclidean: euclideanDistance(optimizedEmbeddings[chunkIdx].embedding, kwEmbed.embedding),
                 manhattan: manhattanDistance(optimizedEmbeddings[chunkIdx].embedding, kwEmbed.embedding),
                 dotProduct: dotProduct(optimizedEmbeddings[chunkIdx].embedding, kwEmbed.embedding),
@@ -410,10 +406,7 @@ export function useAnalysis() {
                 originalKwScore.scores.euclidean,
                 kwScore.scores.euclidean
               ),
-              chamferImprovement: calculateImprovement(
-                originalKwScore.scores.chamfer,
-                kwScore.scores.chamfer
-              ),
+              chamferImprovement: 0, // Deprecated - kept for backward compat
             });
           }
         }
@@ -488,7 +481,7 @@ export function useAnalysis() {
         );
         
         // Calculate passage score
-        const passageScore = calculatePassageScore(bestScore, documentChamfer);
+        const passageScore = calculatePassageScore(bestScore);
         
         return {
           query,

@@ -316,7 +316,7 @@ export function generateCSV(result: AnalysisResult): string {
     'Euclidean Distance',
     'Manhattan Distance',
     'Dot Product',
-    'Chamfer Similarity',
+    'Passage Score',
     'Improvement vs Original (%)',
   ]);
   
@@ -331,7 +331,7 @@ export function generateCSV(result: AnalysisResult): string {
         keywordResult.scores.euclidean.toFixed(4),
         keywordResult.scores.manhattan.toFixed(4),
         keywordResult.scores.dotProduct.toFixed(4),
-        keywordResult.scores.chamfer.toFixed(4),
+        keywordResult.scores.passageScore.toString(),
         '-',
       ]);
     }
@@ -352,7 +352,7 @@ export function generateCSV(result: AnalysisResult): string {
         keywordResult.scores.euclidean.toFixed(4),
         keywordResult.scores.manhattan.toFixed(4),
         keywordResult.scores.dotProduct.toFixed(4),
-        keywordResult.scores.chamfer.toFixed(4),
+        keywordResult.scores.passageScore.toString(),
         improvement ? improvement.cosineImprovement.toFixed(2) : '-',
       ]);
     }
@@ -370,7 +370,7 @@ export function generateCSV(result: AnalysisResult): string {
           keywordResult.scores.euclidean.toFixed(4),
           keywordResult.scores.manhattan.toFixed(4),
           keywordResult.scores.dotProduct.toFixed(4),
-          keywordResult.scores.chamfer.toFixed(4),
+          keywordResult.scores.passageScore.toString(),
           '-',
         ]);
       }

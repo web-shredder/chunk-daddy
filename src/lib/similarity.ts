@@ -1,4 +1,5 @@
 // Similarity calculation utilities for Chunk Daddy
+// Simplified to use cosine similarity only (Gemini migration)
 
 import { 
   getTierFromScore, 
@@ -16,6 +17,8 @@ export type { ScoreTier };
 /**
  * Calculate cosine similarity between two vectors
  * Returns value between -1 and 1 (1 = identical direction)
+ * 
+ * This is the PRIMARY scoring metric for RAG retrieval prediction.
  */
 export function cosineSimilarity(vecA: number[], vecB: number[]): number {
   if (vecA.length !== vecB.length) {
@@ -31,15 +34,6 @@ export function cosineSimilarity(vecA: number[], vecB: number[]): number {
   }
 
   return dotProd / (magnitudeA * magnitudeB);
-}
-
-/**
- * Calculate cosine distance between two vectors (1 - cosine similarity)
- * Used as the distance metric within Chamfer distance
- */
-export function cosineDistance(vecA: number[], vecB: number[]): number {
-  const similarity = cosineSimilarity(vecA, vecB);
-  return 1 - similarity;
 }
 
 /**
@@ -77,113 +71,36 @@ export function dotProduct(vecA: number[], vecB: number[]): number {
   return vecA.reduce((sum, a, i) => sum + a * vecB[i], 0);
 }
 
-/**
- * Calculate Chamfer distance between two SETS of embedding vectors.
- * Used for document-level coverage analysis.
- *
- * Measures bidirectional coverage:
- * - For each vector in setA (chunks), find nearest vector in setB (queries)
- * - For each vector in setB (queries), find nearest vector in setA (chunks)
- * - Average both directions
- *
- * @param setA - Array of vectors (e.g., all chunk embeddings)
- * @param setB - Array of vectors (e.g., all query embeddings)
- * @returns Chamfer distance (lower = more similar, ranges 0-4)
- */
-export function chamferDistance(setA: number[][], setB: number[][]): number {
-  if (setA.length === 0 || setB.length === 0) {
-    throw new Error("Both sets must contain at least one vector");
-  }
-
-  // Validate all vectors have same dimensionality
-  const dim = setA[0].length;
-  if (!setA.every((v) => v.length === dim) || !setB.every((v) => v.length === dim)) {
-    throw new Error("All vectors must have the same dimensionality");
-  }
-
-  // Direction 1: For each chunk vector, find nearest query vector
-  const distA = setA.map((vecA) => {
-    const distances = setB.map((vecB) => cosineDistance(vecA, vecB));
-    return Math.min(...distances);
-  });
-
-  // Direction 2: For each query vector, find nearest chunk vector
-  const distB = setB.map((vecB) => {
-    const distances = setA.map((vecA) => cosineDistance(vecA, vecB));
-    return Math.min(...distances);
-  });
-
-  // Average both directions
-  const avgDistA = distA.reduce((sum, d) => sum + d, 0) / distA.length;
-  const avgDistB = distB.reduce((sum, d) => sum + d, 0) / distB.length;
-
-  return avgDistA + avgDistB;
-}
-
-/**
- * Convert Chamfer distance to similarity score (0-1 range)
- * Higher = more similar
- *
- * @param setA - Array of vectors (all chunk embeddings)
- * @param setB - Array of vectors (all query embeddings)
- * @returns Similarity score between 0 and 1
- */
-export function chamferSimilarity(setA: number[][], setB: number[][]): number {
-  if (setA.length === 0 || setB.length === 0) {
-    return 0;
-  }
-  
-  const distance = chamferDistance(setA, setB);
-  // Cosine distance ranges 0-2, so chamfer can range 0-4
-  // Convert to similarity: lower distance = higher similarity
-  const similarity = Math.max(0, 1 - distance / 4);
-  
-  console.log('📊 [CHAMFER] Document-level calculation:', {
-    chunkVectors: setA.length,
-    queryVectors: setB.length,
-    chamferSimilarity: similarity.toFixed(4),
-  });
-  
-  return similarity;
-}
-
 export interface SimilarityScores {
   cosine: number;
   euclidean: number;
   manhattan: number;
   dotProduct: number;
-  chamfer: number;
   passageScore: number;
 }
 
 /**
  * Calculate all similarity metrics between two vectors.
- * Used for general scoring. Chamfer is set to the provided document-level value
- * or defaults to the cosine value if not provided.
  */
-export function calculateAllMetrics(vecA: number[], vecB: number[], documentChamfer?: number): SimilarityScores {
+export function calculateAllMetrics(vecA: number[], vecB: number[]): SimilarityScores {
   const cosine = cosineSimilarity(vecA, vecB);
-  const chamfer = documentChamfer ?? cosine; // Use document chamfer or fallback to cosine
   
   return {
     cosine,
     euclidean: euclideanDistance(vecA, vecB),
     manhattan: manhattanDistance(vecA, vecB),
     dotProduct: dotProduct(vecA, vecB),
-    chamfer,
-    passageScore: calculatePassageScore(cosine, chamfer),
+    passageScore: calculatePassageScore(cosine),
   };
 }
 
 /**
- * Calculate Passage Score - composite retrieval probability metric
+ * Calculate Passage Score - RAG retrieval probability metric
  * 
- * Combines cosine similarity (70%) and chamfer similarity (30%) to predict
- * how likely a passage is to be retrieved by RAG systems.
+ * Simple formula: cosine similarity × 100
  * 
- * Path 5 Architecture:
- * - Cosine (70%): Chunk-level relevance - how well THIS chunk matches the query
- * - Chamfer (30%): Document-level coverage - how well the ENTIRE document covers all queries
+ * Uses Gemini's task-type differentiated embeddings (RETRIEVAL_QUERY vs RETRIEVAL_DOCUMENT)
+ * which naturally handles query-document asymmetry without needing separate distance metrics.
  * 
  * Score interpretation:
  * - 90-100: Excellent retrieval probability (top 5 results)
@@ -192,20 +109,12 @@ export function calculateAllMetrics(vecA: number[], vecB: number[], documentCham
  * - 40-59: Weak retrieval probability (depends on competition)
  * - 0-39: Poor retrieval probability (likely filtered out)
  * 
- * @param cosine - Chunk-level cosine similarity score (0-1)
- * @param chamfer - Document-level chamfer similarity score (0-1)
+ * @param cosine - Cosine similarity score (0-1)
  * @returns Passage Score (0-100)
  */
-export function calculatePassageScore(cosine: number, chamfer: number): number {
-  // Normalize both to 0-1 range (they already are, but being explicit)
-  const normalizedCosine = Math.max(0, Math.min(1, cosine));
-  const normalizedChamfer = Math.max(0, Math.min(1, chamfer));
-  
-  // Weight: 70% cosine (chunk retrieval), 30% chamfer (document coverage)
-  const weighted = (normalizedCosine * 0.7) + (normalizedChamfer * 0.3);
-  
-  // Scale to 0-100
-  return Math.round(weighted * 100);
+export function calculatePassageScore(cosine: number): number {
+  const normalized = Math.max(0, Math.min(1, cosine));
+  return Math.round(normalized * 100);
 }
 
 // Keep old name as alias for backward compatibility
@@ -333,4 +242,46 @@ export function getImprovementColorClass(improvement: number): string {
   if (improvement > 0) return "text-green-600";
   if (improvement < 0) return "text-red-600";
   return "text-muted-foreground";
+}
+
+// ============================================================
+// BACKWARD COMPATIBILITY - Deprecated functions
+// These are kept for backward compatibility but do nothing
+// ============================================================
+
+/**
+ * @deprecated Chamfer distance is no longer used. Returns cosine similarity.
+ */
+export function chamferSimilarity(setA: number[][], setB: number[][]): number {
+  // With Gemini's task-type embeddings, we don't need Chamfer distance
+  // For backward compatibility, if single vectors are passed, use cosine
+  if (setA.length === 1 && setB.length === 1) {
+    return cosineSimilarity(setA[0], setB[0]);
+  }
+  // For multiple vectors, average cosine between all pairs
+  if (setA.length === 0 || setB.length === 0) return 0;
+  
+  let totalSimilarity = 0;
+  let count = 0;
+  for (const vecA of setA) {
+    for (const vecB of setB) {
+      totalSimilarity += cosineSimilarity(vecA, vecB);
+      count++;
+    }
+  }
+  return count > 0 ? totalSimilarity / count : 0;
+}
+
+/**
+ * @deprecated Chamfer distance is no longer used.
+ */
+export function chamferDistance(setA: number[][], setB: number[][]): number {
+  return 1 - chamferSimilarity(setA, setB);
+}
+
+/**
+ * @deprecated Cosine distance is no longer used directly.
+ */
+export function cosineDistance(vecA: number[], vecB: number[]): number {
+  return 1 - cosineSimilarity(vecA, vecB);
 }

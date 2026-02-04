@@ -140,7 +140,7 @@ export function OptimizeTab({
       const scores: Record<string, number> = {};
       cs.keywordScores.forEach(ks => {
         // Use Passage Score for assignment decisions
-        const passageScore = calculatePassageScore(ks.scores.cosine, ks.scores.chamfer);
+        const passageScore = calculatePassageScore(ks.scores.cosine);
         scores[ks.keyword] = passageScore / 100; // Normalize to 0-1
       });
       return {
