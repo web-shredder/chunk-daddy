@@ -26,7 +26,7 @@ import { QueryAutoSuggest } from './QueryAutoSuggest';
 import { QuerySidebar } from './QuerySidebar';
 import { AnalysisStreamingPanel } from './AnalysisStreamingPanel';
 import type { AnalysisStep, EmbeddingInfo, EmbeddingBatch, DocumentChamferResult, ChunkScoredEvent, CoverageSummary, DiagnosticProgress, AnalysisSummary } from './AnalysisStreamingPanel';
-import { FanoutGenerationLoader, EmbeddingAnalysisLoader } from './loading';
+
 
 // Fanout tree node types for recursive display
 interface ExpandedQuery {
@@ -467,14 +467,14 @@ export function AnalyzeTab({
                     </div>
                   </div>
 
-                  {/* Slime Loader for Fanout Generation */}
+                  {/* Loading indicator for Fanout Generation */}
                   {isGenerating && (
-                    <FanoutGenerationLoader
-                      isLoading={isGenerating}
-                      primaryQuery={newQuery.trim()}
-                      currentDepth={fanoutDepth}
-                      totalGenerated={fanoutTree?.totalNodes || expandedQueries.length}
-                    />
+                    <div className="flex flex-col items-center justify-center py-8 gap-3">
+                      <Loader2 className="h-8 w-8 animate-spin text-accent" />
+                      <p className="text-sm text-muted-foreground">
+                        Generating depth {fanoutDepth} variants...
+                      </p>
+                    </div>
                   )}
 
                   {/* Fanout Tree View (new recursive) */}
@@ -664,12 +664,13 @@ export function AnalyzeTab({
             )}
             
             {isAnalyzing && !streamingState && (
-              <EmbeddingAnalysisLoader
-                isLoading={isAnalyzing}
-                progress={progress}
-                chunksCount={10}
-                queriesCount={keywords.length}
-              />
+              <div className="flex flex-col items-center justify-center py-8 gap-3">
+                <Loader2 className="h-8 w-8 animate-spin text-accent" />
+                <p className="text-sm text-muted-foreground">
+                  Analyzing content ({keywords.length} queries)...
+                </p>
+                <Progress value={progress} className="w-48" />
+              </div>
             )}
           </div>
         </div>
