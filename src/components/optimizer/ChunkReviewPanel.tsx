@@ -605,16 +605,6 @@ function ScoresPanel({
                       format="decimal"
                     />
                   </div>
-                  
-                  {/* Chamfer detail */}
-                  <div className="space-y-1">
-                    <div className="text-muted-foreground font-medium">Chamfer</div>
-                    <ScoreRow
-                      before={original.chamfer}
-                      after={optimized.chamfer}
-                      format="decimal"
-                    />
-                  </div>
                 </div>
               </div>
             </CollapsibleContent>

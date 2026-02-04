@@ -2,7 +2,6 @@ import { useState, useCallback } from 'react';
 import { generateEmbeddings, type EmbeddingResult } from '@/lib/embeddings';
 import { 
   cosineSimilarity,
-  chamferSimilarity,
   euclideanDistance,
   manhattanDistance,
   dotProduct,
@@ -48,7 +47,6 @@ export interface ImprovementResult {
   keyword: string;
   cosineImprovement: number;
   euclideanImprovement: number;
-  chamferImprovement: number;
 }
 
 // Coverage entry for each query showing which chunk best covers it
@@ -60,7 +58,7 @@ export interface CoverageEntry {
   status: 'covered' | 'weak' | 'gap';
 }
 
-// NEW: Diagnostic scores for chunk-query pairs
+// Diagnostic scores for chunk-query pairs
 export interface ChunkDiagnostics {
   chunkIndex: number;
   query: string;
@@ -74,8 +72,6 @@ export interface AnalysisResult {
   optimizedScores: ChunkScore[] | null;
   improvements: ImprovementResult[] | null;
   timestamp: Date;
-  // Document-level metrics (Path 5)
-  documentChamfer?: number;
   coverageMap?: CoverageEntry[];
   coverageSummary?: {
     covered: number;
@@ -226,23 +222,7 @@ export function useAnalysis() {
 
       setProgress(50);
 
-      // ========== DOCUMENT-LEVEL CHAMFER (Path 5) ==========
-      // Calculate Chamfer ONCE between all chunk vectors and all query vectors
-      // This measures: "How well does the document cover all query aspects?"
-      
-      const allChunkVectors = chunkEmbeddings.map(e => e.embedding);
-      const allQueryVectors = keywordEmbeddings.map(e => e.embedding);
-
-      let documentChamfer = 0;
-      if (allChunkVectors.length >= 1 && allQueryVectors.length >= 1) {
-        documentChamfer = chamferSimilarity(allChunkVectors, allQueryVectors);
-      }
-
-      console.log('📊 [DOCUMENT-CHAMFER] Calculated:', {
-        chunkCount: allChunkVectors.length,
-        queryCount: allQueryVectors.length,
-        chamferScore: documentChamfer.toFixed(4),
-      });
+      // Skip document-level calculations - using pure cosine similarity now
 
       setProgress(55);
 
@@ -406,7 +386,6 @@ export function useAnalysis() {
                 originalKwScore.scores.euclidean,
                 kwScore.scores.euclidean
               ),
-              chamferImprovement: 0, // Deprecated - kept for backward compat
             });
           }
         }
@@ -537,8 +516,6 @@ export function useAnalysis() {
         optimizedScores,
         improvements,
         timestamp: new Date(),
-        // Path 5: Document-level metrics
-        documentChamfer,
         coverageMap,
         coverageSummary,
         // Diagnostic scores

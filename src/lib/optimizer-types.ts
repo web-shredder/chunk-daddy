@@ -116,7 +116,6 @@ export interface OptimizationSummary {
 // Full score metrics for a query
 export interface FullScoreMetrics {
   cosine: number;
-  chamfer: number;
   passageScore: number;
 }
 

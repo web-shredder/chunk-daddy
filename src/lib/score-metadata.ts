@@ -15,7 +15,7 @@ export const SCORE_METADATA: Record<string, ScoreMetadata> = {
     label: 'Passage Score',
     range: '0 to 100',
     direction: 'higher',
-    explanation: 'Composite retrieval probability metric. Combines cosine (70%) and chamfer (30%) similarity to predict how likely this passage is to be retrieved by RAG systems.',
+    explanation: 'Retrieval probability metric based on cosine similarity between chunk and query embeddings. Uses Gemini embeddings with task-type differentiation (RETRIEVAL_QUERY vs RETRIEVAL_DOCUMENT).',
     hasQuality: true
   },
   // Keep old key for backward compatibility
@@ -23,42 +23,14 @@ export const SCORE_METADATA: Record<string, ScoreMetadata> = {
     label: 'Passage Score',
     range: '0 to 100',
     direction: 'higher',
-    explanation: 'Composite retrieval probability metric. Combines cosine (70%) and chamfer (30%) similarity to predict how likely this passage is to be retrieved by RAG systems.',
+    explanation: 'Retrieval probability metric based on cosine similarity between chunk and query embeddings.',
     hasQuality: true
   },
   cosine: {
     label: 'Cosine Similarity',
     range: '-1 to 1',
     direction: 'higher',
-    explanation: 'Measures angle between vectors. 1 = identical direction, 0 = unrelated, -1 = opposite meaning. Standard metric for semantic similarity.',
-    hasQuality: true
-  },
-  chamfer: {
-    label: 'Chamfer Similarity',
-    range: '0 to 1',
-    direction: 'higher',
-    explanation: "Multi-aspect coverage score. When sentence-level analysis is enabled, measures bidirectional coverage between chunk sentences and query clauses. Used in Google's MUVERA system.",
-    hasQuality: true
-  },
-  sentenceChamfer: {
-    label: 'Sentence Chamfer',
-    range: '0 to 1',
-    direction: 'higher',
-    explanation: 'True multi-aspect coverage at sentence level. Measures how well individual chunk sentences match query intent aspects. More accurate than single-vector Chamfer.',
-    hasQuality: true
-  },
-  forwardCoverage: {
-    label: 'Query Coverage',
-    range: '0 to 1',
-    direction: 'higher',
-    explanation: 'How well the chunk covers ALL aspects of the query. Low scores mean query aspects are missing from the chunk.',
-    hasQuality: true
-  },
-  backwardCoverage: {
-    label: 'Chunk Focus',
-    range: '0 to 1',
-    direction: 'higher',
-    explanation: 'How focused the chunk is on query-relevant content vs noise/tangents. Low scores mean the chunk contains irrelevant material.',
+    explanation: 'Measures angle between vectors. 1 = identical direction, 0 = unrelated, -1 = opposite meaning. The primary metric for semantic similarity.',
     hasQuality: true
   },
   euclidean: {
@@ -94,32 +66,6 @@ export function getScoreQuality(metricKey: string, value: number): ScoreQuality 
     if (value >= 0.7) return 'good';
     if (value >= 0.5) return 'moderate';
     if (value >= 0.3) return 'weak';
-    return 'poor';
-  }
-  
-  if (metricKey === 'chamfer' || metricKey === 'sentenceChamfer') {
-    if (value >= 0.85) return 'excellent';
-    if (value >= 0.7) return 'good';
-    if (value >= 0.5) return 'moderate';
-    if (value >= 0.3) return 'weak';
-    return 'poor';
-  }
-
-  if (metricKey === 'forwardCoverage') {
-    // Query coverage thresholds
-    if (value >= 0.85) return 'excellent';
-    if (value >= 0.75) return 'good';
-    if (value >= 0.6) return 'moderate';
-    if (value >= 0.45) return 'weak';
-    return 'poor';
-  }
-
-  if (metricKey === 'backwardCoverage') {
-    // Chunk focus thresholds (slightly lower since chunks can have some context)
-    if (value >= 0.8) return 'excellent';
-    if (value >= 0.65) return 'good';
-    if (value >= 0.5) return 'moderate';
-    if (value >= 0.35) return 'weak';
     return 'poor';
   }
 
